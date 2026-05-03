@@ -1,0 +1,15 @@
+[package]
+name = "mnr-data"
+version = "0.1.0"
+edition = "2021"
+authors = ["Modular Neural Runtime Contributors"]
+license = "MIT OR Apache-2.0"
+description = "Data loading and dataset abstractions for MNR"
+
+[dependencies]
+mnr-core = { path = "../core" }
+rand = { version = "0.8", features = ["std_rng"] }
+memmap2 = "0.9"
+
+[dev-dependencies]
+mnr-ndarray-backend = { path = "../ndarray-backend" }

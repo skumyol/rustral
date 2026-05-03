@@ -1,0 +1,21 @@
+[package]
+name = "mnr-wgpu-backend"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+description = "WebGPU backend for MNR (cross-platform GPU support)"
+
+[dependencies]
+mnr-core = { path = "../core" }
+
+wgpu = "0.19"
+pollster = "0.3"
+bytemuck = { version = "1", features = ["derive"] }
+thiserror = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]

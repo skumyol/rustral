@@ -1,0 +1,45 @@
+[workspace]
+members = [
+    "crates/core",
+    "crates/ndarray-backend",
+    "crates/symbolic",
+    "crates/nn",
+    "crates/runtime",
+    "crates/io",
+    "crates/optim",
+    "crates/autodiff",
+    "crates/wgpu-backend",
+    "crates/data",
+    "crates/bench",
+    "crates/distributed",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.75"
+authors = ["Modular Neural Runtime Contributors"]
+repository = "https://example.invalid/modular-neural-runtime"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.8"
+rayon = "1.10"
+crossbeam-channel = "0.5"
+parking_lot = "0.12"
+tracing = "0.1"
+criterion = "0.5"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+[profile.bench]
+opt-level = 3
+debug = false
+lto = "thin"

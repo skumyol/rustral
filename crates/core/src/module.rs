@@ -1,0 +1,56 @@
+use crate::{Backend, ForwardCtx, ParameterRef, Result};
+
+/// Stateless forward-computation contract.
+///
+/// Modules define explicit input and output types. A module may own parameters,
+/// but it must not rely on global computation state.
+pub trait Module<B: Backend>: Send + Sync {
+    /// Input type accepted by the module.
+    type Input;
+
+    /// Output type produced by the module.
+    type Output;
+
+    /// Run the module for one explicit forward context.
+    fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output>;
+}
+
+/// Contract for modules that expose trainable parameters.
+pub trait Trainable<B: Backend> {
+    /// Return stable references to trainable parameters owned by this module.
+    fn parameters(&self) -> Vec<ParameterRef>;
+}
+
+/// Extension for modules with recurrent or persistent state.
+pub trait StatefulModule<B: Backend>: Module<B> {
+    /// State type carried between calls.
+    type State: Clone + Send + Sync + 'static;
+
+    /// Return the default initial state using the given forward context.
+    ///
+    /// This receives the context so the module can create zero tensors
+    /// via the backend, avoiding the need to store a backend reference.
+    fn initial_state(&self, ctx: &mut ForwardCtx<B>) -> Result<Self::State>;
+}
+
+/// Contract for modules that can be serialized and deserialized.
+///
+/// This enables saving trained models to disk and loading them back.
+/// Implementations should provide stable, hierarchical keys for parameters.
+pub trait Saveable<B: Backend> {
+    /// Export the module's state as a collection of named parameters.
+    ///
+    /// Keys should be hierarchical (e.g., "layer1.weight", "layer1.bias")
+    /// to support nested modules like Sequential2.
+    fn state_dict(&self) -> Vec<(String, ParameterRef)>;
+
+    /// Load parameters from a state dictionary.
+    ///
+    /// # Arguments
+    /// * `dict` - Map from parameter names to flat f32 values
+    /// * `backend` - Backend for creating tensors
+    ///
+    /// # Errors
+    /// Returns an error if a required key is missing or shapes don't match.
+    fn load_state_dict(&mut self, dict: &std::collections::HashMap<String, Vec<f32>>, backend: &B) -> Result<()>;
+}

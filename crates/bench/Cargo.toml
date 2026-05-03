@@ -1,0 +1,30 @@
+[package]
+name = "mnr-bench"
+version = "0.1.0"
+edition = "2021"
+authors = ["Modular Neural Runtime Contributors"]
+license = "MIT OR Apache-2.0"
+
+description = "Benchmarks for MNR operations"
+
+[dependencies]
+mnr-core = { path = "../core" }
+mnr-ndarray-backend = { path = "../ndarray-backend" }
+mnr-nn = { path = "../nn" }
+criterion = { workspace = true }
+
+[[bench]]
+name = "matmul"
+harness = false
+
+[[bench]]
+name = "conv2d"
+harness = false
+
+[[bench]]
+name = "lstm_forward"
+harness = false
+
+[[bench]]
+name = "attention"
+harness = false

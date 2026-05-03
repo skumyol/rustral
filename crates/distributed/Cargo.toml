@@ -1,0 +1,27 @@
+[package]
+name = "mnr-distributed"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+mpi = ["dep:mpi"]
+
+[dependencies]
+mnr-core = { path = "../core" }
+mnr-optim = { path = "../optim" }
+serde.workspace = true
+thiserror.workspace = true
+rayon = { workspace = true, optional = true }
+
+# MPI for distributed training (optional)
+mpi = { version = "0.6", optional = true }
+
+[dev-dependencies]
+mnr-ndarray-backend = { path = "../ndarray-backend" }
+mnr-io = { path = "../io" }
+mnr-nn = { path = "../nn" }
+serde_json = "1.0"
+tempfile = "3.0"

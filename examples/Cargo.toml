@@ -1,0 +1,31 @@
+[package]
+name = "mnr-examples"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[[bin]]
+name = "xor"
+path = "src/xor.rs"
+
+[[bin]]
+name = "mnist"
+path = "src/mnist.rs"
+
+[[bin]]
+name = "char_rnn"
+path = "src/char_rnn.rs"
+
+[[bin]]
+name = "train_demo"
+path = "src/train_demo.rs"
+
+[dependencies]
+mnr-core = { path = "../crates/core" }
+mnr-ndarray-backend = { path = "../crates/ndarray-backend" }
+mnr-nn = { path = "../crates/nn" }
+mnr-autodiff = { path = "../crates/autodiff" }
+mnr-optim = { path = "../crates/optim" }
+mnr-data = { path = "../crates/data" }
+rand = "0.8"
