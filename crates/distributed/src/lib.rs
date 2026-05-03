@@ -10,12 +10,47 @@ use mnr_core::{Backend, CoreError, ForwardCtx, Parameter, Result, TensorOps};
 use mnr_optim::{Gradient, Optimizer};
 
 mod checkpoint;
+mod compression;
+mod fault_tolerance;
+mod fsdp;
+mod nccl;
+mod pipeline_parallel;
 mod tensor_parallel;
 mod zero;
+mod zero_infinity;
 
 pub use checkpoint::{DistributedCheckpointManager, CheckpointMetadata, AsyncCheckpointWriter};
-pub use tensor_parallel::{TensorParallelLinear, PipelineStage, PipelineParallelTrainer, ParallelStyle, ReduceOp};
+pub use compression::{
+    CompressedCommunicator, CompressionType, ErrorFeedbackCompression, OneBitAdam,
+    BandwidthStats,
+};
+pub use fault_tolerance::{
+    ElasticProcessGroup, ElasticTrainer, HealthMonitor, MembershipChange,
+    NodeState, NodeInfo, RestartConfig, TimedBarrier, StateSync,
+    CheckpointVersion, FaultStats,
+};
+pub use fsdp::{
+    FSDP, FSDPConfig, FSDPMemoryStats, FSDPCheckpoint,
+    auto_wrap, StageSplitter,
+};
+pub use nccl::{
+    NcclCommunicator, NcclProcessGroup, NcclRedOp, NcclDataType,
+    AllReduceOp, NcclCompressedCommunicator,
+};
+pub use pipeline_parallel::{
+    PipelineParallel, PipelineStage, PipelineConfig, PipelineSchedule,
+    PipelineStats, StageSplitter as PipelineStageSplitter,
+    create_pipeline, PipelineComm,
+};
+pub use tensor_parallel::{
+    TensorParallelLinear, PipelineStage as TensorPipelineStage,
+    PipelineParallelTrainer, ParallelStyle, ReduceOp,
+};
 pub use zero::{ZeroOptimizer, Zero2Optimizer, ZeRoMemoryStats};
+pub use zero_infinity::{
+    ZeroInfinity, ZeroInfinityConfig, ZeroInfinityStats,
+    ZeROInfinityEstimator, ZeROMemoryEstimate, StorageLocation,
+};
 
 /// Errors specific to distributed training.
 #[derive(Debug, thiserror::Error)]

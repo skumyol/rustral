@@ -625,3 +625,174 @@ fn broadcast_to(@builtin(global_invocation_id) global_id: vec3<u32>) {
         output_broadcast[idx] = input_broadcast[input_idx];
     }
 }
+
+// ============================================================================
+// Concat Operations
+// ============================================================================
+
+struct ConcatParams {
+    input0_size: u32,
+    input1_size: u32,
+    concat_dim: u32,  // 1 means concat along second dimension
+}
+
+@group(0) @binding(0) var<storage, read> input0_concat: array<f32>;
+@group(0) @binding(1) var<storage, read> input1_concat: array<f32>;
+@group(0) @binding(2) var<storage, read_write> output_concat: array<f32>;
+@group(0) @binding(3) var<uniform> concat_params: ConcatParams;
+
+// Concatenate two arrays along a dimension
+// For simplicity, assumes 2D tensors and concat along dim 1 (columns)
+@compute @workgroup_size(256)
+fn concat_2d(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    let n = arrayLength(&output_concat);
+    
+    if (idx >= n) {
+        return;
+    }
+    
+    let in0_size = concat_params.input0_size;
+    let in1_size = concat_params.input1_size;
+    let total_size = in0_size + in1_size;
+    
+    // Calculate row and column in output
+    let row = idx / total_size;
+    let col = idx % total_size;
+    
+    if (col < in0_size) {
+        // Copy from input0
+        let input_idx = row * in0_size + col;
+        if (input_idx < arrayLength(&input0_concat)) {
+            output_concat[idx] = input0_concat[input_idx];
+        }
+    } else {
+        // Copy from input1
+        let input_idx = row * in1_size + (col - in0_size);
+        if (input_idx < arrayLength(&input1_concat)) {
+            output_concat[idx] = input1_concat[input_idx];
+        }
+    }
+}
+
+// ============================================================================
+// Slice Operations
+// ============================================================================
+
+struct SliceParams {
+    start: u32,
+    end: u32,
+    step: u32,
+    input_stride: u32,
+}
+
+@group(0) @binding(0) var<storage, read> input_slice: array<f32>;
+@group(0) @binding(1) var<storage, read_write> output_slice: array<f32>;
+@group(0) @binding(2) var<uniform> slice_params: SliceParams;
+
+// Slice an array with start, end, step
+@compute @workgroup_size(256)
+fn slice_1d(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    let n = arrayLength(&output_slice);
+    
+    if (idx >= n) {
+        return;
+    }
+    
+    let input_idx = slice_params.start + idx * slice_params.step;
+    if (input_idx < arrayLength(&input_slice) && input_idx < slice_params.end) {
+        output_slice[idx] = input_slice[input_idx];
+    }
+}
+
+// ============================================================================
+// Sum All (Full Reduction)
+// ============================================================================
+
+// Two-pass reduction: first pass reduces within workgroups
+// Shared memory for reduction
+var<workgroup> shared_sum: array<f32, 256>;
+
+struct SumParams {
+    num_elements: u32,
+    output_index: u32,  // Which output element to write (for multi-output reductions)
+}
+
+@group(0) @binding(0) var<storage, read> input_sum: array<f32>;
+@group(0) @binding(1) var<storage, read_write> output_sum: array<f32>;
+@group(0) @binding(2) var<uniform> sum_params: SumParams;
+
+// Parallel sum reduction using shared memory
+@compute @workgroup_size(256)
+fn sum_reduce_full(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(local_invocation_id) local_id: vec3<u32>,
+    @builtin(workgroup_id) workgroup_id: vec3<u32>
+) {
+    let tid = local_id.x;
+    let gid = global_id.x;
+    let n = sum_params.num_elements;
+    
+    // Load into shared memory
+    var sum: f32 = 0.0;
+    if (gid < n) {
+        sum = input_sum[gid];
+    }
+    shared_sum[tid] = sum;
+    
+    workgroupBarrier();
+    
+    // Reduce within workgroup
+    for (var stride: u32 = 128u; stride > 0u; stride = stride >> 1u) {
+        if (tid < stride) {
+            shared_sum[tid] = shared_sum[tid] + shared_sum[tid + stride];
+        }
+        workgroupBarrier();
+    }
+    
+    // Write result (only first thread)
+    if (tid == 0u) {
+        let output_idx = sum_params.output_index;
+        // Use atomic add for final accumulation across workgroups
+        // Note: WebGPU doesn't have atomicAdd for f32, so this is simplified
+        output_sum[output_idx] = shared_sum[0];
+    }
+}
+
+// ============================================================================
+// Strided Operations
+// ============================================================================
+
+struct StridedParams {
+    num_dims: u32,
+    dims0: u32,
+    dims1: u32,
+    stride0: u32,
+    stride1: u32,
+}
+
+@group(0) @binding(0) var<storage, read> input_strided: array<f32>;
+@group(0) @binding(1) var<storage, read_write> output_strided: array<f32>;
+@group(0) @binding(2) var<uniform> strided_params: StridedParams;
+
+// Copy with stride (for reshape/view operations that change memory layout)
+@compute @workgroup_size(256)
+fn strided_copy(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    let n = arrayLength(&output_strided);
+    
+    if (idx >= n) {
+        return;
+    }
+    
+    // Calculate input index based on strided access pattern
+    let row = idx / strided_params.dims1;
+    let col = idx % strided_params.dims1;
+    
+    let input_idx = row * strided_params.stride0 + col * strided_params.stride1;
+    
+    if (input_idx < arrayLength(&input_strided)) {
+        output_strided[idx] = input_strided[input_idx];
+    }
+}

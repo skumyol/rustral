@@ -13,3 +13,19 @@ serde.workspace = true
 [dev-dependencies]
 mnr-ndarray-backend = { path = "../ndarray-backend" }
 anyhow.workspace = true
+
+[[example]]
+name = "transformer_bert_encoder"
+path = "examples/transformer_bert_encoder.rs"
+
+[[example]]
+name = "transformer_gpt_decoder"
+path = "examples/transformer_gpt_decoder.rs"
+
+[[example]]
+name = "transformer_seq2seq"
+path = "examples/transformer_seq2seq.rs"
+
+[[example]]
+name = "transformer_composition"
+path = "examples/transformer_composition.rs"
