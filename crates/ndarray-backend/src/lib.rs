@@ -230,7 +230,17 @@ impl TensorOps<CpuBackend> for CpuOps {
         if a.shape != b.shape {
             return Err(CoreError::ShapeMismatch { expected: a.shape.clone(), actual: b.shape.clone() });
         }
-        CpuTensor::new(a.values.iter().zip(&b.values).map(|(x, y)| x + y).collect(), &a.shape)
+        let len = a.values.len();
+        if len > 4096 {
+            use rayon::prelude::*;
+            let mut out = vec![0.0; len];
+            out.par_iter_mut()
+                .enumerate()
+                .for_each(|(i, o)| *o = a.values[i] + b.values[i]);
+            CpuTensor::new(out, &a.shape)
+        } else {
+            CpuTensor::new(a.values.iter().zip(&b.values).map(|(x, y)| x + y).collect(), &a.shape)
+        }
     }
 
     /// Add a row vector to every row of a rank-2 CPU tensor.
@@ -242,9 +252,19 @@ impl TensorOps<CpuBackend> for CpuOps {
             return Err(CoreError::ShapeMismatch { expected: vec![n], actual: row.shape.clone() });
         }
         let mut out = a.values.clone();
-        for i in 0..m {
-            for j in 0..n {
-                out[i * n + j] += row.values[j];
+        if m > 64 {
+            use rayon::prelude::*;
+            out.par_chunks_exact_mut(n)
+                .for_each(|chunk| {
+                    for j in 0..n {
+                        chunk[j] += row.values[j];
+                    }
+                });
+        } else {
+            for i in 0..m {
+                for j in 0..n {
+                    out[i * n + j] += row.values[j];
+                }
             }
         }
         CpuTensor::new(out, &a.shape)
@@ -252,7 +272,16 @@ impl TensorOps<CpuBackend> for CpuOps {
 
     /// Apply ReLU element-wise.
     fn relu(&self, x: &CpuTensor) -> Result<CpuTensor> {
-        CpuTensor::new(x.values.iter().map(|v| v.max(0.0)).collect(), &x.shape)
+        if x.values.len() > 4096 {
+            use rayon::prelude::*;
+            let mut out = x.values.clone();
+            out.par_iter_mut().for_each(|v| {
+                if *v < 0.0 { *v = 0.0; }
+            });
+            CpuTensor::new(out, &x.shape)
+        } else {
+            CpuTensor::new(x.values.iter().map(|v| v.max(0.0)).collect(), &x.shape)
+        }
     }
 
     /// Apply softmax over all tensor values.
@@ -261,9 +290,16 @@ impl TensorOps<CpuBackend> for CpuOps {
             return Err(CoreError::InvalidArgument("softmax of empty tensor".into()));
         }
         let max = x.values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        let exps = x.values.iter().map(|v| (v - max).exp()).collect::<Vec<_>>();
+        let mut exps: Vec<f32> = x.values.iter().map(|v| (v - max).exp()).collect();
         let sum: f32 = exps.iter().sum();
-        CpuTensor::new(exps.into_iter().map(|v| v / sum).collect(), &x.shape)
+        let inv_sum = 1.0 / sum;
+        if exps.len() > 4096 {
+            use rayon::prelude::*;
+            exps.par_iter_mut().for_each(|v| *v *= inv_sum);
+        } else {
+            for v in &mut exps { *v *= inv_sum; }
+        }
+        CpuTensor::new(exps, &x.shape)
     }
 
     /// Return the flat index of the largest value.
@@ -284,10 +320,18 @@ impl TensorOps<CpuBackend> for CpuOps {
             return Err(CoreError::InvalidArgument("log_softmax of empty tensor".into()));
         }
         let max = x.values.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        let exps = x.values.iter().map(|v| (v - max).exp()).collect::<Vec<_>>();
+        let exps: Vec<f32> = x.values.iter().map(|v| (v - max).exp()).collect();
         let sum: f32 = exps.iter().sum();
         let log_sum = sum.ln();
-        CpuTensor::new(x.values.iter().map(|v| *v - max - log_sum).collect(), &x.shape)
+        let offset = max + log_sum;
+        if x.values.len() > 4096 {
+            use rayon::prelude::*;
+            let mut out = x.values.clone();
+            out.par_iter_mut().for_each(|v| *v -= offset);
+            CpuTensor::new(out, &x.shape)
+        } else {
+            CpuTensor::new(x.values.iter().map(|v| *v - offset).collect(), &x.shape)
+        }
     }
 
     /// Gather rows from a rank-2 CPU parameter tensor.
@@ -329,16 +373,37 @@ impl TensorOps<CpuBackend> for CpuOps {
             return Err(CoreError::ShapeMismatch { expected: vec![w.shape[1]], actual: vec![x.shape[1]] });
         }
         let mut out = vec![0.0; x.shape[0] * w.shape[0]];
-        for batch in 0..x.shape[0] {
-            for out_dim in 0..w.shape[0] {
-                let mut sum = 0.0;
-                for in_dim in 0..w.shape[1] {
-                    sum += x.values[batch * x.shape[1] + in_dim] * w.values[out_dim * w.shape[1] + in_dim];
+        let x_values = &x.values;
+        let w_values = &w.values;
+        let (batch_size, in_dim, out_dim) = (x.shape[0], x.shape[1], w.shape[0]);
+
+        // Parallelize over (batch, out) pairs for large matrices.
+        if batch_size * out_dim > 512 {
+            use rayon::prelude::*;
+            out.par_chunks_exact_mut(out_dim)
+                .enumerate()
+                .for_each(|(batch, chunk)| {
+                    for o in 0..out_dim {
+                        let mut sum = 0.0;
+                        for i in 0..in_dim {
+                            sum += x_values[batch * in_dim + i] * w_values[o * in_dim + i];
+                        }
+                        chunk[o] = sum;
+                    }
+                });
+        } else {
+            for batch in 0..batch_size {
+                for o in 0..out_dim {
+                    let mut sum = 0.0;
+                    for i in 0..in_dim {
+                        sum += x_values[batch * in_dim + i] * w_values[o * in_dim + i];
+                    }
+                    out[batch * out_dim + o] = sum;
                 }
-                out[batch * w.shape[0] + out_dim] = sum;
             }
         }
-        let y = CpuTensor::new(out, &[x.shape[0], w.shape[0]])?;
+
+        let y = CpuTensor::new(out, &[batch_size, out_dim])?;
         if let Some(b) = bias {
             self.add_row_vector(&y, b.tensor())
         } else {
@@ -348,12 +413,26 @@ impl TensorOps<CpuBackend> for CpuOps {
 
     /// Apply sigmoid element-wise.
     fn sigmoid(&self, x: &CpuTensor) -> Result<CpuTensor> {
-        CpuTensor::new(x.values.iter().map(|&v| 1.0 / (1.0 + (-v).exp())).collect(), &x.shape)
+        if x.values.len() > 4096 {
+            use rayon::prelude::*;
+            let mut out = x.values.clone();
+            out.par_iter_mut().for_each(|v| *v = 1.0 / (1.0 + (-*v).exp()));
+            CpuTensor::new(out, &x.shape)
+        } else {
+            CpuTensor::new(x.values.iter().map(|&v| 1.0 / (1.0 + (-v).exp())).collect(), &x.shape)
+        }
     }
 
     /// Apply tanh element-wise.
     fn tanh(&self, x: &CpuTensor) -> Result<CpuTensor> {
-        CpuTensor::new(x.values.iter().map(|&v| v.tanh()).collect(), &x.shape)
+        if x.values.len() > 4096 {
+            use rayon::prelude::*;
+            let mut out = x.values.clone();
+            out.par_iter_mut().for_each(|v| *v = v.tanh());
+            CpuTensor::new(out, &x.shape)
+        } else {
+            CpuTensor::new(x.values.iter().map(|&v| v.tanh()).collect(), &x.shape)
+        }
     }
 
     /// Element-wise multiplication (Hadamard product).
@@ -361,7 +440,17 @@ impl TensorOps<CpuBackend> for CpuOps {
         if a.shape != b.shape {
             return Err(CoreError::ShapeMismatch { expected: a.shape.clone(), actual: b.shape.clone() });
         }
-        CpuTensor::new(a.values.iter().zip(&b.values).map(|(x, y)| x * y).collect(), &a.shape)
+        let len = a.values.len();
+        if len > 4096 {
+            use rayon::prelude::*;
+            let mut out = vec![0.0; len];
+            out.par_iter_mut()
+                .enumerate()
+                .for_each(|(i, o)| *o = a.values[i] * b.values[i]);
+            CpuTensor::new(out, &a.shape)
+        } else {
+            CpuTensor::new(a.values.iter().zip(&b.values).map(|(x, y)| x * y).collect(), &a.shape)
+        }
     }
 
     /// Apply dropout to tensor.
@@ -447,12 +536,26 @@ impl TensorOps<CpuBackend> for CpuOps {
 
     /// Element-wise addition with scalar.
     fn add_scalar(&self, x: &CpuTensor, scalar: f32) -> Result<CpuTensor> {
-        CpuTensor::new(x.values.iter().map(|&v| v + scalar).collect(), &x.shape)
+        if x.values.len() > 4096 {
+            use rayon::prelude::*;
+            let mut out = x.values.clone();
+            out.par_iter_mut().for_each(|v| *v += scalar);
+            CpuTensor::new(out, &x.shape)
+        } else {
+            CpuTensor::new(x.values.iter().map(|&v| v + scalar).collect(), &x.shape)
+        }
     }
 
     /// Element-wise multiplication by scalar.
     fn mul_scalar(&self, x: &CpuTensor, scalar: f32) -> Result<CpuTensor> {
-        CpuTensor::new(x.values.iter().map(|&v| v * scalar).collect(), &x.shape)
+        if x.values.len() > 4096 {
+            use rayon::prelude::*;
+            let mut out = x.values.clone();
+            out.par_iter_mut().for_each(|v| *v *= scalar);
+            CpuTensor::new(out, &x.shape)
+        } else {
+            CpuTensor::new(x.values.iter().map(|&v| v * scalar).collect(), &x.shape)
+        }
     }
 
     /// Broadcast tensor to a new shape.

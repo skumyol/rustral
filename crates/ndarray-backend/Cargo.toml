@@ -13,6 +13,7 @@ matrixmultiply = ["dep:matrixmultiply"]
 mnr-core = { path = "../core" }
 serde.workspace = true
 rand.workspace = true
+rayon.workspace = true
 
 # matrixmultiply uses optimized BLAS kernels including ARM NEON
 matrixmultiply = { version = "0.3", optional = true }

@@ -10,6 +10,7 @@ mnr-core = { path = "../core" }
 mnr-symbolic = { path = "../symbolic" }
 serde.workspace = true
 rand.workspace = true
+rayon.workspace = true
 
 [dev-dependencies]
 mnr-ndarray-backend = { path = "../ndarray-backend" }

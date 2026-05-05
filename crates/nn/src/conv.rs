@@ -148,52 +148,68 @@ impl<B: Backend> Module<B> for Conv2d<B> {
             (0..filter_shape.elem_count()).filter_map(|i| ops.tensor_element(filter, i).ok()).collect();
 
         // Perform convolution
-        let mut output_values = vec![0.0f32; batch * out_channels * out_h * out_w];
+        let total_outputs = batch * out_channels * out_h * out_w;
+        let mut output_values = vec![0.0f32; total_outputs];
 
-        for n in 0..batch {
-            for oc in 0..out_channels {
-                for oh in 0..out_h {
-                    for ow in 0..out_w {
-                        let mut sum = 0.0f32;
+        let conv_fn = |n: usize, oc: usize, oh: usize, ow: usize| -> f32 {
+            let mut sum = 0.0f32;
+            for ic in 0..in_channels {
+                for kh in 0..kernel_h {
+                    for kw in 0..kernel_w {
+                        let (ih, iw) = if padding {
+                            let ih_start = (oh * stride_h).saturating_sub(kernel_h / 2);
+                            let iw_start = (ow * stride_w).saturating_sub(kernel_w / 2);
+                            (ih_start + kh, iw_start + kw)
+                        } else {
+                            (oh * stride_h + kh, ow * stride_w + kw)
+                        };
 
-                        for ic in 0..in_channels {
-                            for kh in 0..kernel_h {
-                                for kw in 0..kernel_w {
-                                    let (ih, iw) = if padding {
-                                        let ih_start = (oh * stride_h).saturating_sub(kernel_h / 2);
-                                        let iw_start = (ow * stride_w).saturating_sub(kernel_w / 2);
-                                        (ih_start + kh, iw_start + kw)
-                                    } else {
-                                        (oh * stride_h + kh, ow * stride_w + kw)
-                                    };
+                        if ih < in_h && iw < in_w {
+                            let input_idx =
+                                n * in_channels * in_h * in_w + ic * in_h * in_w + ih * in_w + iw;
+                            let filter_idx = oc * in_channels * kernel_h * kernel_w
+                                + ic * kernel_h * kernel_w
+                                + kh * kernel_w
+                                + kw;
 
-                                    if ih < in_h && iw < in_w {
-                                        // Input index
-                                        let input_idx =
-                                            n * in_channels * in_h * in_w + ic * in_h * in_w + ih * in_w + iw;
-                                        // Filter index
-                                        let filter_idx = oc * in_channels * kernel_h * kernel_w
-                                            + ic * kernel_h * kernel_w
-                                            + kh * kernel_w
-                                            + kw;
-
-                                        if input_idx < input_values.len() && filter_idx < filter_values.len()
-                                        {
-                                            sum += input_values[input_idx] * filter_values[filter_idx];
-                                        }
-                                    }
-                                }
+                            if input_idx < input_values.len() && filter_idx < filter_values.len() {
+                                sum += input_values[input_idx] * filter_values[filter_idx];
                             }
                         }
+                    }
+                }
+            }
+            // Add bias if present
+            if let Some(ref bias) = self.bias {
+                sum += ops.tensor_element(bias.tensor(), oc).unwrap_or(0.0);
+            }
+            sum
+        };
 
-                        // Add bias if present
-                        if let Some(ref bias) = self.bias {
-                            sum += ops.tensor_element(bias.tensor(), oc).unwrap_or(0.0);
+        // Parallelize over large convolutions; small ones stay serial to avoid thread overhead.
+        if total_outputs > 1024 {
+            use rayon::prelude::*;
+            output_values
+                .par_chunks_exact_mut(out_h * out_w)
+                .enumerate()
+                .for_each(|(oc_batch, chunk)| {
+                    let n = oc_batch / out_channels;
+                    let oc = oc_batch % out_channels;
+                    for oh in 0..out_h {
+                        for ow in 0..out_w {
+                            chunk[oh * out_w + ow] = conv_fn(n, oc, oh, ow);
                         }
-
-                        let output_idx =
-                            n * out_channels * out_h * out_w + oc * out_h * out_w + oh * out_w + ow;
-                        output_values[output_idx] = sum;
+                    }
+                });
+        } else {
+            for n in 0..batch {
+                for oc in 0..out_channels {
+                    for oh in 0..out_h {
+                        for ow in 0..out_w {
+                            let output_idx =
+                                n * out_channels * out_h * out_w + oc * out_h * out_w + oh * out_w + ow;
+                            output_values[output_idx] = conv_fn(n, oc, oh, ow);
+                        }
                     }
                 }
             }
