@@ -118,7 +118,8 @@ pub fn download_state_dict(model_id: &str) -> Result<HashMap<String, Vec<f32>>, 
                     // Safetensors first (e.g. with `convert-to-safetensors`).
                     Err(HfError::MissingFile {
                         repo: model_id.to_string(),
-                        file: "model.safetensors (pytorch_model.bin exists but requires external conversion)".to_string(),
+                        file: "model.safetensors (pytorch_model.bin exists but requires external conversion)"
+                            .to_string(),
                     })
                 }
                 Err(_) => Err(HfError::MissingFile {
@@ -173,19 +174,13 @@ pub fn save_state_dict_to_file(
 /// * `module` — The module to load weights into.
 /// * `model_id` — HuggingFace model ID.
 /// * `backend` — Backend for creating tensors.
-pub fn load_from_hub<B, M>(
-    module: &mut M,
-    model_id: &str,
-    backend: &B,
-) -> Result<(), HfError>
+pub fn load_from_hub<B, M>(module: &mut M, model_id: &str, backend: &B) -> Result<(), HfError>
 where
     B: Backend,
     M: Saveable<B>,
 {
     let state_dict = download_state_dict(model_id)?;
-    module
-        .load_state_dict(&state_dict, backend)
-        .map_err(|e| HfError::StateDict(e.to_string()))?;
+    module.load_state_dict(&state_dict, backend).map_err(|e| HfError::StateDict(e.to_string()))?;
     Ok(())
 }
 
@@ -280,10 +275,7 @@ mod tests {
 
     #[test]
     fn test_hf_error_display() {
-        let e = HfError::MissingFile {
-            repo: "test".to_string(),
-            file: "model.safetensors".to_string(),
-        };
+        let e = HfError::MissingFile { repo: "test".to_string(), file: "model.safetensors".to_string() };
         assert!(e.to_string().contains("model.safetensors"));
     }
 }

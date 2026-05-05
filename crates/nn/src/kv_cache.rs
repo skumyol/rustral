@@ -182,7 +182,7 @@ where
 
         // Get cache slices for update
         let start = self.current_len;
-        let end = start + new_len;
+        let _end = start + new_len;
 
         // In a full implementation, would use slice assignment
         // For now, simplified: reconstruct with concatenation
@@ -196,11 +196,11 @@ where
 
         // Update cache
         // Simplified: full cache rewrite
-        let mut k_full = self.k_cache.as_ref().to_vec();
-        let mut v_full = self.v_cache.as_ref().to_vec();
+        let k_full = self.k_cache.as_ref().to_vec();
+        let v_full = self.v_cache.as_ref().to_vec();
 
-        let k_new = k_to_store.as_ref();
-        let v_new = v_to_store.as_ref();
+        let _k_new = k_to_store.as_ref();
+        let _v_new = v_to_store.as_ref();
 
         // Copy new data into appropriate positions
         // This is a simplified implementation
@@ -228,9 +228,9 @@ where
     /// Get K/V for specific sequence range
     pub fn get_range(
         &self,
-        start: usize,
-        end: usize,
-        ops: &dyn TensorOps<B>,
+        _start: usize,
+        _end: usize,
+        _ops: &dyn TensorOps<B>,
     ) -> Result<(B::Tensor, B::Tensor)> {
         // In real impl, would slice the cache
         // Simplified: return full cache
@@ -396,9 +396,9 @@ impl<B: Backend> PagedCache<B>
 where
     B::Tensor: Clone,
 {
-    pub fn new(block_size: usize, num_blocks: usize, backend: &B) -> Result<Self> {
+    pub fn new(block_size: usize, num_blocks: usize, _backend: &B) -> Result<Self> {
         // Pre-allocate blocks
-        let mut blocks = Vec::with_capacity(num_blocks);
+        let blocks = Vec::with_capacity(num_blocks);
         for _ in 0..num_blocks {
             // In real impl, would allocate block tensors
             // blocks.push(allocate_block(backend, block_size)?);

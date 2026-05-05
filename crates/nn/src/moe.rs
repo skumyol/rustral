@@ -23,7 +23,7 @@
 
 use std::collections::HashMap;
 
-use mnr_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, TensorOps, Trainable};
+use mnr_core::{Backend, ForwardCtx, Module, ParameterRef, Result, TensorOps, Trainable};
 
 use crate::{Linear, LinearConfig};
 
@@ -285,7 +285,7 @@ where
     {
         let ops = ctx.backend().ops();
         let shape = ops.shape(x);
-        let num_tokens = shape[0];
+        let _num_tokens = shape[0];
 
         // Initialize output tensor
         let mut output = ops.zeros(&shape)?;
@@ -341,7 +341,7 @@ where
     }
 
     /// Select tokens based on mask.
-    fn select_tokens(&self, x: &B::Tensor, mask: &B::Tensor, _ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
+    fn select_tokens(&self, x: &B::Tensor, _mask: &B::Tensor, _ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
         // Simplified: return all tokens
         // Full implementation would gather based on mask
         Ok(x.clone())
@@ -415,7 +415,7 @@ pub struct ExpertParallel<B: Backend> {
 impl<B: Backend> ExpertParallel<B> {
     /// Create expert parallel configuration.
     pub fn new(num_experts: usize, world_size: usize) -> Self {
-        let mut local_experts = HashMap::new();
+        let local_experts = HashMap::new();
         let mut expert_to_device = HashMap::new();
 
         for expert_id in 0..num_experts {

@@ -165,7 +165,7 @@ where
 
         // Create sharded parameters from explicit parameter list
         // Note: caller should pass parameters extracted from the model
-        let mut sharded_params = HashMap::new();
+        let sharded_params = HashMap::new();
         let all_params = Vec::new();
 
         Ok(Self {
