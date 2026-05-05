@@ -1,4 +1,4 @@
-//! Optimization algorithms for Rustral.
+//! Optimization algorithms for MNR.
 #![allow(dead_code)]
 //!
 //! Provides SGD, Adam, and AdamW optimizers that work with the core
@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use rustral_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, TensorOps, TensorShape};
+use mnr_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, Result, TensorOps, TensorShape};
 use thiserror::Error;
 
 pub mod lr_scheduler;
@@ -257,7 +257,7 @@ impl<B: Backend> Adam<B> {
     /// This allows resuming training from a saved state.
     pub fn save_checkpoint(&self) -> AdamCheckpoint
     where
-        B::Tensor: AsRef<[f32]> + rustral_core::TensorShape,
+        B::Tensor: AsRef<[f32]> + TensorShape,
     {
         let mut state = HashMap::new();
         for (param_id, adam_state) in &self.state {
@@ -432,7 +432,7 @@ fn create_scalar_tensor<B: Backend>(
     ops: &dyn TensorOps<B>,
     value: f32,
     shape: &[usize],
-) -> rustral_core::Result<B::Tensor> {
+) -> Result<B::Tensor> {
     let size = shape.iter().product::<usize>();
     let values = vec![value; size];
     ops.tensor_from_vec(values, shape)
@@ -441,8 +441,8 @@ fn create_scalar_tensor<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustral_core::Mode;
-    use rustral_ndarray_backend::CpuBackend;
+    use mnr_core::Mode;
+    use mnr_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_sgd_update() {

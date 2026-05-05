@@ -17,7 +17,8 @@ fn main() {
 
     // Create a transformer encoder
     let config = TransformerEncoderConfig::new(64, 2, 128, 4);
-    let encoder = TransformerEncoder::new(&backend, config).unwrap();
+    let vocab_size = 1000;
+    let encoder = TransformerEncoder::new(&backend, config, vocab_size, 42).unwrap();
 
     println!("Model configuration:");
     println!("  Embedding dim: 64");
@@ -25,20 +26,19 @@ fn main() {
     println!("  Hidden dim: 128");
     println!("  Num heads: 4\n");
 
-    // Simulate token embeddings [batch=1, seq_len=4, dim=64]
-    let tokens = backend.tensor_from_vec(vec![0.1f32; 256], &[1, 4, 64]).unwrap();
-    println!("Input tokens shape: {:?}", ops.shape(&tokens));
+    // Simulate token IDs [seq_len=4]
+    let token_ids: Vec<usize> = vec![101, 50, 80, 120];
+    println!("Input token IDs: {:?}", token_ids);
 
     // Forward pass
     let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-    let output = encoder.forward(tokens, &mut ctx).unwrap();
+    let output = encoder.forward(token_ids, &mut ctx).unwrap();
 
     println!("Encoder output shape: {:?}", ops.shape(&output));
 
     // Classification head
     let classifier = Linear::new(&backend, LinearConfig::new(64, 2)).unwrap();
-    let reshaped = ops.reshape(&output, &[4, 64]).unwrap();
-    let logits = classifier.forward(reshaped, &mut ctx).unwrap();
+    let logits = classifier.forward(output, &mut ctx).unwrap();
     println!("Classification logits shape: {:?}", ops.shape(&logits));
 
     println!("\nKey concepts:");

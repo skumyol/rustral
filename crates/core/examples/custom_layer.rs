@@ -4,7 +4,7 @@
 //!
 //! Run with: `cargo run --example custom_layer`
 
-use rustral_core::{Backend, ForwardCtx, Mode, Module, Tensor};
+use rustral_core::{Backend, CoreError, ForwardCtx, Mode};
 use rustral_ndarray_backend::CpuBackend;
 
 /// Custom layer: SwiGLU activation
@@ -25,10 +25,10 @@ impl SwiGLULayer {
 
     fn forward<B: Backend>(
         &self,
-        input: Tensor<B>,
+        input: B::Tensor,
         backend: &B,
-        _ctx: &mut ForwardCtx,
-    ) -> Result<Tensor<B>, String> {
+        _ctx: &mut ForwardCtx<'_, B>,
+    ) -> Result<B::Tensor, CoreError> {
         let ops = backend.ops();
 
         // Simulated SwiGLU:

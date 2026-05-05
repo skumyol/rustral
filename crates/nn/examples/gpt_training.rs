@@ -26,14 +26,14 @@ fn main() {
     println!("  Sequence length: {}\n", seq_len);
 
     // Create embedding layer
-    let embedding = Embedding::new(&backend, EmbeddingConfig::new(vocab_size, embedding_dim)).unwrap();
+    let embedding = Embedding::new(&backend, EmbeddingConfig::new(vocab_size, embedding_dim), 42).unwrap();
 
     // Simulate token IDs
     let token_ids: Vec<usize> = (0..seq_len).collect();
 
     // Look up embeddings
     let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-    let embedded = embedding.forward(&token_ids, ops).unwrap();
+    let embedded = embedding.forward(token_ids, &mut ctx).unwrap();
     println!("Embedded tokens shape: {:?}", ops.shape(&embedded));
 
     // Language modeling head
