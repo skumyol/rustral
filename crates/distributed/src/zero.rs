@@ -12,8 +12,8 @@
 /// This implementation provides ZeRO-1 as the foundation.
 use std::collections::HashMap;
 
-use mnr_core::{Backend, ForwardCtx, Parameter, ParameterId, TensorOps};
-use mnr_optim::{Adam, AdamCheckpoint, Gradient, OptimError, Optimizer};
+use rustral_core::{Backend, ForwardCtx, Parameter, ParameterId, TensorOps};
+use rustral_optim::{Adam, AdamCheckpoint, Gradient, OptimError, Optimizer};
 
 use crate::ProcessGroup;
 
@@ -38,7 +38,7 @@ pub struct ZeroOptimizer<B: Backend> {
 
 impl<B: Backend> ZeroOptimizer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create a new ZeRO-1 optimizer.
     ///
@@ -106,8 +106,9 @@ where
 
             // Broadcast from the rank that owns this parameter
             let owner_rank = self.get_owner_rank(param.id());
+            let tag = format!("zero_param_{}", param.id().get());
             self.process_group
-                .broadcast(&mut data, owner_rank)
+                .broadcast_f32(&tag, &mut data, owner_rank)
                 .map_err(|e| OptimError::Backend(e.to_string()))?;
 
             // Update parameter with broadcasted data
@@ -118,7 +119,7 @@ where
                 .tensor_from_vec(data, &shape)
                 .map_err(|e| OptimError::Backend(e.to_string()))?;
 
-            *param = Parameter::new(param.name(), new_tensor);
+            *param = param.clone().with_tensor(new_tensor);
         }
 
         Ok(())
@@ -128,17 +129,13 @@ where
     fn get_owner_rank(&self, param_id: ParameterId) -> usize {
         let world_size = self.process_group.world_size();
 
-        // Find the global index of this parameter
-        if let Some(&local_idx) = self.parameter_shard.get(&param_id) {
-            // This rank owns it, compute global index
-            let rank = self.process_group.rank();
-            let local_count = (self.total_params + world_size - 1) / world_size;
-            rank * local_count + local_idx
-        } else {
-            // Estimate based on parameter ID
-            // In practice, should maintain proper mapping
-            (param_id.get() as usize) % world_size
+        if self.parameter_shard.contains_key(&param_id) {
+            // This rank holds the shard for this parameter → it is the broadcast root.
+            return self.process_group.rank();
         }
+
+        // Parameters not assigned locally: deterministic owner for CPU/multi-process testing.
+        (param_id.get() as usize) % world_size
     }
 
     /// Save ZeRO sharded checkpoint.
@@ -235,7 +232,7 @@ pub struct Zero2Optimizer<B: Backend> {
 
 impl<B: Backend> Zero2Optimizer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create a new ZeRO-2 optimizer.
     pub fn new(inner: Adam<B>, process_group: ProcessGroup, total_params: usize) -> Self {
@@ -350,8 +347,8 @@ impl ZeRoMemoryStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode};
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::{ForwardCtx, Mode};
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_zero_optimizer_creation() {

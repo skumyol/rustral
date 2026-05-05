@@ -1,4 +1,4 @@
-//! Learning Rate Schedulers for MNR
+//! Learning Rate Schedulers for Rustral
 //!
 //! Provides various learning rate scheduling strategies for stable and
 //! efficient training of neural networks.
@@ -20,7 +20,7 @@
 //! # Quick Start
 //!
 //! ```rust,ignore
-//! use mnr_optim::lr_scheduler::{WarmupCosine, LRScheduler};
+//! use rustral_optim::lr_scheduler::{WarmupCosine, LRScheduler};
 //!
 //! let mut scheduler = WarmupCosine::new(1e-4, 1e-6, 1000, 100000);
 //!

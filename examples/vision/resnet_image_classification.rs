@@ -4,9 +4,9 @@
 //!
 //! Run with: `cargo run --example resnet_image_classification`
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{Linear, LinearConfig, BatchNorm, BatchNormConfig};
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{Linear, LinearConfig, BatchNorm, BatchNormConfig};
 
 fn main() {
     println!("ResNet Image Classification Example");

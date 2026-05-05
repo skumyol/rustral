@@ -1,4 +1,4 @@
-//! candle-core backend for MNR.
+//! candle-core backend for Rustral.
 //!
 //! Provides both CPU and CUDA acceleration via the candle-core crate.
 //! On NVIDIA hardware, this backend automatically uses CUDA when available
@@ -7,14 +7,14 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use mnr_candle_backend::CandleBackend;
+//! use rustral_candle_backend::CandleBackend;
 //!
 //! let backend = CandleBackend::cuda(0).unwrap_or_else(|_| CandleBackend::cpu());
 //! let tensor = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0], &[3]).unwrap();
 //! ```
 
 use candle_core::{Device, IndexOp, Tensor};
-use mnr_core::{Backend, CoreError, Parameter, Result, TensorOps};
+use rustral_core::{Backend, CoreError, Parameter, Result, TensorOps};
 use thiserror::Error;
 
 /// Errors specific to the candle backend.
@@ -33,7 +33,7 @@ struct CandleOps {
     device: Device,
 }
 
-/// candle-core backend for MNR.
+/// candle-core backend for Rustral.
 #[derive(Clone, Debug)]
 pub struct CandleBackend {
     device: Device,

@@ -1,4 +1,4 @@
-//! Data loading and dataset abstractions for the Modular Neural Runtime.
+//! Data loading and dataset abstractions for the Rustral.
 //!
 //! Provides traits and implementations for handling datasets of various sizes,
 //! from small in-memory datasets to large streaming datasets.
@@ -282,6 +282,10 @@ impl<D: Clone + Send + Sync + 'static> DataLoader<D> {
     /// Get the dataset length.
     pub fn len(&self) -> usize {
         self.indices.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.indices.is_empty()
     }
 
     /// Check if the current epoch is complete.

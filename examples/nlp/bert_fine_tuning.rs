@@ -4,9 +4,9 @@
 //!
 //! Run with: `cargo run --example bert_fine_tuning`
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{Linear, LinearConfig, TransformerEncoder, TransformerEncoderConfig};
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{Linear, LinearConfig, TransformerEncoder, TransformerEncoderConfig};
 
 fn main() {
     println!("BERT Fine-tuning Example");

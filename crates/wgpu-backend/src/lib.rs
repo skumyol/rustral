@@ -1,4 +1,4 @@
-//! WebGPU backend for MNR.
+//! WebGPU backend for Rustral.
 //!
 //! Provides GPU-accelerated tensor operations using the WebGPU standard,
 //! which works across Vulkan (Linux/Windows), Metal (macOS), and
@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytemuck;
-use mnr_core::{Backend, CoreError, Parameter, Result as CoreResult, TensorOps};
+use rustral_core::{Backend, CoreError, Parameter, Result as CoreResult, TensorOps};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
 
@@ -964,7 +964,7 @@ impl GpuTensor {
     }
 }
 
-/// wgpu GPU backend for MNR.
+/// wgpu GPU backend for Rustral.
 #[derive(Clone)]
 pub struct WgpuBackend {
     device: std::sync::Arc<wgpu::Device>,
@@ -1747,7 +1747,7 @@ mod tests {
             10.0, 11.0, 12.0,  // row 3
         ];
         let table_tensor = backend.tensor_from_vec(table_data, &[4, 3]).unwrap();
-        let table_param = mnr_core::Parameter::new("table", table_tensor);
+        let table_param = rustral_core::Parameter::new("table", table_tensor);
 
         // Gather rows [0, 2, 1]
         let gathered = backend.ops().gather_rows(&table_param, &[0, 2, 1]).unwrap();
@@ -1779,10 +1779,10 @@ mod tests {
             1.0f32, 0.0, 1.0,
             0.0, 1.0, 1.0,
         ], &[2, 3]).unwrap();
-        let weight_param = mnr_core::Parameter::new("w", weight);
+        let weight_param = rustral_core::Parameter::new("w", weight);
         // bias: [2]
         let bias = backend.tensor_from_vec(vec![1.0f32, 2.0], &[2]).unwrap();
-        let bias_param = mnr_core::Parameter::new("b", bias);
+        let bias_param = rustral_core::Parameter::new("b", bias);
 
         let output = backend.ops().linear(&input, &weight_param, Some(&bias_param)).unwrap();
         let data = backend.to_vec(&output);

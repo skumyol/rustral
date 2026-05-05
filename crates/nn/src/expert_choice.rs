@@ -20,7 +20,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use mnr_nn::expert_choice::{ExpertChoiceRouter, ExpertChoiceConfig};
+//! use rustral_nn::expert_choice::{ExpertChoiceRouter, ExpertChoiceConfig};
 //!
 //! let config = ExpertChoiceConfig::new(512, 64, 2048)
 //!     .with_tokens_per_expert(8);  // Each expert processes 8 tokens
@@ -29,7 +29,7 @@
 //! let output = router.forward(input, &expert_layer, &mut ctx)?;
 //! ```
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Module, Result, TensorOps};
+use rustral_core::{Backend, CoreError, ForwardCtx, Module, Result, TensorOps};
 use serde::{Deserialize, Serialize};
 
 use crate::{Linear, LinearConfig};
@@ -443,7 +443,7 @@ impl RoutingComparison {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_expert_choice_config() {
@@ -523,7 +523,7 @@ mod tests {
         let config = ExpertChoiceConfig::new(4, 4, 8).with_tokens_per_expert(2);
         let router = ExpertChoiceRouter::new(&backend, config, 42).unwrap();
 
-        let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = ForwardCtx::new(&backend, rustral_core::Mode::Inference);
 
         // Error: input rank < 2
         let bad_rank = backend.tensor_from_vec(vec![0.1f32; 4], &[4]).unwrap();
@@ -548,7 +548,7 @@ mod tests {
         let router = ExpertChoiceRouter::new(&backend, config, 42).unwrap();
 
         let input = backend.tensor_from_vec(vec![0.1f32; 8], &[2, 4]).unwrap();
-        let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = ForwardCtx::new(&backend, rustral_core::Mode::Inference);
 
         let (output, stats) = router.forward(&input, &|t| Ok(t.clone()), &mut ctx).unwrap();
 

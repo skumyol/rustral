@@ -3,6 +3,8 @@
 //! Generates coverage reports and tracks test completeness.
 //! Run with: `cargo test --test coverage`
 
+#![allow(dead_code, clippy::manual_flatten)]
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;

@@ -12,7 +12,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use mnr_distributed::DeviceMesh;
+//! use rustral_distributed::DeviceMesh;
 //!
 //! // Create 2x4x2 mesh for 16 GPUs
 //! // 2 data parallel groups, 4 tensor parallel, 2 pipeline stages
@@ -24,7 +24,7 @@
 
 use std::collections::HashMap;
 
-use mnr_core::Result;
+use rustral_core::Result;
 
 use crate::ProcessGroup;
 
@@ -56,7 +56,7 @@ impl DeviceMesh {
         let world_size: usize = shape.iter().product();
 
         if my_rank >= world_size {
-            return Err(mnr_core::CoreError::InvalidArgument(format!(
+            return Err(rustral_core::CoreError::InvalidArgument(format!(
                 "Rank {} out of bounds for mesh with {} devices",
                 my_rank, world_size
             )));
@@ -147,7 +147,7 @@ impl DeviceMesh {
         let ranks = self.matching_ranks(pattern);
 
         if ranks.is_empty() {
-            return Err(mnr_core::CoreError::InvalidArgument(format!(
+            return Err(rustral_core::CoreError::InvalidArgument(format!(
                 "No ranks match pattern {:?}",
                 pattern
             )));
@@ -155,7 +155,7 @@ impl DeviceMesh {
 
         // Find my position in this group
         let my_local_rank = ranks.iter().position(|&r| r == self.my_rank()).ok_or_else(|| {
-            mnr_core::CoreError::InvalidArgument(format!(
+            rustral_core::CoreError::InvalidArgument(format!(
                 "My rank {} not in group for pattern {:?}",
                 self.my_rank(),
                 pattern
@@ -164,7 +164,7 @@ impl DeviceMesh {
 
         // Create process group (simplified - real impl would use actual comm)
         let pg = ProcessGroup::new_threaded(ranks.len(), my_local_rank)
-            .map_err(|e| mnr_core::CoreError::Backend(e.to_string()))?;
+            .map_err(|e| rustral_core::CoreError::Backend(e.to_string()))?;
 
         self.process_groups.insert(key, pg.clone());
         Ok(pg)
@@ -173,7 +173,7 @@ impl DeviceMesh {
     /// Get process group for data parallelism (all devices with same TP and PP).
     pub fn get_data_parallel_group(&mut self) -> Result<ProcessGroup> {
         if self.shape.len() < 3 {
-            return Err(mnr_core::CoreError::InvalidArgument(
+            return Err(rustral_core::CoreError::InvalidArgument(
                 "Device mesh needs at least 3 dimensions for 3D parallelism".to_string(),
             ));
         }
@@ -188,7 +188,7 @@ impl DeviceMesh {
     /// Get process group for tensor parallelism (all devices with same DP and PP).
     pub fn get_tensor_parallel_group(&mut self) -> Result<ProcessGroup> {
         if self.shape.len() < 3 {
-            return Err(mnr_core::CoreError::InvalidArgument(
+            return Err(rustral_core::CoreError::InvalidArgument(
                 "Device mesh needs at least 3 dimensions for 3D parallelism".to_string(),
             ));
         }
@@ -203,7 +203,7 @@ impl DeviceMesh {
     /// Get process group for pipeline parallelism (all devices with same DP and TP).
     pub fn get_pipeline_parallel_group(&mut self) -> Result<ProcessGroup> {
         if self.shape.len() < 3 {
-            return Err(mnr_core::CoreError::InvalidArgument(
+            return Err(rustral_core::CoreError::InvalidArgument(
                 "Device mesh needs at least 3 dimensions for 3D parallelism".to_string(),
             ));
         }

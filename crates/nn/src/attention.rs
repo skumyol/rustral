@@ -4,7 +4,7 @@
 //! implementations for modern NLP and vision architectures.
 
 use crate::{Linear, LinearConfig};
-use mnr_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, TensorOps, Trainable};
+use rustral_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, TensorOps, Trainable};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for self-attention.
@@ -100,7 +100,7 @@ impl<B: Backend> SelfAttention<B> {
         q: &B::Tensor,
         k: &B::Tensor,
         v: &B::Tensor,
-        ops: &dyn mnr_core::TensorOps<B>,
+        ops: &dyn rustral_core::TensorOps<B>,
     ) -> Result<B::Tensor> {
         let q_shape = ops.shape(q);
         let batch = q_shape[0];
@@ -147,7 +147,7 @@ impl<B: Backend> Module<B> for SelfAttention<B> {
 
         // Expected: [batch, seq_len, d_model]
         if input_shape.len() != 3 {
-            return Err(mnr_core::CoreError::InvalidShape {
+            return Err(rustral_core::CoreError::InvalidShape {
                 shape: input_shape,
                 reason: "SelfAttention expects 3D [batch, seq, d_model] input".into(),
             });
@@ -158,7 +158,7 @@ impl<B: Backend> Module<B> for SelfAttention<B> {
         let d_model = input_shape[2];
 
         if d_model != self.config.d_model {
-            return Err(mnr_core::CoreError::ShapeMismatch {
+            return Err(rustral_core::CoreError::ShapeMismatch {
                 expected: vec![self.config.d_model],
                 actual: vec![d_model],
             });
@@ -353,8 +353,8 @@ pub fn causal_mask<B: Backend>(backend: &B, seq_len: usize) -> Result<B::Tensor>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode};
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::{ForwardCtx, Mode};
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_self_attention_config() {
@@ -408,8 +408,8 @@ mod tests {
 
         let norm1 = crate::normalization::LayerNorm::from_parameters(
             crate::normalization::LayerNormConfig::new(vec![16]).with_eps(1e-5),
-            mnr_core::Parameter::new("norm1_w", backend.tensor_from_vec(vec![1.0; 16], &[16]).unwrap()),
-            mnr_core::Parameter::new("norm1_b", backend.tensor_from_vec(vec![0.0; 16], &[16]).unwrap()),
+            rustral_core::Parameter::new("norm1_w", backend.tensor_from_vec(vec![1.0; 16], &[16]).unwrap()),
+            rustral_core::Parameter::new("norm1_b", backend.tensor_from_vec(vec![0.0; 16], &[16]).unwrap()),
         );
 
         let ff1 = crate::LinearBuilder::new(16, 64).with_bias(true).build(&backend).unwrap();
@@ -418,8 +418,8 @@ mod tests {
 
         let norm2 = crate::normalization::LayerNorm::from_parameters(
             crate::normalization::LayerNormConfig::new(vec![16]).with_eps(1e-5),
-            mnr_core::Parameter::new("norm2_w", backend.tensor_from_vec(vec![1.0; 16], &[16]).unwrap()),
-            mnr_core::Parameter::new("norm2_b", backend.tensor_from_vec(vec![0.0; 16], &[16]).unwrap()),
+            rustral_core::Parameter::new("norm2_w", backend.tensor_from_vec(vec![1.0; 16], &[16]).unwrap()),
+            rustral_core::Parameter::new("norm2_b", backend.tensor_from_vec(vec![0.0; 16], &[16]).unwrap()),
         );
 
         let block = TransformerEncoderBlock::new(mha, norm1, ff1, ff2, norm2);
@@ -499,7 +499,7 @@ pub struct FlashAttention<B: Backend> {
 
 impl<B: Backend> FlashAttention<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create new Flash Attention layer.
     pub fn new(backend: &B, config: SelfAttentionConfig, _seed: u64) -> Result<Self> {
@@ -651,7 +651,7 @@ where
             // Returns [seq*batch*heads, dim]
             ops.matmul(a, &b_flat)
         } else {
-            Err(mnr_core::CoreError::InvalidShape {
+            Err(rustral_core::CoreError::InvalidShape {
                 shape: a_shape.clone(),
                 reason: format!("matmul_4d: unexpected shapes a={:?}, b={:?}", a_shape, b_shape),
             })
@@ -680,7 +680,7 @@ where
 
 impl<B: Backend> Module<B> for FlashAttention<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     type Input = B::Tensor;
     type Output = B::Tensor;
@@ -768,7 +768,7 @@ impl AttentionMemoryStats {
 #[cfg(test)]
 mod flash_attention_tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_flash_attention_creation() {
@@ -815,7 +815,7 @@ mod flash_attention_tests {
         let flash = FlashAttention::new(&backend, config, 42).unwrap();
 
         let x = backend.tensor_from_vec(vec![0.1f32; 8 * 2 * 32], &[8, 2, 32]).unwrap();
-        let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = ForwardCtx::new(&backend, rustral_core::Mode::Inference);
 
         // Should run without error
         let output = flash.forward(x, &mut ctx).unwrap();
@@ -830,7 +830,7 @@ mod flash_attention_tests {
         let flash = FlashAttention::new(&backend, config, 42).unwrap();
 
         let x = backend.tensor_from_vec(vec![0.1f32; 8 * 2 * 32], &[8, 2, 32]).unwrap();
-        let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = ForwardCtx::new(&backend, rustral_core::Mode::Inference);
 
         fn call_forward<B: Backend>(
             m: &impl Module<B, Input = B::Tensor, Output = B::Tensor>,

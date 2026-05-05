@@ -1,4 +1,4 @@
-//! Unsafe Code Audit Tool for MNR
+//! Unsafe Code Audit Tool for Rustral
 //!
 //! Scans the codebase for unsafe blocks and validates SAFETY documentation.
 

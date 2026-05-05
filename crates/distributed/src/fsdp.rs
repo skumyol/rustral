@@ -25,7 +25,7 @@
 //!
 //! # Example
 //! ```rust,ignore
-//! use mnr_distributed::fsdp::{FSDP, FSDPConfig};
+//! use rustral_distributed::fsdp::{FSDP, FSDPConfig};
 //!
 //! let config = FSDPConfig::new()
 //!     .with_cpu_offload(true)
@@ -37,11 +37,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use mnr_core::{
+use rustral_core::{
     Backend, CoreError, ForwardCtx, Mode, Module, Parameter, ParameterId, Result, TensorOps, TensorShape,
     Trainable,
 };
-use mnr_optim::{Adam, AdamCheckpoint, Gradient, OptimError, Optimizer};
+use rustral_optim::{Adam, AdamCheckpoint, Gradient, OptimError, Optimizer};
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
 
@@ -151,7 +151,7 @@ pub struct FSDP<B: Backend, M: Module<B>, O: Optimizer<B>> {
 impl<B: Backend, M: Module<B, Input = B::Tensor, Output = B::Tensor> + Trainable<B>, O: Optimizer<B>>
     FSDP<B, M, O>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create new FSDP wrapper
     pub fn new(
@@ -499,7 +499,7 @@ pub fn auto_wrap<B: Backend, M: Module<B, Input = B::Tensor, Output = B::Tensor>
     config: FSDPConfig,
 ) -> DistributedResult<FSDP<B, M, impl Optimizer<B>>>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     // In real implementation, would recursively apply FSDP to submodules
     // based on the policy
@@ -509,10 +509,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode};
-    use mnr_ndarray_backend::CpuBackend;
-    use mnr_nn::{Linear, LinearConfig};
-    use mnr_optim::Adam;
+    use rustral_core::{ForwardCtx, Mode};
+    use rustral_ndarray_backend::CpuBackend;
+    use rustral_nn::{Linear, LinearConfig};
+    use rustral_optim::Adam;
 
     #[test]
     fn test_fsdp_config() {

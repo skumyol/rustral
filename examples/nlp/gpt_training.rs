@@ -4,9 +4,9 @@
 //!
 //! Run with: `cargo run --example gpt_training`
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{Linear, LinearConfig, Embedding, EmbeddingConfig};
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{Linear, LinearConfig, Embedding, EmbeddingConfig};
 
 fn main() {
     println!("GPT Training Example");

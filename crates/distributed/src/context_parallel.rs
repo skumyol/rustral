@@ -14,7 +14,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use mnr_distributed::context_parallel::{ContextParallel, ContextParallelConfig};
+//! use rustral_distributed::context_parallel::{ContextParallel, ContextParallelConfig};
 //!
 //! let config = ContextParallelConfig::new(8)  // 8 devices
 //!     .with_sequence_length(1_048_576)      // 1M tokens
@@ -24,7 +24,7 @@
 //! let output = ctx_parallel.forward(&input, &mut model)?;
 //! ```
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Module, Result, TensorOps};
+use rustral_core::{Backend, CoreError, ForwardCtx, Module, Result, TensorOps};
 
 use crate::ProcessGroup;
 
@@ -128,7 +128,7 @@ pub struct ContextParallel<B: Backend> {
 
 impl<B: Backend> ContextParallel<B>
 where
-    B::Tensor: AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: AsRef<[f32]> + rustral_core::TensorShape,
 {
     pub fn new(config: ContextParallelConfig, process_group: ProcessGroup) -> Result<Self> {
         config.validate()?;
@@ -438,8 +438,8 @@ impl DynamicLoadBalancer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode, Module};
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::{ForwardCtx, Mode, Module};
+    use rustral_ndarray_backend::CpuBackend;
 
     /// Mock module that returns input unchanged (identity).
     struct IdentityModule;

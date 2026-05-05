@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use mnr_core::{Backend, ForwardCtx, Mode};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{LinearBuilder, Readout};
-use mnr_symbolic::Vocabulary;
+use rustral_core::{Backend, ForwardCtx, Mode};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{LinearBuilder, Readout};
+use rustral_symbolic::Vocabulary;
 
 fn main() -> anyhow::Result<()> {
     let backend = CpuBackend::default();

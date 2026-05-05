@@ -16,7 +16,7 @@
 //!
 //! # Example
 //!```rust,ignore
-//! use mnr_nn::continuous_batching::{Scheduler, SchedulingPolicy};
+//! use rustral_nn::continuous_batching::{Scheduler, SchedulingPolicy};
 //!
 //! let mut scheduler = Scheduler::new(model, SchedulingPolicy::Fcfs);
 //! scheduler.add_request(prompt1, 100)?;
@@ -32,7 +32,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
-use mnr_core::{Backend, CoreError, Result};
+use rustral_core::{Backend, CoreError, Result};
 
 use super::kv_cache::PagedCache;
 
@@ -548,7 +548,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_request_creation() {

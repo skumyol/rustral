@@ -4,9 +4,9 @@
 //!
 //! Run with: `cargo run --example diffusion_model`
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{Linear, LinearConfig};
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{Linear, LinearConfig};
 
 fn main() {
     println!("Diffusion Model Example");

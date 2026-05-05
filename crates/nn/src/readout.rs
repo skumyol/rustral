@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Module, ParameterRef, Result, Trainable};
-use mnr_symbolic::{LabelPrediction, Vocabulary};
+use rustral_core::{Backend, CoreError, ForwardCtx, Module, ParameterRef, Result, Trainable};
+use rustral_symbolic::{LabelPrediction, Vocabulary};
 use serde::{Deserialize, Serialize};
 
 use crate::Linear;
@@ -59,8 +59,8 @@ impl<B: Backend> Trainable<B> for Readout<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode, Parameter};
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::{ForwardCtx, Mode, Parameter};
+    use rustral_ndarray_backend::CpuBackend;
 
     fn create_mock_readout(num_labels: usize, hidden_dim: usize) -> (Readout<CpuBackend>, Arc<Vocabulary>) {
         let backend = CpuBackend::default();

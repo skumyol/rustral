@@ -11,7 +11,7 @@
 //!
 //! # Example
 //! ```rust,ignore
-//! use mnr_nn::quantization::{QuantizedLinear, QuantConfig, QuantizationScheme};
+//! use rustral_nn::quantization::{QuantizedLinear, QuantConfig, QuantizationScheme};
 //!
 //! let config = QuantConfig::new(QuantizationScheme::Int8)
 //!     .with_calibration(samples);
@@ -20,7 +20,7 @@
 //! // 4x smaller, minimal accuracy loss
 //! ```
 
-use mnr_core::{Backend, ForwardCtx, Result, TensorOps};
+use rustral_core::{Backend, ForwardCtx, Result, TensorOps};
 
 /// Quantization scheme
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -182,7 +182,7 @@ pub struct QuantizedLinear<B: Backend> {
 
 impl<B: Backend> QuantizedLinear<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create quantized linear layer from weight tensor and optional bias
     pub fn from_tensors(
@@ -338,7 +338,7 @@ pub struct GPTQLinear<B: Backend> {
 
 impl<B: Backend> GPTQLinear<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     pub fn from_tensors(
         weight: &B::Tensor,
@@ -506,11 +506,11 @@ pub struct QuantizationStats {
 
 /// Quantize entire model
 pub fn quantize_model<B: Backend>(
-    _model: &mut dyn mnr_core::Module<B, Input = B::Tensor, Output = B::Tensor>, // Would iterate over all linear layers
+    _model: &mut dyn rustral_core::Module<B, Input = B::Tensor, Output = B::Tensor>, // Would iterate over all linear layers
     config: &QuantConfig,
 ) -> QuantizationStats
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     // In real implementation, would iterate through all layers
     // and replace Linear with QuantizedLinear
@@ -527,7 +527,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_quantization_schemes() {
@@ -665,7 +665,7 @@ mod tests {
 
         // forward
         let input = backend.tensor_from_vec(vec![1.0f32, 1.0, 1.0], &[1, 3]).unwrap();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
         let out = ql.forward(input, &mut ctx).unwrap();
         let shape = backend.ops().shape(&out);
         assert_eq!(shape, &[1, 2]);
@@ -681,7 +681,7 @@ mod tests {
 
         let ql = QuantizedLinear::<CpuBackend>::from_tensors(&weight, &[2, 2], Some(bias), &config).unwrap();
         let input = backend.tensor_from_vec(vec![1.0f32, 2.0], &[1, 2]).unwrap();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
         let out = ql.forward(input, &mut ctx).unwrap();
         let shape = backend.ops().shape(&out);
         assert_eq!(shape, &[1, 2]);
@@ -698,7 +698,7 @@ mod tests {
         assert_eq!(ql.scales.len(), 2); // per-channel: one scale per output channel
 
         let input = backend.tensor_from_vec(vec![1.0f32, 1.0, 1.0], &[1, 3]).unwrap();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
         let out = ql.forward(input, &mut ctx).unwrap();
         let shape = backend.ops().shape(&out);
         assert_eq!(shape, &[1, 2]);
@@ -716,7 +716,7 @@ mod tests {
         assert_eq!(gptq.group_size, 2);
 
         let input = backend.tensor_from_vec(vec![1.0f32; 1], &[1, 1]).unwrap();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
         let out = gptq.forward(input, &mut ctx).unwrap();
         let shape = backend.ops().shape(&out);
         assert_eq!(shape, &[1, 2]);
@@ -732,7 +732,7 @@ mod tests {
 
         let gptq = GPTQLinear::<CpuBackend>::from_tensors(&weight, &[2, 1], Some(bias), 2).unwrap();
         let input = backend.tensor_from_vec(vec![1.0f32; 1], &[1, 1]).unwrap();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
         let out = gptq.forward(input, &mut ctx).unwrap();
         let shape = backend.ops().shape(&out);
         assert_eq!(shape, &[1, 2]);
@@ -753,14 +753,14 @@ mod tests {
 
     struct DummyModule;
 
-    impl mnr_core::Module<CpuBackend> for DummyModule {
-        type Input = <CpuBackend as mnr_core::Backend>::Tensor;
-        type Output = <CpuBackend as mnr_core::Backend>::Tensor;
+    impl rustral_core::Module<CpuBackend> for DummyModule {
+        type Input = <CpuBackend as rustral_core::Backend>::Tensor;
+        type Output = <CpuBackend as rustral_core::Backend>::Tensor;
         fn forward(
             &self,
             input: Self::Input,
-            _ctx: &mut mnr_core::ForwardCtx<CpuBackend>,
-        ) -> mnr_core::Result<Self::Output> {
+            _ctx: &mut rustral_core::ForwardCtx<CpuBackend>,
+        ) -> rustral_core::Result<Self::Output> {
             Ok(input)
         }
     }

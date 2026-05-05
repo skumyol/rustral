@@ -1,8 +1,10 @@
 //! Module Integration Tests
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module, TensorOps, Trainable};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{
+#![allow(unused_imports)]
+
+use rustral_core::{Backend, ForwardCtx, Mode, Module, TensorOps, Trainable};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{
     chain, Conv2d, Conv2dConfig, Dropout, DropoutConfig, Embedding, EmbeddingConfig, LayerNorm,
     LayerNormConfig, Linear, LinearConfig, SelfAttention, SelfAttentionConfig, Sequential2,
     TransformerDecoder, TransformerDecoderConfig, TransformerEncoder, TransformerEncoderConfig,
@@ -138,7 +140,7 @@ fn test_optim_integration(runner: &mut TestRunner) {
 
 fn test_data_nn_integration(runner: &mut TestRunner) {
     runner.run_test("integration_data_loader", || {
-        use mnr_data::DataLoaderConfig;
+        use rustral_data::DataLoaderConfig;
         let config = DataLoaderConfig { batch_size: 32, shuffle: true, ..Default::default() };
         assert_eq!(config.batch_size, 32);
         Ok(())

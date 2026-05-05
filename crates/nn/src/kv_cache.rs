@@ -18,7 +18,7 @@
 //!
 //! # Example
 //! ```rust,ignore
-//! use mnr_nn::kv_cache::{KVCache, CacheConfig};
+//! use rustral_nn::kv_cache::{KVCache, CacheConfig};
 //!
 //! let config = CacheConfig::new(32, 128, 8192) // heads, dim, max_seq
 //!     .with_quantization(CacheQuantization::Fp8);
@@ -32,7 +32,7 @@
 //! }
 //! ```
 
-use mnr_core::{Backend, CoreError, Result, TensorOps};
+use rustral_core::{Backend, CoreError, Result, TensorOps};
 use std::collections::HashMap;
 
 /// Cache quantization type
@@ -153,7 +153,7 @@ pub struct KVCache<B: Backend> {
 
 impl<B: Backend> KVCache<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create new KV cache
     pub fn new(backend: &B, config: CacheConfig) -> Result<Self> {
@@ -350,7 +350,7 @@ pub struct SlidingWindowCache<B: Backend> {
 
 impl<B: Backend> SlidingWindowCache<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     pub fn new(backend: &B, config: CacheConfig, window_size: usize) -> Result<Self> {
         let cache = KVCache::new(backend, config)?;
@@ -438,7 +438,7 @@ pub struct BatchedCache<B: Backend> {
 
 impl<B: Backend> BatchedCache<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     pub fn new(backend: &B, config: CacheConfig, batch_size: usize) -> Result<Self> {
         let mut caches = Vec::with_capacity(batch_size);
@@ -468,7 +468,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_cache_config() {
@@ -485,7 +485,7 @@ mod tests {
         assert_eq!(config.num_kv_heads, 1);
 
         // Memory: 4 batch * 1 head * 8192 seq * 128 dim * 2 (K+V) * 2 bytes (FP16)
-        let expected = 4 * 1 * 8192 * 128 * 2 * 2;
+        let expected = 4 * 8192 * 128 * 2 * 2;
         assert_eq!(config.memory_bytes(), expected);
     }
 
@@ -514,7 +514,7 @@ mod tests {
         let config =
             CacheConfig::new(8, 64, 1024).with_batch_size(1).with_quantization(CacheQuantization::Fp16);
 
-        let mut cache = KVCache::new(&backend, config).unwrap();
+        let cache = KVCache::new(&backend, config).unwrap();
 
         // Initially empty
         let stats = cache.memory_stats();

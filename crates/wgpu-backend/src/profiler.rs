@@ -13,7 +13,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use mnr_wgpu_backend::profiler::{GpuProfiler, ProfileEvent};
+//! use rustral_wgpu_backend::profiler::{GpuProfiler, ProfileEvent};
 //!
 //! let mut profiler = GpuProfiler::new();
 //!

@@ -4,9 +4,9 @@
 //! Note: This example focuses on the inference pipeline.
 //! Training with full autodiff is shown in train_demo.rs.
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{Linear, LinearConfig};
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{Linear, LinearConfig};
 
 /// XOR dataset: inputs and expected outputs
 fn xor_dataset() -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {

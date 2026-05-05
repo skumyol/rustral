@@ -12,14 +12,14 @@
 //!
 //! # Example
 //! ```rust,ignore
-//! use mnr_distributed::compression::{CompressedCommunicator, CompressionType};
+//! use rustral_distributed::compression::{CompressedCommunicator, CompressionType};
 //!
 //! let comm = CompressedCommunicator::new(pg, CompressionType::Fp16);
 //! comm.all_reduce_sum(&mut gradients)?; // 2x faster
 //! ```
 
 use crate::{DistributedResult, ProcessGroup};
-use mnr_core::{Backend, Parameter};
+use rustral_core::{Backend, Parameter};
 use std::collections::HashMap;
 
 /// Type of compression
@@ -300,16 +300,16 @@ impl CompressedCommunicator {
 /// Compresses optimizer states to 1-bit for communication
 pub struct OneBitAdam<B: Backend> {
     /// Inner Adam optimizer
-    inner: mnr_optim::Adam<B>,
+    inner: rustral_optim::Adam<B>,
     /// Compression for momentum and variance
     compression: CompressedCommunicator,
     /// Error feedback buffers
-    momentum_error: HashMap<mnr_core::ParameterId, Vec<f32>>,
-    variance_error: HashMap<mnr_core::ParameterId, Vec<f32>>,
+    momentum_error: HashMap<rustral_core::ParameterId, Vec<f32>>,
+    variance_error: HashMap<rustral_core::ParameterId, Vec<f32>>,
 }
 
 impl<B: Backend> OneBitAdam<B> {
-    pub fn new(adam: mnr_optim::Adam<B>, process_group: ProcessGroup) -> Self {
+    pub fn new(adam: rustral_optim::Adam<B>, process_group: ProcessGroup) -> Self {
         let compression = CompressedCommunicator::new(process_group, CompressionType::OneBit);
         Self { inner: adam, compression, momentum_error: HashMap::new(), variance_error: HashMap::new() }
     }
@@ -400,8 +400,8 @@ impl BandwidthStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::Parameter;
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::Parameter;
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_compression_ratios() {
@@ -590,7 +590,7 @@ mod tests {
     #[test]
     fn test_one_bit_adam() {
         let backend = CpuBackend::default();
-        let adam = mnr_optim::Adam::<CpuBackend>::new(0.001);
+        let adam = rustral_optim::Adam::<CpuBackend>::new(0.001);
         let pg = ProcessGroup::new_single_process();
         let mut one_bit_adam = OneBitAdam::new(adam, pg);
 

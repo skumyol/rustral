@@ -1,4 +1,4 @@
-//! Distributed training for MNR.
+//! Distributed training for Rustral.
 //!
 //! Provides data parallelism, model parallelism, and ZeRO sharding
 //! for training large models across multiple GPUs and nodes.
@@ -8,8 +8,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Parameter, Result, TensorOps};
-use mnr_optim::{Gradient, Optimizer};
+use rustral_core::{Backend, CoreError, ForwardCtx, Parameter, Result, TensorOps};
+use rustral_optim::{Gradient, Optimizer};
+
+#[cfg(feature = "mpi")]
+use mpi::collective::{CommunicatorCollectives, Root, SystemOperation};
+#[cfg(feature = "mpi")]
+use mpi::topology::Communicator;
 
 mod chaos_engineering;
 mod checkpoint;
@@ -138,6 +143,23 @@ impl ProcessGroup {
         })
     }
 
+    /// Build a process group backed by the MPI world communicator.
+    ///
+    /// Requires MPI to be initialized (typically via `mpi::initialize()` in `main`, or when launched
+    /// under `mpirun` / `mpiexec` depending on your MPI implementation).
+    #[cfg(feature = "mpi")]
+    pub fn new_mpi() -> DistributedResult<Self> {
+        Self::from_mpi_communicator(mpi::topology::SystemCommunicator::world())
+    }
+
+    /// Wrap an existing MPI [`mpi::topology::SystemCommunicator`] (e.g. a custom communicator).
+    #[cfg(feature = "mpi")]
+    pub fn from_mpi_communicator(communicator: mpi::topology::SystemCommunicator) -> DistributedResult<Self> {
+        let rank = communicator.rank() as usize;
+        let world_size = communicator.size() as usize;
+        Ok(Self { rank, world_size, backend: CommunicationBackend::Mpi { communicator } })
+    }
+
     /// Get the rank of this process.
     pub fn rank(&self) -> usize {
         self.rank
@@ -153,7 +175,8 @@ impl ProcessGroup {
         self.rank == 0
     }
 
-    /// All-reduce: sum gradients across all processes.
+    /// All-reduce: sum `data` in place across all processes (same buffer contents on every rank
+    /// after the call).
     pub fn all_reduce_sum(&self, name: &str, data: &mut [f32]) -> DistributedResult<()> {
         match &self.backend {
             CommunicationBackend::SingleProcess => {
@@ -178,39 +201,99 @@ impl ProcessGroup {
             #[cfg(feature = "mpi")]
             CommunicationBackend::Mpi { communicator } => {
                 let mut recv_buffer = vec![0.0f32; data.len()];
-                communicator.all_reduce_into(
-                    data,
-                    &mut recv_buffer,
-                    mpi::collective::SystemOperation::sum(),
-                )?;
+                communicator.all_reduce_into(&*data, &mut recv_buffer[..], SystemOperation::sum());
                 data.copy_from_slice(&recv_buffer);
                 Ok(())
             }
         }
     }
 
-    /// Broadcast data from rank 0 to all other ranks.
-    pub fn broadcast(&self, data: &mut [f32], root: usize) -> DistributedResult<()> {
-        if self.rank == root {
-            // Root already has the data
-            return Ok(());
+    /// All-reduce sum then divide by world size (mean across ranks).
+    pub fn all_reduce_mean_f32(&self, name: &str, data: &mut [f32]) -> DistributedResult<()> {
+        self.all_reduce_sum(name, data)?;
+        let inv = 1.0f32 / self.world_size as f32;
+        for v in data.iter_mut() {
+            *v *= inv;
+        }
+        Ok(())
+    }
+
+    /// Global barrier (no-op for single-process / threaded simulation).
+    pub fn barrier(&self) -> DistributedResult<()> {
+        match &self.backend {
+            CommunicationBackend::SingleProcess | CommunicationBackend::Threaded { .. } => Ok(()),
+            #[cfg(feature = "mpi")]
+            CommunicationBackend::Mpi { communicator } => {
+                communicator.barrier();
+                Ok(())
+            }
+        }
+    }
+
+    /// All-gather equal-sized `f32` buffers from every rank into `recv` (concatenated in rank order).
+    pub fn all_gather_f32(&self, send: &[f32], recv: &mut [f32]) -> DistributedResult<()> {
+        let ws = self.world_size;
+        if recv.len() != send.len() * ws {
+            return Err(DistributedError::Communication(format!(
+                "all_gather_f32: recv len {} != send len {} * world_size {}",
+                recv.len(),
+                send.len(),
+                ws
+            )));
+        }
+        match &self.backend {
+            CommunicationBackend::SingleProcess => {
+                recv[..send.len()].copy_from_slice(send);
+                Ok(())
+            }
+            CommunicationBackend::Threaded { .. } => Err(DistributedError::Communication(
+                "all_gather_f32 is not implemented for the Threaded backend; use MPI or world_size=1"
+                    .into(),
+            )),
+            #[cfg(feature = "mpi")]
+            CommunicationBackend::Mpi { communicator } => {
+                communicator.all_gather_into(send, recv);
+                Ok(())
+            }
+        }
+    }
+
+    /// Broadcast `f32` buffer from `root` to all ranks. **All ranks must call this** with the same
+    /// `tag`, sizes, and `root` (MPI collective semantics).
+    pub fn broadcast_f32(&self, tag: &str, data: &mut [f32], root: usize) -> DistributedResult<()> {
+        if root >= self.world_size {
+            return Err(DistributedError::RankMismatch { expected: self.world_size, actual: root });
         }
 
         match &self.backend {
             CommunicationBackend::SingleProcess => Ok(()),
             CommunicationBackend::Threaded { shared_gradients } => {
-                let gradients = shared_gradients.lock().unwrap();
-                // In threaded mode, we would need a different mechanism
-                // For now, this is simplified
-                drop(gradients);
+                let key = format!("bcast:{}:{}:{}", tag, root, data.len());
+                let mut g = shared_gradients.lock().unwrap();
+                if self.rank == root {
+                    g.insert(key, data.to_vec());
+                } else if let Some(v) = g.get(&key) {
+                    data.copy_from_slice(v);
+                } else {
+                    return Err(DistributedError::Communication(format!(
+                        "threaded broadcast: root rank must publish `{}` before other ranks read",
+                        tag
+                    )));
+                }
                 Ok(())
             }
             #[cfg(feature = "mpi")]
             CommunicationBackend::Mpi { communicator } => {
-                communicator.process_at_rank(root as i32).broadcast_into(data)?;
+                let root_proc = communicator.process_at_rank(root as mpi::topology::Rank);
+                root_proc.broadcast_into(data);
                 Ok(())
             }
         }
+    }
+
+    /// Backwards-compatible broadcast using a fixed tag (`"default"`).
+    pub fn broadcast(&self, data: &mut [f32], root: usize) -> DistributedResult<()> {
+        self.broadcast_f32("default", data, root)
     }
 }
 
@@ -234,7 +317,7 @@ pub struct DataParallelTrainer<B: Backend, O: Optimizer<B>> {
 
 impl<B: Backend, O: Optimizer<B>> DataParallelTrainer<B, O>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create a new data parallel trainer.
     pub fn new(process_group: ProcessGroup, optimizer: O) -> Self {
@@ -263,7 +346,7 @@ where
         let local_batch = self.split_batch(batch, rank, world_size);
 
         // Compute local gradients
-        let mut local_gradients: HashMap<mnr_core::ParameterId, Vec<f32>> = HashMap::new();
+        let mut local_gradients: HashMap<rustral_core::ParameterId, Vec<f32>> = HashMap::new();
         let mut total_loss = 0.0;
 
         let local_batch_size = local_batch.len().max(1);
@@ -341,7 +424,7 @@ where
 /// performing the all-reduce and optimizer step.
 pub struct GradientAccumulator<B: Backend> {
     process_group: ProcessGroup,
-    accumulated_gradients: HashMap<mnr_core::ParameterId, B::Tensor>,
+    accumulated_gradients: HashMap<rustral_core::ParameterId, B::Tensor>,
     steps: usize,
 }
 
@@ -375,9 +458,9 @@ where
     /// Perform all-reduce and return accumulated gradients.
     /// Note: gradients remain as Vec<f32> since we don't have backend access.
     /// Caller must convert back to tensors.
-    pub fn all_reduce(&mut self) -> DistributedResult<Vec<(mnr_core::ParameterId, Vec<f32>)>>
+    pub fn all_reduce(&mut self) -> DistributedResult<Vec<(rustral_core::ParameterId, Vec<f32>)>>
     where
-        B::Tensor: AsRef<[f32]> + mnr_core::TensorShape,
+        B::Tensor: AsRef<[f32]> + rustral_core::TensorShape,
     {
         let mut result = Vec::new();
 
@@ -408,9 +491,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::Mode;
-    use mnr_ndarray_backend::CpuBackend;
-    use mnr_optim::Sgd;
+    use rustral_core::Mode;
+    use rustral_ndarray_backend::CpuBackend;
+    use rustral_optim::Sgd;
 
     #[test]
     fn test_process_group_single_process() {
@@ -480,7 +563,7 @@ mod tests {
         let batch = vec![backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()];
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
 
-        let mut loss_fn = |_item: &<CpuBackend as mnr_core::Backend>::Tensor,
+        let mut loss_fn = |_item: &<CpuBackend as rustral_core::Backend>::Tensor,
                            _ctx: &mut ForwardCtx<CpuBackend>| {
             let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
             Ok((0.5f32, vec![Gradient { param_id, tensor: grad_tensor }]))
@@ -498,7 +581,7 @@ mod tests {
 
         // Create some dummy gradients
         let grad_tensor = backend.tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap();
-        let gradients = vec![Gradient { param_id: mnr_core::ParameterId::fresh(), tensor: grad_tensor }];
+        let gradients = vec![Gradient { param_id: rustral_core::ParameterId::fresh(), tensor: grad_tensor }];
 
         // Accumulate twice
         acc.accumulate(&gradients, backend.ops()).unwrap();
@@ -514,7 +597,7 @@ mod tests {
         let mut acc = GradientAccumulator::<CpuBackend>::new(pg);
 
         let grad_tensor = backend.tensor_from_vec(vec![1.0f32, 2.0], &[2]).unwrap();
-        let gradients = vec![Gradient { param_id: mnr_core::ParameterId::fresh(), tensor: grad_tensor }];
+        let gradients = vec![Gradient { param_id: rustral_core::ParameterId::fresh(), tensor: grad_tensor }];
 
         acc.accumulate(&gradients, backend.ops()).unwrap();
         let result = acc.all_reduce().unwrap();

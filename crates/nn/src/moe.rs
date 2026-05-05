@@ -8,7 +8,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use mnr_nn::moe::{ExpertLayer, TopKGating, MoEConfig};
+//! use rustral_nn::moe::{ExpertLayer, TopKGating, MoEConfig};
 //!
 //! let config = MoEConfig::new(4096, 8, 64, 2); // d_model, num_experts, expert_dim, top_k
 //! let moe = ExpertLayer::new(&backend, config, 42)?;
@@ -23,7 +23,7 @@
 
 use std::collections::HashMap;
 
-use mnr_core::{Backend, ForwardCtx, Module, ParameterRef, Result, TensorOps, Trainable};
+use rustral_core::{Backend, ForwardCtx, Module, ParameterRef, Result, TensorOps, Trainable};
 
 use crate::{Linear, LinearConfig};
 
@@ -81,7 +81,7 @@ pub struct TopKGating<B: Backend> {
 
 impl<B: Backend> TopKGating<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create new top-k gating network.
     pub fn new(backend: &B, config: MoEConfig, _seed: u64) -> Result<Self> {
@@ -193,7 +193,7 @@ pub struct Expert<B: Backend> {
 
 impl<B: Backend> Expert<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create new expert.
     pub fn new(backend: &B, d_model: usize, expert_dim: usize, _expert_id: usize) -> Result<Self> {
@@ -234,7 +234,7 @@ pub struct ExpertLayer<B: Backend> {
 
 impl<B: Backend> ExpertLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create new expert layer.
     pub fn new(backend: &B, config: MoEConfig, seed: u64) -> Result<Self> {
@@ -372,7 +372,7 @@ where
 
 impl<B: Backend> Module<B> for ExpertLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     type Input = B::Tensor;
     type Output = B::Tensor;
@@ -475,7 +475,7 @@ impl MoEStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_moe_config() {
@@ -517,7 +517,7 @@ mod tests {
         let gating = TopKGating::new(&backend, config, 42).unwrap();
 
         let x = backend.tensor_from_vec(vec![0.1f32; 8 * 64], &[8, 64]).unwrap();
-        let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = ForwardCtx::new(&backend, rustral_core::Mode::Inference);
 
         let output = gating.forward(&x, &mut ctx).unwrap();
 
@@ -532,7 +532,7 @@ mod tests {
         let expert = Expert::new(&backend, 64, 128, 0).unwrap();
 
         let x = backend.tensor_from_vec(vec![0.1f32; 4 * 64], &[4, 64]).unwrap();
-        let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = ForwardCtx::new(&backend, rustral_core::Mode::Inference);
 
         let output = expert.forward(x, &mut ctx).unwrap();
         let shape = backend.ops().shape(&output);
@@ -563,8 +563,8 @@ mod tests {
         let config = MoEConfig::new(2, 4, 8, 2);
         let moe = ExpertLayer::new(&backend, config, 42).unwrap();
 
-        let x = backend.tensor_from_vec(vec![0.1f32; 1 * 2 * 2], &[1, 2, 2]).unwrap();
-        let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let x = backend.tensor_from_vec(vec![0.1f32; 4], &[1, 2, 2]).unwrap();
+        let mut ctx = ForwardCtx::new(&backend, rustral_core::Mode::Inference);
 
         let output = moe.forward(x.clone(), &mut ctx).unwrap();
         assert_eq!(backend.ops().shape(&output.output), &[1, 2, 2]);
@@ -584,8 +584,8 @@ mod tests {
             m.forward(input, ctx)
         }
 
-        let x = backend.tensor_from_vec(vec![0.1f32; 1 * 2 * 2], &[1, 2, 2]).unwrap();
-        let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let x = backend.tensor_from_vec(vec![0.1f32; 4], &[1, 2, 2]).unwrap();
+        let mut ctx = ForwardCtx::new(&backend, rustral_core::Mode::Inference);
         let out = call_forward(&moe, x, &mut ctx).unwrap();
         assert_eq!(backend.ops().shape(&out), &[1, 2, 2]);
     }

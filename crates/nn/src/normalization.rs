@@ -1,6 +1,6 @@
 //! Normalization layers for neural networks.
 
-use mnr_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, ShapeExt, Trainable};
+use rustral_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, ShapeExt, Trainable};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for layer normalization.
@@ -68,7 +68,7 @@ impl<B: Backend> Module<B> for LayerNorm<B> {
         // where D is the length of normalized_shape
         let ndim = self.config.normalized_shape.len();
         if input_shape.len() < ndim {
-            return Err(mnr_core::CoreError::InvalidShape {
+            return Err(rustral_core::CoreError::InvalidShape {
                 shape: input_shape,
                 reason: format!("LayerNorm input rank must be >= normalized_shape rank ({})", ndim),
             });
@@ -190,7 +190,7 @@ impl<B: Backend> Module<B> for BatchNorm<B> {
         // BatchNorm normalizes per-channel across the batch and spatial dimensions
         // Expected input: [N, C, H, W] for 4D or [N, C] for 2D
         if input_shape.len() != 2 && input_shape.len() != 4 {
-            return Err(mnr_core::CoreError::InvalidShape {
+            return Err(rustral_core::CoreError::InvalidShape {
                 shape: input_shape.clone(),
                 reason: "BatchNorm expects 2D [N,C] or 4D [N,C,H,W] input".into(),
             });
@@ -204,7 +204,7 @@ impl<B: Backend> Module<B> for BatchNorm<B> {
         };
 
         if channels != num_features {
-            return Err(mnr_core::CoreError::ShapeMismatch {
+            return Err(rustral_core::CoreError::ShapeMismatch {
                 expected: vec![num_features],
                 actual: vec![channels],
             });
@@ -295,8 +295,8 @@ impl<B: Backend> Trainable<B> for BatchNorm<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::Parameter;
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::Parameter;
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_layer_norm_config() {
@@ -344,7 +344,7 @@ mod tests {
     #[test]
     fn test_layer_norm_forward() {
         let backend = CpuBackend::default();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
 
         let weight: Parameter<CpuBackend> =
             Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 4], &[4]).unwrap());
@@ -379,7 +379,7 @@ mod tests {
     #[test]
     fn test_batch_norm_forward() {
         let backend = CpuBackend::default();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
 
         let weight: Parameter<CpuBackend> =
             Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 2], &[2]).unwrap());
@@ -416,7 +416,7 @@ mod tests {
     #[test]
     fn test_layer_norm_forward_invalid_rank() {
         let backend = CpuBackend::default();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
         let weight: Parameter<CpuBackend> =
             Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 4], &[4]).unwrap());
         let bias: Parameter<CpuBackend> =
@@ -432,7 +432,7 @@ mod tests {
     #[test]
     fn test_layer_norm_forward_empty_norm_shape() {
         let backend = CpuBackend::default();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
         let weight: Parameter<CpuBackend> =
             Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 1], &[1]).unwrap());
         let bias: Parameter<CpuBackend> =
@@ -462,7 +462,7 @@ mod tests {
     #[test]
     fn test_batch_norm_forward_invalid_shape() {
         let backend = CpuBackend::default();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
         let weight: Parameter<CpuBackend> =
             Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 2], &[2]).unwrap());
         let bias: Parameter<CpuBackend> =
@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn test_batch_norm_forward_4d() {
         let backend = CpuBackend::default();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
         let weight: Parameter<CpuBackend> =
             Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 2], &[2]).unwrap());
         let bias: Parameter<CpuBackend> =
@@ -497,7 +497,7 @@ mod tests {
     #[test]
     fn test_batch_norm_channel_mismatch() {
         let backend = CpuBackend::default();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
         let weight: Parameter<CpuBackend> =
             Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 2], &[2]).unwrap());
         let bias: Parameter<CpuBackend> =

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== MNR Test Suite ==="
+echo "=== Rustral Test Suite ==="
 
 # Colors
 RED='\033[0;31m'
@@ -20,7 +20,7 @@ run_test() {
         echo -e "${GREEN}PASS${NC}: $crate"
     else
         # Allow wgpu-backend to fail on process exit segfault if tests themselves passed
-        if [ "$crate" = "mnr-wgpu-backend" ]; then
+        if [ "$crate" = "rustral-wgpu-backend" ]; then
             echo -e "${YELLOW}WARN${NC}: $crate test process exited with error (possible GPU driver cleanup issue; tests may have passed)"
         else
             echo -e "${RED}FAIL${NC}: $crate"
@@ -40,7 +40,7 @@ fi
 # Clippy linting
 echo ""
 echo "--- Clippy ---"
-if cargo clippy --workspace -- -D warnings; then
+if cargo clippy --workspace --all-targets -- -D warnings; then
     echo -e "${GREEN}PASS${NC}: Clippy"
 else
     echo -e "${YELLOW}WARN${NC}: Clippy warnings (non-fatal)"
@@ -57,20 +57,20 @@ else
 fi
 
 # Run tests for each crate
-run_test "mnr-core"
-run_test "mnr-ndarray-backend"
-run_test "mnr-symbolic"
-run_test "mnr-nn"
-run_test "mnr-runtime"
-run_test "mnr-autodiff"
-run_test "mnr-optim"
-run_test "mnr-data"
-run_test "mnr-io"
-run_test "mnr-metrics"
-run_test "mnr-distributed"
-run_test "mnr-autotuner"
-run_test "mnr-candle-backend"
-run_test "mnr-wgpu-backend"
+run_test "rustral-core"
+run_test "rustral-ndarray-backend"
+run_test "rustral-symbolic"
+run_test "rustral-nn"
+run_test "rustral-runtime"
+run_test "rustral-autodiff"
+run_test "rustral-optim"
+run_test "rustral-data"
+run_test "rustral-io"
+run_test "rustral-metrics"
+run_test "rustral-distributed"
+run_test "rustral-autotuner"
+run_test "rustral-candle-backend"
+run_test "rustral-wgpu-backend"
 
 # Run root integration tests
 echo ""
@@ -85,7 +85,7 @@ fi
 # Run integration tests / examples
 echo ""
 echo "--- Examples ---"
-if cargo run -p mnr-nn --example linear_readout; then
+if cargo run -p rustral-nn --example linear_readout; then
     echo -e "${GREEN}PASS${NC}: linear_readout example"
 else
     echo -e "${YELLOW}WARN${NC}: linear_readout example failed or not configured"

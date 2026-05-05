@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== MNR (Modular Neural Runtime) Setup ==="
+echo "=== Rustral setup ==="
 
 # Check Rust
 echo "Checking Rust toolchain..."
@@ -49,4 +49,4 @@ echo "Building workspace..."
 cargo build --workspace
 
 echo ""
-echo "Setup complete. Run ./run_tests.sh to execute tests."
+echo "Setup complete. Run ./run_tests.sh to execute tests (see README for CI-parity commands)."

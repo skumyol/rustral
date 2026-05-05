@@ -1,8 +1,13 @@
 //! Performance Benchmark Tests
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module, Trainable};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{
+#![allow(unused_imports, unused_variables, clippy::redundant_field_names)]
+
+mod examples;
+mod gpu;
+
+use rustral_core::{Backend, ForwardCtx, Mode, Module, Trainable};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{
     Conv2d, Conv2dConfig, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig,
     SelfAttention, SelfAttentionConfig, TransformerDecoder, TransformerDecoderConfig, TransformerEncoder,
     TransformerEncoderConfig,
@@ -25,6 +30,8 @@ pub fn run_all(runner: &mut TestRunner) {
     benchmark_end_to_end_pipeline(runner, &config);
     benchmark_memory_scaling(runner);
     benchmark_batch_scaling(runner, &config);
+    examples::benchmark_examples_smoke(runner);
+    gpu::benchmark_gpu_smoke(runner, &config);
 }
 
 fn benchmark_linear_small(runner: &mut TestRunner, config: &PerfConfig) {
@@ -264,7 +271,7 @@ fn benchmark_transformer_decoder(runner: &mut TestRunner, config: &PerfConfig) {
         let decoder_config =
             TransformerDecoderConfig::new(d_model, num_heads, num_layers, ff_dim).with_max_seq_len(128);
 
-        let decoder = mnr_nn::TransformerDecoder::new(&backend, decoder_config, vocab_size, 42)
+        let decoder = rustral_nn::TransformerDecoder::new(&backend, decoder_config, vocab_size, 42)
             .map_err(|e| format!("Create decoder failed: {}", e))?;
 
         let input = vec![100usize; seq_len];

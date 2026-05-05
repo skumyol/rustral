@@ -1,4 +1,4 @@
-//! Core contracts for the Modular Neural Runtime.
+//! Core contracts for the Rustral.
 //!
 //! This crate deliberately keeps state explicit. There is no global parameter
 //! collection and no implicit computation graph renewal.

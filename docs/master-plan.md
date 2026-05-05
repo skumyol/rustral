@@ -1,38 +1,43 @@
-# Neural Engine - Master Development Plan
+# Rustral — master development plan
 
-**Consolidated plan merging distributed training capabilities and improvement roadmap.**
+**Consolidated roadmap:** tutorials, experiments, and stretch goals.
 
-**Last Updated:** 2026-05-02  
-**Status:** Production-Ready with Ongoing Enhancements
+**Last Updated:** 2026-05  
+**Status:** v0.1.0 is an **early API-complete snapshot**, not a promise of parity with PyTorch/JAX on scale or performance.
+
+This document mixes **implemented ideas**, **partial implementations**, and **aspirational** items. For shipping decisions, read the [repository README](../README.md) and crate-level READMEs first.
 
 ---
 
 ## Executive Summary
 
-The Modular Neural Runtime (MNR) is a production-ready deep learning framework in Rust. This master plan consolidates all development tracks: distributed training, inference optimizations, GPU acceleration, and production tooling.
+Rustral is a Rust-first toolkit for learning and prototyping neural networks—explicit contexts, pluggable backends (CPU ndarray reference, Candle CPU/CUDA, experimental WebGPU), layers from MLPs through transformers, and many tests.
 
-### Current State
-- **Training Features:** 100% Complete (Multi-GPU, ZeRO, Tensor/Pipeline Parallelism, MoE)
-- **Inference Features:** 100% Complete (KV Cache, Quantization, Continuous Batching)
-- **GPU Backend:** 95% Complete (25+ WGSL shaders, missing: GPU RNG for Dropout)
-- **Production Tooling:** 85% Complete (Checkpointing done, Metrics/LR Scheduling planned)
-- **Test Coverage:** 95%+ (122 tests across all modules)
+### Current snapshot (trust README over this table)
+
+| Area | v0.1.0 reality |
+|------|----------------|
+| Core / `rustral-nn` / optim / autodiff | Used in examples and hundreds of unit tests |
+| `rustral-distributed` | APIs cover DP/TP/ZERO/FSDP-style flows in **single-process** simulations; MPI/NCCI hooks are **not** production clusters |
+| `rustral-wgpu-backend` | **Experimental** — WGSL kernels exist; some hosts abort during teardown; CI runs tests as non-blocking |
+| Bench numbers | Use `rustral-bench` locally — **do not** treat performance rows below as audited benchmarks unless reproduced |
+
+**Tests:** ~639 library tests passed with `cargo test --workspace --exclude rustral-wgpu-backend` at last count (exact number varies).
 
 ---
 
 ## Phase Overview
 
-| Phase | Name | Status | Completion |
-|-------|------|--------|------------|
-| 0-10 | Foundation | ✅ Complete | 100% |
-| 11 | Distributed Training | ✅ Complete | 100% |
-| 12 | GPU Acceleration | ✅ Complete | 95% |
-| 13 | Mixture of Experts | ✅ Complete | 100% |
-| 14 | Training Optimizations | ✅ Complete | 100% |
-| 15 | Inference Optimizations | ✅ Complete | 100% |
-| 16 | Production Tooling | 🔄 Ongoing | 85% |
-| 17 | Advanced Distributed | 📋 Planned | 0% |
-| 18 | Production Hardening | 📋 Planned | 0% |
+Historical tracking — percentages describe internal milestones, not external certification.
+
+| Phase | Name | Notes |
+|-------|------|--------|
+| 0–10 | Foundation | Core tensor/autodiff/nn flows |
+| 11 | Distributed APIs | Threaded simulation + optional MPI feature flags |
+| 12 | GPU (wgpu) | Experimental cross-platform GPU |
+| 13–15 | MoE / training / inference extras | Model-building blocks + helpers |
+| 16 | Tooling | Metrics, schedules, profiling — ongoing |
+| 17–18 | Scale / hardening | Advanced parallelism, audits — planned |
 
 ---
 
@@ -243,72 +248,49 @@ Based on merged plan analysis, here is the prioritized todo list:
 
 ---
 
-## Module Status Dashboard
+## Module status (informal)
 
-| Module | Lines | Tests | Coverage | Status |
-|--------|-------|-------|----------|--------|
-| mnr_core | ~2,000 | 15 | 100% | ✅ Stable |
-| mnr_autodiff | ~3,500 | 25 | 100% | ✅ Stable |
-| mnr_optim | ~2,500 | 15 | 100% | ✅ Stable |
-| mnr_nn | ~8,000 | 35 | 95% | ✅ Stable |
-| mnr_data | ~1,500 | 8 | 100% | ✅ Stable |
-| mnr_io | ~1,000 | 5 | 100% | ✅ Stable |
-| mnr_distributed | ~5,000 | 14 | 100% | ✅ Stable |
-| mnr_wgpu_backend | ~4,000 | 5 | 95% | 🔄 Near Complete |
-| mnr_bench | ~500 | - | - | ✅ Complete |
-| **Total** | **~28,000** | **122** | **98%** | **✅ Production** |
+Rough LOC and intent — **not** formal coverage metrics.
 
----
-
-## Performance Targets
-
-| Operation | CPU Baseline | GPU Target | Current GPU |
-|-----------|--------------|------------|-------------|
-| Matmul (1024³) | 500ms | 5ms | 4.2ms ✅ |
-| Softmax (32K) | 200ms | 2ms | 1.8ms ✅ |
-| Attention (4K seq) | 1000ms | 20ms | 18ms ✅ |
-| Flash Attn (32K) | OOM | 50ms | 48ms ✅ |
+| Crate | Role |
+|-------|------|
+| `rustral-core` | Tensors, `Backend`, parameters |
+| `rustral-nn` | Layers and composition |
+| `rustral-autodiff` / `rustral-optim` | Gradients and updates |
+| `rustral-distributed` | Parallel **APIs** (simulation-first today) |
+| `rustral-wgpu-backend` | Experimental GPU |
+| `rustral-candle-backend` | Candle CPU/CUDA |
+| `rustral-bench` | Local criterion benches |
 
 ---
 
-## Comparison Matrix
+## Performance
 
-| Feature | MNR | PyTorch | JAX | TensorFlow |
-|---------|-----|---------|-----|------------|
-| Multi-GPU DP | ✅ | ✅ | ✅ | ✅ |
-| Tensor Parallel | ✅ | ✅ | ✅ | ✅ |
-| Pipeline Parallel | ✅ | ✅ | ✅ | ✅ |
-| ZeRO/FSDP | ✅ | ✅ | ✅ | ✅ |
-| Flash Attention | ✅ | ✅ | ✅ | ✅ |
-| MoE | ✅ | ✅ | ✅ | ✅ |
-| Mixed Precision | ✅ | ✅ | ✅ | ✅ |
-| KV Cache | ✅ | ✅ | ✅ | ✅ |
-| Quantization | ✅ | ✅ | ✅ | ✅ |
-| Continuous Batching | ✅ | ✅ | ❌ | ❌ |
-| **Rust Native** | **✅** | **❌** | **❌** | **❌** |
-
-**MNR's Unique Value:** Production-ready deep learning in Rust with zero Python dependency.
+Run `cargo bench -p rustral-bench` (and backend-specific benches) on **your** hardware. Older numeric targets that appeared in this document have been removed until they are reproducible from CI/bench configs.
 
 ---
 
-## Risk Assessment
+## Comparison with Python stacks
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| GPU RNG complexity | Medium | Can use CPU fallback temporarily |
-| 3D parallelism bugs | High | Extensive testing before release |
-| Performance regression | Medium | Automated benchmarks in CI |
-| Documentation gaps | Low | Incremental improvement |
+PyTorch/JAX ship mature kernels, distributed runtimes, and ecosystems Rustral does **not** replace overnight. Rustral’s niche is **Rust-native**, explicit-state experimentation—not drop-in datacenter training without extra engineering.
 
 ---
 
-## Next Actions (Immediate)
+## Risks
 
-1. **Complete system tests** (in progress - 61+ tests added)
-2. **Implement GPU RNG for Dropout**
-3. **Add TensorBoard/WandB metrics integration**
-4. **Implement LR scheduling (warmup, cosine)**
-5. **Begin 3D parallelism design**
+| Risk | Mitigation |
+|------|------------|
+| Experimental GPU backend | Prefer Candle for reliability until `wgpu` upgrades land |
+| Distributed **simulation vs cluster** | Read API docs; don’t assume NCCL/MPI cluster parity |
+| Benchmark regression | Add benches to CI when stable |
+
+---
+
+## Next actions (maintainers)
+
+1. Keep README / master-plan aligned with **honest** scope each release.
+2. Upgrade `wgpu` and revisit GPU RNG/dropout stories.
+3. Wire metrics (`rustral-metrics`) to real sinks where desired.
 
 ---
 

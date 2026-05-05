@@ -7,13 +7,13 @@
 //! - Encoder: Processes source sequence
 //! - Decoder: Generates target sequence
 //!
-//! Run with: `cargo run -p mnr-nn --example transformer_seq2seq`
+//! Run with: `cargo run -p rustral-nn --example transformer_seq2seq`
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_nn::{Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig};
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_nn::{Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig};
 
 fn main() {
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_ndarray_backend::CpuBackend;
 
     println!("Sequence-to-Sequence Transformer Example");
     println!("=========================================\n");

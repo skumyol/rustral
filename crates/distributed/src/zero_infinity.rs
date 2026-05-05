@@ -18,7 +18,7 @@
 //!
 //! # Example
 //! ```rust,ignore
-//! use mnr_distributed::zero_infinity::ZeroInfinity;
+//! use rustral_distributed::zero_infinity::ZeroInfinity;
 //!
 //! let config = ZeroInfinityConfig::new()
 //!     .with_cpu_offload(true)
@@ -33,8 +33,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, Result, TensorOps, TensorShape};
-use mnr_optim::{Adam, Gradient, OptimError};
+use rustral_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, Result, TensorOps, TensorShape};
+use rustral_optim::{Adam, Gradient, OptimError};
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
 
@@ -171,7 +171,7 @@ pub struct ZeroInfinity<B: Backend> {
 
 impl<B: Backend> ZeroInfinity<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create new ZeRO-Infinity optimizer
     pub fn new(
@@ -576,9 +576,9 @@ pub struct ZeROMemoryEstimate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode, Parameter};
-    use mnr_ndarray_backend::CpuBackend;
-    use mnr_optim::{Adam, Gradient};
+    use rustral_core::{ForwardCtx, Mode, Parameter};
+    use rustral_ndarray_backend::CpuBackend;
+    use rustral_optim::{Adam, Gradient};
 
     #[test]
     fn test_config_builder() {

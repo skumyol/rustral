@@ -2,7 +2,7 @@
 
 This document is an explicit, human-readable API inventory. It mirrors the public function signatures in the workspace and explains the purpose of each signature. It is meant to make architectural review easy before adding a production backend.
 
-## `mnr-core`
+## `rustral-core`
 
 ### Backend contract
 
@@ -158,7 +158,7 @@ pub trait ShapeExt {
 
 - `elem_count`: computes the product of dimensions for slices.
 
-## `mnr-ndarray-backend`
+## `rustral-ndarray-backend`
 
 ### CPU tensor
 
@@ -190,7 +190,7 @@ impl CpuBackend {
 
 The `CpuBackend` implementation of `Backend` and `CpuOps` implementation of `TensorOps` provide the concrete behavior for all core tensor operations listed above.
 
-## `mnr-symbolic`
+## `rustral-symbolic`
 
 ```rust
 impl Vocabulary {
@@ -220,7 +220,7 @@ impl Vocabulary {
 - `token`: retrieves a token by id.
 - `tokens`: iterates over tokens in id order.
 
-## `mnr-nn`
+## `rustral-nn`
 
 ### Linear
 
@@ -310,7 +310,7 @@ fn forward(&self, input: I, ctx: &mut ForwardCtx<BE>) -> Result<O>;
 
 - `forward`: runs the first module, then the second.
 
-## `mnr-runtime`
+## `rustral-runtime`
 
 ### Learner and trainer
 

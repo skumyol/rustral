@@ -3,9 +3,9 @@
 //! Tests LSTM sequence processing performance.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use mnr_core::{Backend, ForwardCtx, Mode, Module, StatefulModule};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{LstmCell, LstmConfig};
+use rustral_core::{ForwardCtx, Mode, Module, StatefulModule};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{LstmCell, LstmConfig};
 
 fn bench_lstm_forward(c: &mut Criterion) {
     let backend = CpuBackend::default();
@@ -20,8 +20,6 @@ fn bench_lstm_forward(c: &mut Criterion) {
 
     for &(name, hidden_size, seq_len) in &configs {
         let lstm = LstmCell::new(&backend, LstmConfig::new(hidden_size)).unwrap();
-
-        let input = backend.tensor_from_vec(vec![1.0f32; hidden_size], &[hidden_size]).unwrap();
 
         group.bench_with_input(
             BenchmarkId::new("sequence", name),

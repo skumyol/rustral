@@ -1,10 +1,10 @@
-# Security Guidelines for MNR
+# Security Guidelines for Rustral
 
-This document outlines security practices for the Modular Neural Runtime (MNR) project.
+This document outlines security practices for Rustral.
 
 ## Security Philosophy
 
-MNR handles potentially sensitive data (model weights, training data) and runs with high privileges on GPU hardware. Security is critical at every layer.
+Rustral handles potentially sensitive data (model weights, training data) and runs with high privileges on GPU hardware. Security is critical at every layer.
 
 ## Current Security Posture
 
@@ -57,7 +57,7 @@ Requirements:
 
 ```rust
 // Safe - format is well-defined and limited
-use mnr_io::SafetensorsLoader;
+use rustral_io::SafetensorsLoader;
 let tensors = SafetensorsLoader::new().load(path)?;
 ```
 
@@ -99,16 +99,16 @@ Never hardcode credentials:
 const API_KEY: &str = "sk-1234567890abcdef";
 
 // ✅ GOOD
-let api_key = std::env::var("MNR_API_KEY")
+let api_key = std::env::var("RUSTRAL_API_KEY")
     .map_err(|_| Error::MissingApiKey)?;
 ```
 
 ## Vulnerability Disclosure
 
-If you discover a security vulnerability in MNR:
+If you discover a security vulnerability in Rustral:
 
-1. **DO NOT** open a public issue
-2. Email: security@example.com (placeholder)
+1. **DO NOT** open a public issue with exploit details
+2. Prefer **[GitHub private vulnerability reporting](https://github.com/skumyol/rustral/security/advisories/new)** for the repository (enable “Private vulnerability reporting” in repo settings if needed).
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
@@ -173,7 +173,7 @@ When training on sensitive data:
 Track model lineage:
 
 ```rust
-use mnr_metrics::ProvenanceTracker;
+use rustral_metrics::ProvenanceTracker;
 
 let tracker = ProvenanceTracker::new()
     .with_training_data("dataset-v1.2")
@@ -233,5 +233,5 @@ Recommended before production:
 
 ## Contact
 
-Security Team: security@example.com (placeholder)
-General Issues: [GitHub Issues](https://github.com/example/mnr/issues)
+Security: use [GitHub Security Advisories](https://github.com/skumyol/rustral/security) for responsible disclosure.  
+General bugs and questions: [Issues](https://github.com/skumyol/rustral/issues).

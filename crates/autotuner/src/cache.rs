@@ -18,7 +18,7 @@ pub struct CacheEntry {
     pub device_id: String,
     /// Timestamp when tuned.
     pub timestamp: u64,
-    /// MNR version when tuned.
+    /// Rustral version when tuned.
     pub version: String,
     /// Number of samples averaged.
     pub num_samples: usize,
@@ -77,7 +77,7 @@ impl ConfigCache {
     /// Create a new cache with default location.
     pub fn new() -> Self {
         let cache_dir =
-            dirs::cache_dir().unwrap_or_else(|| PathBuf::from(".cache")).join("mnr").join("autotuner");
+            dirs::cache_dir().unwrap_or_else(|| PathBuf::from(".cache")).join("rustral").join("autotuner");
 
         let _ = fs::create_dir_all(&cache_dir);
 
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn test_config_cache() {
         let temp_dir = std::env::temp_dir();
-        let cache_path = temp_dir.join("test_mnr_cache.json");
+        let cache_path = temp_dir.join("test_rustral_cache.json");
 
         let mut cache = ConfigCache::with_path(&cache_path);
         cache.clear();
@@ -363,14 +363,14 @@ mod tests {
 
     #[test]
     fn test_config_cache_with_path_and_max_age() {
-        let temp_path = std::env::temp_dir().join("test_mnr_cache_unique.json");
+        let temp_path = std::env::temp_dir().join("test_rustral_cache_unique.json");
         let cache = ConfigCache::with_path(&temp_path).with_max_age(7);
         assert_eq!(cache.max_age_days, 7);
     }
 
     #[test]
     fn test_config_cache_get_missing_and_stale() {
-        let temp_path = std::env::temp_dir().join("test_mnr_cache_get.json");
+        let temp_path = std::env::temp_dir().join("test_rustral_cache_get.json");
         let mut cache = ConfigCache::with_path(&temp_path);
         cache.clear();
 
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn test_config_cache_insert_merge() {
-        let temp_path = std::env::temp_dir().join("test_mnr_cache_merge.json");
+        let temp_path = std::env::temp_dir().join("test_rustral_cache_merge.json");
         let mut cache = ConfigCache::with_path(&temp_path);
         cache.clear();
 
@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     fn test_config_cache_clear_and_len() {
-        let temp_path = std::env::temp_dir().join("test_mnr_cache_len.json");
+        let temp_path = std::env::temp_dir().join("test_rustral_cache_len.json");
         let mut cache = ConfigCache::with_path(&temp_path);
         cache.clear();
         assert!(cache.is_empty());
@@ -429,7 +429,7 @@ mod tests {
 
     #[test]
     fn test_config_cache_stats() {
-        let temp_path = std::env::temp_dir().join("test_mnr_cache_stats.json");
+        let temp_path = std::env::temp_dir().join("test_rustral_cache_stats.json");
         let mut cache = ConfigCache::with_path(&temp_path);
         cache.clear();
 

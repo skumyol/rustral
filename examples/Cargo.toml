@@ -1,5 +1,5 @@
 [package]
-name = "mnr-examples"
+name = "rustral-examples"
 version = "0.1.0"
 edition = "2021"
 
@@ -21,6 +21,10 @@ path = "basics/mnist.rs"
 [[bin]]
 name = "char_rnn"
 path = "basics/char_rnn.rs"
+
+[[bin]]
+name = "serious_train"
+path = "basics/serious_train.rs"
 
 [[bin]]
 name = "nanogpt"
@@ -57,16 +61,21 @@ path = "advanced/moe_training.rs"
 name = "custom_layer"
 path = "advanced/custom_layer.rs"
 
+[features]
+default = []
+cuda = ["rustral-candle-backend/cuda"]
+
 [dependencies]
-mnr-core = { path = "../crates/core" }
-mnr-ndarray-backend = { path = "../crates/ndarray-backend" }
-mnr-nn = { path = "../crates/nn" }
-mnr-autodiff = { path = "../crates/autodiff" }
-mnr-optim = { path = "../crates/optim" }
-mnr-data = { path = "../crates/data" }
-mnr-distributed = { path = "../crates/distributed" }
-mnr-runtime = { path = "../crates/runtime" }
-mnr-symbolic = { path = "../crates/symbolic" }
-mnr-candle-backend = { path = "../crates/candle-backend" }
-candle-core = "0.10"
+rustral-core = { path = "../crates/core", version = "0.1.0" }
+rustral-ndarray-backend = { path = "../crates/ndarray-backend", version = "0.1.0" }
+rustral-nn = { path = "../crates/nn", version = "0.1.0" }
+rustral-autodiff = { path = "../crates/autodiff", version = "0.1.0" }
+rustral-optim = { path = "../crates/optim", version = "0.1.0" }
+rustral-data = { path = "../crates/data", version = "0.1.0" }
+rustral-distributed = { path = "../crates/distributed", version = "0.1.0" }
+rustral-runtime = { path = "../crates/runtime", version = "0.1.0", features = ["training"] }
+rustral-symbolic = { path = "../crates/symbolic", version = "0.1.0" }
+rustral-candle-backend = { path = "../crates/candle-backend", version = "0.1.0" }
+candle-core = "0.10.2"
 rand = "0.8"
+anyhow = "1"

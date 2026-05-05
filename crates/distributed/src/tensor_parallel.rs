@@ -3,8 +3,8 @@
 //! Tensor parallelism splits individual layers across multiple GPUs.
 //! This is essential for training very large models that don't fit on a single GPU.
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Module, Result, TensorOps, Trainable};
-use mnr_nn::Linear;
+use rustral_core::{Backend, CoreError, ForwardCtx, Module, Result, TensorOps, Trainable};
+use rustral_nn::Linear;
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
 
@@ -47,7 +47,7 @@ pub enum ParallelStyle {
 
 impl<B: Backend> TensorParallelLinear<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create a column-parallel linear layer.
     ///
@@ -60,7 +60,6 @@ where
         backend: &B,
     ) -> DistributedResult<Self> {
         let world_size = process_group.world_size();
-        let rank = process_group.rank();
 
         // Split output dimension
         let local_out = out_features / world_size;
@@ -72,7 +71,7 @@ where
         }
 
         // Each GPU owns [local_out, in_features] of the weight
-        let config = mnr_nn::LinearConfig::new(in_features, local_out);
+        let config = rustral_nn::LinearConfig::new(in_features, local_out);
         let local_linear = Linear::new(backend, config).map_err(|e| DistributedError::Backend(e.into()))?;
 
         Ok(Self {
@@ -93,7 +92,6 @@ where
         backend: &B,
     ) -> DistributedResult<Self> {
         let world_size = process_group.world_size();
-        let rank = process_group.rank();
 
         // Split input dimension
         let local_in = in_features / world_size;
@@ -105,7 +103,7 @@ where
         }
 
         // Each GPU owns [out_features, local_in] of the weight
-        let config = mnr_nn::LinearConfig::new(local_in, out_features);
+        let config = rustral_nn::LinearConfig::new(local_in, out_features);
         let local_linear = Linear::new(backend, config).map_err(|e| DistributedError::Backend(e.into()))?;
 
         Ok(Self {
@@ -119,16 +117,36 @@ where
     pub fn forward(&self, input: &B::Tensor, ctx: &mut ForwardCtx<B>) -> DistributedResult<B::Tensor> {
         match self.parallel_style {
             ParallelStyle::ColumnParallel => {
-                // Each GPU computes partial output
+                // Each rank computes a shard of the output features; results must be concatenated.
                 let local_output = self
                     .local_linear
                     .forward(input.clone(), ctx)
                     .map_err(|e| DistributedError::Backend(e.into()))?;
 
-                // All-gather: collect partial outputs from all GPUs
-                // For now, simplified implementation
-                // Full implementation needs proper all-gather primitive
-                Ok(local_output)
+                let ws = self.process_group.world_size();
+                if ws == 1 {
+                    return Ok(local_output);
+                }
+
+                let shape = ctx.backend().ops().shape(&local_output);
+                if shape.len() != 2 {
+                    return Err(DistributedError::Communication(
+                        "TensorParallelLinear column-parallel expects rank-2 tensors [batch, local_out]"
+                            .into(),
+                    ));
+                }
+
+                let send = local_output.as_ref().to_vec();
+                let send_len = send.len();
+                let mut recv = vec![0.0f32; send_len * ws];
+                self.process_group.all_gather_f32(&send, &mut recv)?;
+
+                let batch = shape[0];
+                let out_features = shape[1] * ws;
+                ctx.backend()
+                    .ops()
+                    .tensor_from_vec(recv, &[batch, out_features])
+                    .map_err(|e| DistributedError::Backend(e.into()))
             }
             ParallelStyle::RowParallel => {
                 // Split input (in practice, input would already be split)
@@ -162,7 +180,7 @@ where
     }
 
     /// Get local parameters.
-    pub fn parameters(&self) -> Vec<mnr_core::ParameterRef> {
+    pub fn parameters(&self) -> Vec<rustral_core::ParameterRef> {
         self.local_linear.parameters()
     }
 }
@@ -305,7 +323,7 @@ impl<B: Backend> AllGatherOp<B> {
     /// Perform all-gather.
     pub fn execute(&self, local_tensor: &B::Tensor, ops: &dyn TensorOps<B>) -> Result<B::Tensor>
     where
-        B::Tensor: AsRef<[f32]> + mnr_core::TensorShape,
+        B::Tensor: AsRef<[f32]> + rustral_core::TensorShape,
     {
         // In full implementation, this would:
         // 1. Gather tensor sizes from all ranks
@@ -359,9 +377,9 @@ impl AllReduceOp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode, Module};
-    use mnr_ndarray_backend::CpuBackend;
-    use mnr_nn::{Linear, LinearConfig};
+    use rustral_core::{ForwardCtx, Mode, Module};
+    use rustral_ndarray_backend::CpuBackend;
+    use rustral_nn::{Linear, LinearConfig};
 
     #[test]
     fn test_tensor_parallel_linear_column() {
@@ -507,7 +525,7 @@ mod tests {
         let batch = vec![backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap()];
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
 
-        let mut loss_fn = |_item: &<CpuBackend as mnr_core::Backend>::Tensor,
+        let mut loss_fn = |_item: &<CpuBackend as rustral_core::Backend>::Tensor,
                            _ctx: &mut ForwardCtx<CpuBackend>| {
             backend
                 .tensor_from_vec(vec![0.5f32], &[1])

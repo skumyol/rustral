@@ -1,6 +1,6 @@
-# MNR Examples Gallery
+# Rustral Examples Gallery
 
-This directory contains runnable examples demonstrating every aspect of the Modular Neural Runtime. Each example is designed to teach specific concepts.
+This directory contains runnable examples demonstrating every aspect of Rustral. Each example is designed to teach specific concepts.
 
 ## Directory Structure
 
@@ -498,10 +498,10 @@ cargo run --bin char_rnn --release
 //! cargo run --example my_example
 //! ```
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{Linear, LinearBuilder, MSELoss};
-use mnr_optim::Adam;
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{Linear, LinearBuilder, MSELoss};
+use rustral_optim::Adam;
 
 fn main() {
     println!("My Custom Example");

@@ -2,9 +2,11 @@
 //!
 //! Tests for known bugs and edge cases.
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Mode, Module, TensorOps};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{
+#![allow(unused_imports, unused_variables)]
+
+use rustral_core::{Backend, CoreError, ForwardCtx, Mode, Module, TensorOps};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{
     Conv2d, Conv2dConfig, Dropout, DropoutConfig, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig,
     Linear, LinearConfig, SelfAttention, SelfAttentionConfig, TransformerDecoder, TransformerDecoderConfig,
     TransformerEncoder, TransformerEncoderConfig,
@@ -229,7 +231,7 @@ fn test_causal_mask_boundary(runner: &mut TestRunner) {
         let backend = CpuBackend::default();
 
         let seq_len = 1usize;
-        let mask = mnr_nn::causal_mask(&backend, seq_len)
+        let mask = rustral_nn::causal_mask(&backend, seq_len)
             .map_err(|e| format!("Create causal mask failed: {}", e))?;
 
         let mask_data: Vec<f32> = mask.as_ref().to_vec();
@@ -238,7 +240,7 @@ fn test_causal_mask_boundary(runner: &mut TestRunner) {
         assert_eq!(mask_data[0], 0.0, "Single position should not be masked");
 
         let seq_len = 4usize;
-        let mask = mnr_nn::causal_mask(&backend, seq_len)
+        let mask = rustral_nn::causal_mask(&backend, seq_len)
             .map_err(|e| format!("Create causal mask failed: {}", e))?;
 
         let mask_data: Vec<f32> = mask.as_ref().to_vec();

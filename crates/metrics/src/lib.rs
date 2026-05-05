@@ -1,4 +1,4 @@
-//! Metrics and Logging for MNR
+//! Metrics and Logging for Rustral
 //!
 //! Provides production-ready metric collection, logging, and export
 //! for training and inference workloads.
@@ -12,7 +12,7 @@
 //! # Quick Start
 //!
 //! ```rust,ignore
-//! use mnr_metrics::{MetricsLogger, ConsoleLogger, TensorBoardWriter};
+//! use rustral_metrics::{MetricsLogger, ConsoleLogger, TensorBoardWriter};
 //!
 //! let mut logger = MetricsLogger::new();
 //! logger.add_backend(Box::new(ConsoleLogger::new()));

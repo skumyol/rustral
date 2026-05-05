@@ -1,15 +1,23 @@
 [package]
-name = "mnr-data"
+name = "rustral-data"
 version = "0.1.0"
-edition = "2021"
-authors = ["Modular Neural Runtime Contributors"]
-license = "MIT OR Apache-2.0"
-description = "Data loading and dataset abstractions for MNR"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+description = "Data loading, batching, and dataset abstractions for Rustral"
+
+[lints]
+workspace = true
 
 [dependencies]
-mnr-core = { path = "../core" }
-rand = { version = "0.8", features = ["std_rng"] }
+rustral-core = { path = "../core", version = "0.1.0" }
+rand = { workspace = true, features = ["std_rng"] }
 memmap2 = "0.9"
 
 [dev-dependencies]
-mnr-ndarray-backend = { path = "../ndarray-backend" }
+rustral-ndarray-backend = { path = "../ndarray-backend", version = "0.1.0" }

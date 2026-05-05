@@ -23,7 +23,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use mnr_nn::shared_expert::{SharedExpertLayer, SharedExpertConfig};
+//! use rustral_nn::shared_expert::{SharedExpertLayer, SharedExpertConfig};
 //!
 //! let config = SharedExpertConfig::new(512, 8, 2048)
 //!     .with_shared_experts(1)
@@ -34,7 +34,7 @@
 //! let output = layer.forward(input, &mut ctx)?;
 //! ```
 
-use mnr_core::{Backend, ForwardCtx, Module, Result, TensorOps};
+use rustral_core::{Backend, ForwardCtx, Module, Result, TensorOps};
 use serde::{Deserialize, Serialize};
 
 use crate::{Linear, LinearConfig};
@@ -170,7 +170,7 @@ impl<B: Backend> ExpertMLP<B> {
 
 impl<B: Backend> SharedExpertLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     pub fn new(backend: &B, config: SharedExpertConfig, _seed: u64) -> Result<Self> {
         let mut shared_experts = Vec::with_capacity(config.num_shared);
@@ -413,8 +413,8 @@ impl SharedAndRoutedConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::Mode;
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::Mode;
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_shared_expert_config() {

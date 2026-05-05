@@ -1,4 +1,4 @@
-use mnr_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, Saveable, Trainable};
+use rustral_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, Saveable, Trainable};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -167,7 +167,7 @@ impl<B: Backend> Saveable<B> for Linear<B> {
         // Load weight
         let weight_data = dict
             .get("weight")
-            .ok_or_else(|| mnr_core::CoreError::InvalidArgument("Missing 'weight' in state_dict".into()))?;
+            .ok_or_else(|| rustral_core::CoreError::InvalidArgument("Missing 'weight' in state_dict".into()))?;
         let weight_shape = &[self.config.out_dim, self.config.in_dim];
         let new_weight = backend.parameter_from_vec("weight", weight_data.clone(), weight_shape)?;
         self.weight = new_weight;
@@ -176,7 +176,7 @@ impl<B: Backend> Saveable<B> for Linear<B> {
         if self.config.bias {
             let bias_data = dict
                 .get("bias")
-                .ok_or_else(|| mnr_core::CoreError::InvalidArgument("Missing 'bias' in state_dict".into()))?;
+                .ok_or_else(|| rustral_core::CoreError::InvalidArgument("Missing 'bias' in state_dict".into()))?;
             let bias_shape = &[self.config.out_dim];
             let new_bias = backend.parameter_from_vec("bias", bias_data.clone(), bias_shape)?;
             self.bias = Some(new_bias);
@@ -189,8 +189,8 @@ impl<B: Backend> Saveable<B> for Linear<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode};
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::{ForwardCtx, Mode};
+    use rustral_ndarray_backend::CpuBackend;
 
     fn create_mock_linear(in_dim: usize, out_dim: usize, bias: bool) -> Linear<CpuBackend> {
         let backend = CpuBackend::default();

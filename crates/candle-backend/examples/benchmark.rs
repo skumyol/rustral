@@ -15,9 +15,9 @@ fn main() {
 
         // ndarray backend
         {
-            use mnr_ndarray_backend::CpuBackend;
-            use mnr_core::{Backend, ForwardCtx, Mode, Module};
-            use mnr_nn::{Linear, LinearConfig};
+            use rustral_ndarray_backend::CpuBackend;
+            use rustral_core::{ForwardCtx, Mode, Module};
+            use rustral_nn::{Linear, LinearConfig};
 
             let backend = CpuBackend::default();
             let linear = Linear::new(&backend, LinearConfig::new(in_features, out_features)).unwrap();
@@ -34,9 +34,9 @@ fn main() {
 
         // candle backend
         {
-            use mnr_candle_backend::CandleBackend;
-            use mnr_core::{Backend, ForwardCtx, Mode, Module};
-            use mnr_nn::{Linear, LinearConfig};
+            use rustral_candle_backend::CandleBackend;
+            use rustral_core::{ForwardCtx, Mode, Module};
+            use rustral_nn::{Linear, LinearConfig};
 
             let backend = CandleBackend::cpu();
             let linear = Linear::new(&backend, LinearConfig::new(in_features, out_features)).unwrap();

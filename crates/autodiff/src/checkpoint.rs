@@ -7,7 +7,7 @@
 //! # Usage
 //!
 //! ```rust,ignore
-//! use mnr_autodiff::checkpoint::{CheckpointConfig, checkpoint_forward};
+//! use rustral_autodiff::checkpoint::{CheckpointConfig, checkpoint_forward};
 //!
 //! // Define a checkpointed segment
 //! let output = checkpoint_segment(input, |x| {
@@ -20,7 +20,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use mnr_core::{Backend, ForwardCtx, Module, Result};
+use rustral_core::{Backend, ForwardCtx, Module, Result};
 
 use crate::TensorId;
 
@@ -303,7 +303,7 @@ macro_rules! checkpointed {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_checkpoint_config_default() {
@@ -379,7 +379,7 @@ mod tests {
                 Ok(tensor.clone())
             });
 
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Train);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Train);
         let recomputed = segment.recompute(&mut ctx).unwrap();
         let vals: Vec<f32> = recomputed.values().to_vec();
         assert_eq!(vals, vec![1.0, 2.0, 3.0]);
@@ -388,7 +388,7 @@ mod tests {
     #[test]
     fn test_checkpoint_segment_enabled() {
         let backend = CpuBackend::default();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Train);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Train);
         let input = backend.tensor_from_vec(vec![1.0, 2.0, 3.0], &[3]).unwrap();
         let config = CheckpointConfig::default();
 
@@ -400,7 +400,7 @@ mod tests {
     #[test]
     fn test_checkpoint_segment_disabled() {
         let backend = CpuBackend::default();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Train);
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Train);
         let input = backend.tensor_from_vec(vec![1.0, 2.0, 3.0], &[3]).unwrap();
         let config = CheckpointConfig::disabled();
 
@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     fn test_checkpointed_transformer_layer() {
-        use mnr_core::{Backend, ForwardCtx, Module, Result};
+        use rustral_core::{Backend, ForwardCtx, Module, Result};
 
         struct DummyLayer;
 
@@ -425,7 +425,7 @@ mod tests {
         }
 
         let backend = CpuBackend::default();
-        let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Train);
+        let mut ctx = ForwardCtx::new(&backend, rustral_core::Mode::Train);
         let config = CheckpointConfig::default();
 
         let layer = CheckpointedTransformerLayer::new(DummyLayer, 1, &config);
@@ -464,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_model() {
-        use mnr_core::{Backend, ForwardCtx, Module, Result};
+        use rustral_core::{Backend, ForwardCtx, Module, Result};
 
         struct DummyLayer;
 

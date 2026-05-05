@@ -1,28 +1,38 @@
 [package]
-name = "mnr"
+name = "rustral"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Modular Neural Runtime - System integration test root package"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+description = "Rustral workspace root — integration tests and umbrella crate for the neural network framework"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+cuda = ["rustral-candle-backend/cuda"]
 
 [dependencies]
-mnr-core = { path = "crates/core" }
-mnr-ndarray-backend = { path = "crates/ndarray-backend" }
-mnr-nn = { path = "crates/nn" }
-mnr-data = { path = "crates/data" }
-mnr-autodiff = { path = "crates/autodiff" }
-mnr-optim = { path = "crates/optim" }
-mnr-runtime = { path = "crates/runtime" }
-mnr-distributed = { path = "crates/distributed" }
-mnr-symbolic = { path = "crates/symbolic" }
-mnr-metrics = { path = "crates/metrics" }
-mnr-autotuner = { path = "crates/autotuner" }
-mnr-io = { path = "crates/io" }
-mnr-hf = { path = "crates/hf" }
-mnr-candle-backend = { path = "crates/candle-backend" }
+rustral-core = { path = "crates/core", version = "0.1.0" }
+rustral-ndarray-backend = { path = "crates/ndarray-backend", version = "0.1.0" }
+rustral-nn = { path = "crates/nn", version = "0.1.0" }
+rustral-data = { path = "crates/data", version = "0.1.0" }
+rustral-autodiff = { path = "crates/autodiff", version = "0.1.0" }
+rustral-optim = { path = "crates/optim", version = "0.1.0" }
+rustral-runtime = { path = "crates/runtime", version = "0.1.0" }
+rustral-distributed = { path = "crates/distributed", version = "0.1.0" }
+rustral-symbolic = { path = "crates/symbolic", version = "0.1.0" }
+rustral-metrics = { path = "crates/metrics", version = "0.1.0" }
+rustral-autotuner = { path = "crates/autotuner", version = "0.1.0" }
+rustral-io = { path = "crates/io", version = "0.1.0" }
+rustral-hf = { path = "crates/hf", version = "0.1.0" }
+rustral-candle-backend = { path = "crates/candle-backend", version = "0.1.0" }
 
 [dev-dependencies]
 rand = { workspace = true }
@@ -48,12 +58,33 @@ members = [
 ]
 resolver = "2"
 
+[workspace.lints.clippy]
+manual_div_ceil = "allow"
+type_complexity = "allow"
+needless_range_loop = "allow"
+needless_borrow = "allow"
+useless_conversion = "allow"
+single_component_path_imports = "allow"
+unused_enumerate_index = "allow"
+redundant_closure = "allow"
+unnecessary_lazy_evaluations = "allow"
+if_same_then_else = "allow"
+collapsible_match = "allow"
+single_match = "allow"
+unnecessary_cast = "allow"
+manual_clamp = "allow"
+match_like_matches_macro = "allow"
+new_without_default = "allow"
+same_item_push = "allow"
+
 [workspace.package]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 rust-version = "1.75"
-authors = ["Modular Neural Runtime Contributors"]
-repository = "https://example.invalid/modular-neural-runtime"
+authors = ["Rustral Contributors"]
+repository = "https://github.com/skumyol/rustral"
+keywords = ["machine-learning", "neural-network", "deep-learning", "tensor", "autodiff"]
+categories = ["science", "mathematics"]
 
 [workspace.dependencies]
 anyhow = "1"
@@ -76,3 +107,8 @@ panic = "abort"
 opt-level = 3
 debug = false
 lto = "thin"
+
+# Workaround: CUDA 12.0 + sm75 build failure in `candle-kernels` (`__hmax_nan` / `__hmin_nan`).
+# We patch the crate locally (vendored) to keep CUDA 12.0 + sm75 compiling.
+[patch.crates-io]
+candle-kernels = { path = "vendor/candle-kernels" }

@@ -3,6 +3,9 @@
 //! Provides shared infrastructure for bug detection, performance testing,
 //! and integration validation across all crates.
 
+#![allow(dead_code)] // Perf/memory helpers used selectively by integration tests
+#![allow(clippy::redundant_closure)] // FnOnce closures often cannot be simplified
+
 use std::panic;
 use std::time::{Duration, Instant};
 

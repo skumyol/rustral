@@ -1,19 +1,28 @@
 [package]
-name = "mnr-nn"
+name = "rustral-nn"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+description = "Neural network layers (CNN, RNN, Transformer, MoE, …) for Rustral"
+
+[lints]
+workspace = true
 
 [dependencies]
-mnr-core = { path = "../core" }
-mnr-symbolic = { path = "../symbolic" }
+rustral-core = { path = "../core", version = "0.1.0" }
+rustral-symbolic = { path = "../symbolic", version = "0.1.0" }
 serde.workspace = true
 rand.workspace = true
 rayon.workspace = true
 
 [dev-dependencies]
-mnr-ndarray-backend = { path = "../ndarray-backend" }
+rustral-ndarray-backend = { path = "../ndarray-backend", version = "0.1.0" }
 anyhow.workspace = true
 
 [[example]]

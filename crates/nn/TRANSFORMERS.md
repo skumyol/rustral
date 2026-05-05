@@ -16,8 +16,8 @@ following the architectures from BERT, GPT, T5, and BART.
 ### BERT-Style Encoder
 
 ```rust
-use mnr_nn::{TransformerEncoder, TransformerEncoderConfig};
-use mnr_ndarray_backend::CpuBackend;
+use rustral_nn::{TransformerEncoder, TransformerEncoderConfig};
+use rustral_ndarray_backend::CpuBackend;
 
 let backend = CpuBackend::default();
 
@@ -39,7 +39,7 @@ let cls = encoder.cls_token(&output, backend.ops())?; // [batch, d_model]
 ### GPT-Style Decoder
 
 ```rust
-use mnr_nn::{TransformerDecoder, TransformerDecoderConfig};
+use rustral_nn::{TransformerDecoder, TransformerDecoderConfig};
 
 let config = TransformerDecoderConfig::new(768, 12, 12, 3072)
     .with_max_seq_len(1024);
@@ -57,7 +57,7 @@ let next_token = decoder.generate_token(&prefix, &mut ctx)?;
 ### T5-Style Encoder-Decoder
 
 ```rust
-use mnr_nn::{
+use rustral_nn::{
     TransformerEncoderDecoder,
     EncoderDecoderConfig,
     TransformerEncoderConfig,

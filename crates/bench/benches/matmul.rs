@@ -3,8 +3,8 @@
 //! Compares matmul performance across different matrix sizes.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use mnr_core::{Backend, TensorOps};
-use mnr_ndarray_backend::CpuBackend;
+use rustral_core::Backend;
+use rustral_ndarray_backend::CpuBackend;
 
 fn bench_matmul(c: &mut Criterion) {
     let backend = CpuBackend::default();

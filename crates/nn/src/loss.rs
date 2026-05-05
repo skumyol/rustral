@@ -3,7 +3,7 @@
 //! Provides common loss functions like MSE and Cross-Entropy
 //! that work with any Backend implementation.
 
-use mnr_core::{Backend, ForwardCtx, Result};
+use rustral_core::{Backend, ForwardCtx, Result};
 
 /// Mean Squared Error loss.
 ///
@@ -11,8 +11,8 @@ use mnr_core::{Backend, ForwardCtx, Result};
 ///
 /// # Example
 /// ```
-/// use mnr_core::{Backend, ForwardCtx, Mode};
-/// use mnr_nn::MSELoss;
+/// use rustral_core::{Backend, ForwardCtx, Mode};
+/// use rustral_nn::MSELoss;
 ///
 /// // In practice, use a concrete backend like CpuBackend
 /// ```
@@ -227,8 +227,8 @@ impl Default for BCEWithLogitsLoss {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode};
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::{ForwardCtx, Mode};
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_mse_loss_forward() {

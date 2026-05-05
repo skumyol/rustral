@@ -1,19 +1,19 @@
-//! HuggingFace Hub integration for MNR.
+//! HuggingFace Hub integration for Rustral.
 //!
 //! Provides standalone functions for downloading and uploading model
 //! state dictionaries to/from the HuggingFace Hub.
 //!
-//! This crate follows the same design philosophy as `mnr-io`: all
+//! This crate follows the same design philosophy as `rustral-io`: all
 //! operations are standalone functions, not methods on [`Backend`] or
 //! [`Module`]. Async/networking concerns are kept out of core traits.
 //!
 //! # Downloading a pretrained model
 //!
 //! ```rust,ignore
-//! use mnr_hf::download_state_dict;
-//! use mnr_nn::{Linear, LinearConfig};
-//! use mnr_core::Saveable;
-//! use mnr_ndarray_backend::CpuBackend;
+//! use rustral_hf::download_state_dict;
+//! use rustral_nn::{Linear, LinearConfig};
+//! use rustral_core::Saveable;
+//! use rustral_ndarray_backend::CpuBackend;
 //!
 //! // Download weights from HF Hub
 //! let state_dict = download_state_dict("bert-base-uncased").unwrap();
@@ -29,7 +29,7 @@
 //! # Uploading a trained model
 //!
 //! ```rust,ignore
-//! use mnr_hf::upload_state_dict;
+//! use rustral_hf::upload_state_dict;
 //! use std::collections::HashMap;
 //!
 //! let mut state_dict = HashMap::new();
@@ -39,13 +39,13 @@
 //! upload_state_dict("my-org/my-model", &state_dict).unwrap();
 //! ```
 //!
-//! [`Backend`]: mnr_core::Backend
-//! [`Module`]: mnr_core::Module
+//! [`Backend`]: rustral_core::Backend
+//! [`Module`]: rustral_core::Module
 
 use std::collections::HashMap;
 
-use mnr_core::{Backend, Saveable};
-use mnr_io::load_parameters;
+use rustral_core::{Backend, Saveable};
+use rustral_io::load_parameters;
 use thiserror::Error;
 
 /// Errors that can occur during HuggingFace Hub operations.
@@ -61,7 +61,7 @@ pub enum HfError {
 
     /// Tensor deserialization error.
     #[error("tensor error: {0}")]
-    Tensor(#[from] mnr_io::IoError),
+    Tensor(#[from] rustral_io::IoError),
 
     /// Missing expected file in the repository.
     #[error("file '{file}' not found in repo '{repo}'")]
@@ -106,7 +106,7 @@ pub fn download_state_dict(model_id: &str) -> Result<HashMap<String, Vec<f32>>, 
     match repo.get("model.safetensors") {
         Ok(path) => {
             let bytes = std::fs::read(&path)?;
-            let dict = load_parameters::<mnr_ndarray_backend::CpuBackend>(&bytes)?;
+            let dict = load_parameters(&bytes)?;
             Ok(dict)
         }
         Err(_) => {
@@ -154,7 +154,7 @@ pub fn save_state_dict_to_file(
     model_id: &str,
     state_dict: &HashMap<String, Vec<f32>>,
 ) -> Result<std::path::PathBuf, HfError> {
-    let bytes = mnr_io::save_state_dict(state_dict)?;
+    let bytes = rustral_io::save_state_dict(state_dict)?;
     let path = std::path::PathBuf::from(format!("{}.safetensors", sanitize(model_id)));
     std::fs::write(&path, &bytes)?;
     Ok(path)
@@ -197,10 +197,10 @@ fn sanitize(model_id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::Saveable;
-    use mnr_io::save_state_dict;
-    use mnr_ndarray_backend::CpuBackend;
-    use mnr_nn::{Linear, LinearConfig};
+    use rustral_core::Saveable;
+    use rustral_io::save_state_dict;
+    use rustral_ndarray_backend::CpuBackend;
+    use rustral_nn::{Linear, LinearConfig};
     use std::collections::HashMap;
 
     #[test]
@@ -244,7 +244,7 @@ mod tests {
         let bytes = save_state_dict(&original).unwrap();
 
         // Parse back with the same loader download_state_dict uses.
-        let loaded = load_parameters::<CpuBackend>(&bytes).unwrap();
+        let loaded = load_parameters(&bytes).unwrap();
 
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded.get("weight").unwrap(), &vec![1.0, 2.0, 3.0, 4.0]);
@@ -261,7 +261,7 @@ mod tests {
         assert!(path.exists());
 
         let bytes = std::fs::read(&path).unwrap();
-        let loaded = load_parameters::<CpuBackend>(&bytes).unwrap();
+        let loaded = load_parameters(&bytes).unwrap();
         assert_eq!(loaded.get("w").unwrap(), &vec![1.0, 2.0, 3.0]);
 
         let _ = std::fs::remove_file(&path);

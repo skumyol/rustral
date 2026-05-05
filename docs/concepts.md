@@ -1,8 +1,8 @@
-# MNR Concepts Guide
+# Rustral concepts guide
 
-> **A beginner-friendly explanation of every concept in the Modular Neural Runtime**
+> **A beginner-friendly explanation of core ideas in Rustral**
 
-This document explains every concept you'll encounter when building neural networks with MNR. No prior Rust knowledge is required—just basic familiarity with how neural networks work.
+This document explains every concept you'll encounter when building neural networks with Rustral. No prior Rust knowledge is required—just basic familiarity with how neural networks work.
 
 ---
 
@@ -40,7 +40,7 @@ A neural network training pipeline has these steps:
                                                               then step()
 ```
 
-MNR provides tools for each step.
+Rustral provides tools for each step.
 
 ---
 
@@ -61,8 +61,8 @@ A **tensor** is a container for numbers with a specific shape. Think of it like 
 ### Creating Tensors
 
 ```rust
-use mnr_core::Backend;
-use mnr_ndarray_backend::CpuBackend;
+use rustral_core::Backend;
+use rustral_ndarray_backend::CpuBackend;
 
 let backend = CpuBackend::default();
 let ops = backend.ops();
@@ -117,7 +117,7 @@ let d = backend.tensor_from_vec(vec![2.0; 6], &[3, 2]).unwrap();
 
 ### What is a Backend?
 
-The **Backend** is where computation happens. MNR supports multiple backends:
+The **Backend** is where computation happens. Rustral supports multiple backends:
 
 | Backend | Where Math Runs | Use Case |
 |---------|----------------|----------|
@@ -143,8 +143,8 @@ The backend handles:
 ### Switching Backends
 
 ```rust
-use mnr_ndarray_backend::CpuBackend;
-// use mnr_wgpu_backend::WgpuBackend;  // Uncomment for GPU
+use rustral_ndarray_backend::CpuBackend;
+// use rustral_wgpu_backend::WgpuBackend;  // Uncomment for GPU
 
 // Same code, different speed
 let backend = CpuBackend::default();
@@ -192,8 +192,8 @@ let output = linear2.forward(activated, &mut ctx)?;
 ### Building Your Own Module
 
 ```rust
-use mnr_core::{Backend, ForwardCtx, Module, Mode};
-use mnr_nn::{Linear, LinearBuilder};
+use rustral_core::{Backend, ForwardCtx, Module, Mode};
+use rustral_nn::{Linear, LinearBuilder};
 
 // A custom residual block: output = input + f(input)
 struct ResidualBlock<B: Backend> {
@@ -223,7 +223,7 @@ impl<B: Backend> Module<B> for ResidualBlock<B> {
 
 ### Why Explicit Context?
 
-PyTorch hides a global "mode" (training vs inference). MNR makes it explicit:
+PyTorch hides a global "mode" (training vs inference). Rustral makes it explicit:
 
 ```rust
 // Training mode: Dropout is active, BatchNorm updates running stats
@@ -301,10 +301,10 @@ dy/dx = dy/dg * dg/dx
 
 ### Using the Tape
 
-MNR records operations on a **Tape** for automatic differentiation:
+Rustral records operations on a **Tape** for automatic differentiation:
 
 ```rust
-use mnr_autodiff::Tape;
+use rustral_autodiff::Tape;
 
 // 1. Create tape
 let mut tape = Tape::new();
@@ -357,7 +357,7 @@ An optimizer updates weights based on gradients. Different optimizers have diffe
 ### SGD (Stochastic Gradient Descent)
 
 ```rust
-use mnr_optim::Sgd;
+use rustral_optim::Sgd;
 
 // Simple: weight = weight - learning_rate * gradient
 let mut optimizer = Sgd::new(0.01);  // lr = 0.01
@@ -368,7 +368,7 @@ let mut optimizer = Sgd::new(0.01);  // lr = 0.01
 ### Adam (Adaptive Moment Estimation)
 
 ```rust
-use mnr_optim::Adam;
+use rustral_optim::Adam;
 
 // Smart: adapts learning rate per parameter
 let mut optimizer = Adam::new(0.001)
@@ -384,7 +384,7 @@ Faster convergence, works well for most problems.
 ### AdamW
 
 ```rust
-use mnr_optim::AdamW;
+use rustral_optim::AdamW;
 
 // Adam + proper weight decay (regularization)
 let mut optimizer = AdamW::new(0.001)
@@ -396,7 +396,7 @@ let mut optimizer = AdamW::new(0.001)
 ### Learning Rate Schedules
 
 ```rust
-use mnr_optim::{LinearWarmup, CosineAnnealingLR, LRScheduler};
+use rustral_optim::{LinearWarmup, CosineAnnealingLR, LRScheduler};
 
 // Warm up: lr goes from 0 to 0.001 over 1000 steps
 let warmup = LinearWarmup::new(0.001, 1000);
@@ -425,7 +425,7 @@ A **loss function** measures how wrong your predictions are. Lower = better.
 For regression (predicting continuous values):
 
 ```rust
-use mnr_nn::MSELoss;
+use rustral_nn::MSELoss;
 
 // loss = average((prediction - target)²)
 let loss_fn = MSELoss::new();
@@ -439,7 +439,7 @@ let loss = loss_fn.forward(&predictions, &targets, &mut ctx)?;
 For classification (predicting categories):
 
 ```rust
-use mnr_nn::CrossEntropyLoss;
+use rustral_nn::CrossEntropyLoss;
 
 // loss = -log(probability assigned to correct class)
 let loss_fn = CrossEntropyLoss::new();
@@ -455,7 +455,7 @@ let loss = loss_fn.forward(&logits, &targets, &mut ctx)?;
 For binary classification:
 
 ```rust
-use mnr_nn::BCEWithLogitsLoss;
+use rustral_nn::BCEWithLogitsLoss;
 
 let loss_fn = BCEWithLogitsLoss::new();
 ```
@@ -471,7 +471,7 @@ let loss_fn = BCEWithLogitsLoss::new();
 Your data source implements a simple trait:
 
 ```rust
-use mnr_data::Dataset;
+use rustral_data::Dataset;
 
 struct MyDataset {
     samples: Vec<Sample>,
@@ -491,7 +491,7 @@ impl Dataset<Sample> for MyDataset {
 ### The DataLoader
 
 ```rust
-use mnr_data::{DataLoader, DataLoaderConfig};
+use rustral_data::{DataLoader, DataLoaderConfig};
 
 let loader = DataLoader::new(
     Box::new(dataset),
@@ -535,7 +535,7 @@ let normalized = ops.normalize(&flipped, mean, std)?;  // Zero mean, unit varian
 ### Data Parallel (Simplest)
 
 ```rust
-use mnr_distributed::{ProcessGroup, DataParallelTrainer};
+use rustral_distributed::{ProcessGroup, DataParallelTrainer};
 
 // 8 GPUs, I'm GPU #rank
 let pg = ProcessGroup::new_threaded(8, rank)?;
@@ -550,7 +550,7 @@ let loss = trainer.step(&mut params, &batch, &mut loss_fn, &mut ctx)?;
 ### ZeRO (Memory Optimization)
 
 ```rust
-use mnr_distributed::{ZeROOptimizer, Zero2Optimizer};
+use rustral_distributed::{ZeROOptimizer, Zero2Optimizer};
 
 // Standard: each GPU stores all optimizer states
 // Memory = 4x model size (params + grads + Adam m + Adam v)
@@ -565,7 +565,7 @@ let optimizer = Zero2Optimizer::new(Adam::new(0.001), pg, total_params);
 ### Pipeline Parallel (Model Too Big)
 
 ```rust
-use mnr_distributed::pipeline_parallel::{PipelineParallel, PipelineConfig};
+use rustral_distributed::pipeline_parallel::{PipelineParallel, PipelineConfig};
 
 // Layer 0-3 on GPU 0, Layer 4-7 on GPU 1, etc.
 let config = PipelineConfig::new()
@@ -649,7 +649,7 @@ fn evaluate<B: Backend>(
 ### Pattern 3: Model Checkpointing
 
 ```rust
-use mnr_io::{save, load};
+use rustral_io::{save, load};
 
 // Save
 save(&params, "model_checkpoint.safetensors")?;
@@ -661,7 +661,7 @@ let loaded_params = load("model_checkpoint.safetensors", backend)?;
 ### Pattern 4: Mixed Precision
 
 ```rust
-use mnr_optim::{MixedPrecisionOptimizer, DType};
+use rustral_optim::{MixedPrecisionOptimizer, DType};
 
 let optimizer = MixedPrecisionOptimizer::new(Adam::new(0.001))
     .with_dtype(DType::Float16);  // 16-bit instead of 32-bit

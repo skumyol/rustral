@@ -1,4 +1,4 @@
-//! Serialization support for MNR parameters and models.
+//! Serialization support for Rustral parameters and models.
 //!
 //! Provides saving/loading to the [Safetensors] format, which is a
 //! simple, safe, fast tensor serialization format that requires no
@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use mnr_core::{Backend, Parameter, TensorShape};
+use rustral_core::{Backend, Parameter, TensorShape};
 use safetensors::{serialize, SafeTensors, View};
 use thiserror::Error;
 
@@ -87,13 +87,10 @@ where
 /// # Example
 /// ```ignore
 /// let bytes = std::fs::read("model.safetensors").unwrap();
-/// let tensors = load_parameters::<CpuBackend>(&bytes).unwrap();
+/// let tensors = load_parameters(&bytes).unwrap();
 /// let weight = tensors.get("encoder.weight").unwrap();
 /// ```
-pub fn load_parameters<B: Backend>(data: &[u8]) -> Result<HashMap<String, Vec<f32>>, IoError>
-where
-    B::Tensor: From<Vec<f32>>,
-{
+pub fn load_parameters(data: &[u8]) -> Result<HashMap<String, Vec<f32>>, IoError> {
     let safe = SafeTensors::deserialize(data)?;
     let mut result = HashMap::with_capacity(safe.len());
 
@@ -149,19 +146,18 @@ pub fn save_state_dict(state_dict: &HashMap<String, Vec<f32>>) -> Result<Vec<u8>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::Backend;
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::Backend;
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_roundtrip_single_tensor() {
         let backend = CpuBackend::default();
-        let _values = vec![1.0f32, 2.0, 3.0, 4.0];
         let param = backend.normal_parameter("test", &[2, 2], 42, 0.0).unwrap();
 
         let params = vec![("test".to_string(), &param)];
         let bytes = save_parameters::<CpuBackend>(&params).unwrap();
 
-        let loaded = load_parameters::<CpuBackend>(&bytes).unwrap();
+        let loaded = load_parameters(&bytes).unwrap();
         let loaded_test = loaded.get("test").unwrap();
         assert_eq!(loaded_test.len(), 4);
     }
@@ -173,8 +169,8 @@ mod tests {
         let params = vec![("a".to_string(), &param)];
         let bytes = save_parameters::<CpuBackend>(&params).unwrap();
 
-        let loaded = load_parameters::<CpuBackend>(&bytes).unwrap();
-        assert!(loaded.get("b").is_none());
+        let loaded = load_parameters(&bytes).unwrap();
+        assert!(!loaded.contains_key("b"));
     }
 
     #[test]
@@ -185,7 +181,7 @@ mod tests {
         let params = vec![("w".to_string(), &p1), ("b".to_string(), &p2)];
         let bytes = save_parameters::<CpuBackend>(&params).unwrap();
 
-        let loaded = load_parameters::<CpuBackend>(&bytes).unwrap();
+        let loaded = load_parameters(&bytes).unwrap();
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded.get("w").unwrap().len(), 4);
         assert_eq!(loaded.get("b").unwrap().len(), 2);
@@ -198,7 +194,7 @@ mod tests {
         dict.insert("bias".to_string(), vec![0.5f32, 0.5f32]);
 
         let bytes = save_state_dict(&dict).unwrap();
-        let loaded = load_parameters::<CpuBackend>(&bytes).unwrap();
+        let loaded = load_parameters(&bytes).unwrap();
 
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded.get("weight").unwrap(), &vec![1.0, 2.0, 3.0, 4.0]);

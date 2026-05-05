@@ -1,4 +1,4 @@
-use mnr_core::{Backend, ForwardCtx, Module, ParameterRef, Result, Trainable};
+use rustral_core::{Backend, ForwardCtx, Module, ParameterRef, Result, Trainable};
 
 /// Composition of exactly two modules.
 ///
@@ -56,8 +56,8 @@ where
 mod tests {
     use super::*;
     use crate::LinearBuilder;
-    use mnr_core::{ForwardCtx, Mode};
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::{ForwardCtx, Mode};
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_sequential2_composition() {

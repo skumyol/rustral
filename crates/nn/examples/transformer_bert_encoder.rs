@@ -19,11 +19,11 @@
 //! CLS token → Linear(64, 3) → Classification logits
 //! ```
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_nn::{Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig};
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_nn::{Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig};
 
 fn main() {
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_ndarray_backend::CpuBackend;
 
     println!("BERT-Style Transformer Encoder Example");
     println!("======================================\n");

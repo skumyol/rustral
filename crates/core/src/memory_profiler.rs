@@ -13,7 +13,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use mnr_core::memory_profiler::{MemoryProfiler, AllocationTracker};
+//! use rustral_core::memory_profiler::{MemoryProfiler, AllocationTracker};
 //!
 //! let mut profiler = MemoryProfiler::new();
 //!
@@ -558,7 +558,7 @@ mod tests {
         let mut profiler = MemoryProfiler::new();
         profiler.record_allocation_internal(100, "a");
         profiler.record_deallocation_internal(100, "a");
-        let tmpfile = std::env::temp_dir().join("mnr_timeline_test.json");
+        let tmpfile = std::env::temp_dir().join("rustral_timeline_test.json");
         profiler.export_timeline(tmpfile.to_str().unwrap()).unwrap();
         std::fs::remove_file(&tmpfile).ok();
     }

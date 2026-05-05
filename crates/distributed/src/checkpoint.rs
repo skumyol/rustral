@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use mnr_core::{Backend, CoreError, Parameter};
-use mnr_io::{load_parameters, save_parameters};
-use mnr_optim::AdamCheckpoint;
+use rustral_core::{Backend, CoreError, Parameter};
+use rustral_io::{load_parameters, save_parameters};
+use rustral_optim::AdamCheckpoint;
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
 
@@ -46,6 +46,7 @@ impl DistributedCheckpointManager {
                 DistributedError::Communication(format!("Failed to create checkpoint dir: {}", e))
             })?;
         }
+        process_group.barrier()?;
 
         Ok(Self { process_group, checkpoint_dir, keep_last_n, checkpoint_history: Vec::new() })
     }
@@ -62,7 +63,7 @@ impl DistributedCheckpointManager {
         optimizer_checkpoint: Option<&AdamCheckpoint>,
     ) -> DistributedResult<()>
     where
-        B::Tensor: AsRef<[f32]> + mnr_core::TensorShape,
+        B::Tensor: AsRef<[f32]> + rustral_core::TensorShape,
     {
         let rank = self.process_group.rank();
         let world_size = self.process_group.world_size();
@@ -73,6 +74,7 @@ impl DistributedCheckpointManager {
             fs::create_dir_all(&epoch_dir)
                 .map_err(|e| DistributedError::Communication(format!("Failed to create epoch dir: {}", e)))?;
         }
+        self.process_group.barrier()?;
 
         // Each rank saves its shard
         let shard_path = epoch_dir.join(format!("rank_{}.safetensors", rank));
@@ -135,43 +137,30 @@ impl DistributedCheckpointManager {
     pub fn load<B: Backend>(
         &self,
         epoch: u64,
+        backend: &B,
         params: &mut [(String, Parameter<B>)],
     ) -> DistributedResult<(u64, Option<AdamCheckpoint>)>
     where
-        B::Tensor: AsRef<[f32]> + mnr_core::TensorShape + From<Vec<f32>>,
+        B::Tensor: AsRef<[f32]> + rustral_core::TensorShape,
     {
         let rank = self.process_group.rank();
         let epoch_dir = self.checkpoint_dir.join(format!("epoch_{}", epoch));
 
-        // Load metadata on primary and broadcast
-        let metadata = if self.process_group.is_primary() {
-            let meta_path = epoch_dir.join("metadata.json");
-            let meta_data = fs::read(&meta_path)
-                .map_err(|e| DistributedError::Communication(format!("Failed to read metadata: {}", e)))?;
+        // Every rank reads shared metadata (shared filesystem; required for multi-process resume).
+        let meta_path = epoch_dir.join("metadata.json");
+        let meta_data = fs::read(&meta_path)
+            .map_err(|e| DistributedError::Communication(format!("Failed to read metadata: {}", e)))?;
 
-            let metadata: CheckpointMetadata = serde_json::from_slice(&meta_data)
-                .map_err(|e| DistributedError::Communication(format!("Failed to parse metadata: {}", e)))?;
+        let metadata: CheckpointMetadata = serde_json::from_slice(&meta_data)
+            .map_err(|e| DistributedError::Communication(format!("Failed to parse metadata: {}", e)))?;
 
-            // Broadcast world size check
-            if metadata.world_size != self.process_group.world_size() {
-                return Err(DistributedError::Communication(format!(
-                    "Checkpoint world_size {} doesn't match current {}",
-                    metadata.world_size,
-                    self.process_group.world_size()
-                )));
-            }
-
-            metadata
-        } else {
-            // Non-primary ranks will get metadata via broadcast (simplified for now)
-            CheckpointMetadata {
-                epoch,
-                step: 0,
-                world_size: self.process_group.world_size(),
-                timestamp: 0,
-                version: "1.0".to_string(),
-            }
-        };
+        if metadata.world_size != self.process_group.world_size() {
+            return Err(DistributedError::Communication(format!(
+                "Checkpoint world_size {} doesn't match current {}",
+                metadata.world_size,
+                self.process_group.world_size()
+            )));
+        }
 
         // Each rank loads its shard
         let shard_path = epoch_dir.join(format!("rank_{}.safetensors", rank));
@@ -180,13 +169,26 @@ impl DistributedCheckpointManager {
         })?;
 
         // Deserialize and update parameters
-        let loaded: std::collections::HashMap<String, Vec<f32>> = load_parameters::<B>(&shard_data)
+        let loaded: std::collections::HashMap<String, Vec<f32>> = load_parameters(&shard_data)
             .map_err(|e| DistributedError::Backend(CoreError::Serialization(format!("{:?}", e))))?;
 
-        // Update provided parameters
-        // Note: requires backend to convert Vec<f32> to B::Tensor
-        for (_name, _param) in params.iter_mut() {
-            // Placeholder: actual implementation needs backend reference
+        let ops = backend.ops();
+        for (name, param) in params.iter_mut() {
+            let Some(flat) = loaded.get(name) else {
+                continue;
+            };
+            let shape = ops.shape(param.tensor());
+            let n: usize = shape.iter().product();
+            if flat.len() != n {
+                return Err(DistributedError::Communication(format!(
+                    "tensor '{}' has {} elements on disk but parameter expects {}",
+                    name,
+                    flat.len(),
+                    n
+                )));
+            }
+            let tensor = ops.tensor_from_vec(flat.clone(), &shape).map_err(DistributedError::Backend)?;
+            *param = param.clone().with_tensor(tensor);
         }
 
         // Try to load optimizer checkpoint
@@ -363,8 +365,8 @@ impl ShardedCheckpoint {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
-    use mnr_optim::Adam;
+    use rustral_ndarray_backend::CpuBackend;
+    use rustral_optim::Adam;
     use std::io::Write;
 
     #[test]
@@ -388,6 +390,7 @@ mod tests {
 
         // Create test parameters
         let param = backend.normal_parameter("test", &[10], 42, 0.1).unwrap();
+        let saved_snapshot: Vec<f32> = param.tensor().as_ref().to_vec();
         let params = vec![("test".to_string(), &param)];
 
         // Save checkpoint
@@ -399,12 +402,14 @@ mod tests {
         assert!(epoch_dir.join("rank_0.safetensors").exists());
         assert!(epoch_dir.join("metadata.json").exists());
 
-        // Load checkpoint
-        let mut loaded_params = vec![("test".to_string(), param.clone())];
-        let (step, opt_ckpt) = manager.load(0, &mut loaded_params).unwrap();
+        // Load checkpoint into different weights — should restore saved snapshot.
+        let wrong = backend.normal_parameter("test", &[10], 99, 0.9).unwrap();
+        let mut loaded_params = vec![("test".to_string(), wrong)];
+        let (step, opt_ckpt) = manager.load(0, &backend, &mut loaded_params).unwrap();
 
         assert_eq!(step, 100);
         assert!(opt_ckpt.is_none());
+        assert_eq!(loaded_params[0].1.tensor().as_ref().to_vec(), saved_snapshot);
     }
 
     #[test]
@@ -427,7 +432,7 @@ mod tests {
         assert!(epoch_dir.join("optimizer_rank_0.json").exists());
 
         let mut loaded_params = vec![("test".to_string(), param.clone())];
-        let (_, loaded_opt) = manager.load(0, &mut loaded_params).unwrap();
+        let (_, loaded_opt) = manager.load(0, &backend, &mut loaded_params).unwrap();
         assert!(loaded_opt.is_some());
     }
 
@@ -445,9 +450,9 @@ mod tests {
 
         // Now load with a different world size process group
         let pg2 = ProcessGroup::new_threaded(8, 0).unwrap();
-        let mut manager2 = DistributedCheckpointManager::new(pg2, temp_dir.path(), 3).unwrap();
+        let manager2 = DistributedCheckpointManager::new(pg2, temp_dir.path(), 3).unwrap();
         let mut loaded_params = vec![("test".to_string(), param.clone())];
-        let result = manager2.load(0, &mut loaded_params);
+        let result = manager2.load(0, &backend, &mut loaded_params);
         assert!(result.is_err());
     }
 
@@ -456,7 +461,7 @@ mod tests {
         let pg = ProcessGroup::new_single_process();
         let temp_dir = tempfile::tempdir().unwrap();
 
-        let mut manager = DistributedCheckpointManager::new(pg, temp_dir.path(), 5).unwrap();
+        let manager = DistributedCheckpointManager::new(pg, temp_dir.path(), 5).unwrap();
 
         // Create fake checkpoint directories
         fs::create_dir(temp_dir.path().join("epoch_0")).unwrap();
@@ -472,7 +477,7 @@ mod tests {
         let pg = ProcessGroup::new_single_process();
         let temp_dir = tempfile::tempdir().unwrap();
 
-        let mut manager = DistributedCheckpointManager::new(pg, temp_dir.path(), 5).unwrap();
+        let manager = DistributedCheckpointManager::new(pg, temp_dir.path(), 5).unwrap();
 
         fs::create_dir(temp_dir.path().join("epoch_3")).unwrap();
         fs::create_dir(temp_dir.path().join("epoch_7")).unwrap();

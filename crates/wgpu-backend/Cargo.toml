@@ -1,16 +1,22 @@
 [package]
-name = "mnr-wgpu-backend"
+name = "rustral-wgpu-backend"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 repository.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
 
-description = "WebGPU backend for MNR (cross-platform GPU support)"
+description = "Experimental WebGPU compute backend for Rustral (Vulkan/Metal/DX12; see README for platform caveats)"
+
+[lints]
+workspace = true
 
 [dependencies]
-mnr-core = { path = "../core" }
+rustral-core = { path = "../core", version = "0.1.0" }
 
 wgpu = "0.19"
 pollster = "0.3"

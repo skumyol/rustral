@@ -2,13 +2,13 @@
 //!
 //! Demonstrates autoregressive text generation with a decoder-only transformer.
 //!
-//! Run with: `cargo run -p mnr-nn --example transformer_gpt_decoder`
+//! Run with: `cargo run -p rustral-nn --example transformer_gpt_decoder`
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_nn::{Embedding, EmbeddingConfig, Linear, LinearConfig};
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_nn::{Embedding, EmbeddingConfig, Linear, LinearConfig};
 
 fn main() {
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_ndarray_backend::CpuBackend;
 
     println!("GPT-Style Transformer Decoder Example");
     println!("=====================================\n");

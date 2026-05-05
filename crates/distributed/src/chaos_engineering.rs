@@ -14,7 +14,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use mnr_distributed::chaos_engineering::{ChaosMonkey, FaultInjection};
+//! use rustral_distributed::chaos_engineering::{ChaosMonkey, FaultInjection};
 //!
 //! let mut chaos = ChaosMonkey::new(42); // seed for reproducibility
 //!

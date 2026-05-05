@@ -8,7 +8,7 @@
 //!
 //! # Example
 //! ```rust,ignore
-//! use mnr_distributed::fault_tolerance::{ElasticTrainer, HealthMonitor};
+//! use rustral_distributed::fault_tolerance::{ElasticTrainer, HealthMonitor};
 //!
 //! let mut trainer = ElasticTrainer::new(
 //!     base_config,
@@ -458,7 +458,7 @@ impl FaultStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::CoreError;
+    use rustral_core::CoreError;
 
     #[test]
     fn test_health_monitor() {

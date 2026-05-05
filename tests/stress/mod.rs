@@ -1,8 +1,10 @@
 //! Stress Tests and Load Tests
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module, Trainable};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{
+#![allow(unused_imports, unused_variables)]
+
+use rustral_core::{Backend, ForwardCtx, Mode, Module, Trainable};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{
     Embedding, EmbeddingConfig, Linear, LinearConfig, TransformerDecoder, TransformerDecoderConfig,
     TransformerEncoder, TransformerEncoderConfig,
 };
@@ -208,7 +210,7 @@ fn test_error_recovery_stability(runner: &mut TestRunner) {
             };
 
             match result {
-                Ok(_) | Err(mnr_core::CoreError::Shape(_)) => {}
+                Ok(_) | Err(rustral_core::CoreError::Shape(_)) => {}
                 Err(_) => {
                     errors += 1;
                 }

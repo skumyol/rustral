@@ -24,8 +24,8 @@
 //! - DP: All-Reduce across DP groups
 //! ```
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Module, Result};
-use mnr_nn::{Linear, LinearConfig};
+use rustral_core::{Backend, CoreError, ForwardCtx, Module, Result};
+use rustral_nn::{Linear, LinearConfig};
 
 use crate::{
     DeviceMesh, ParallelismConfig, PipelineParallelTrainer, PipelineStage, ProcessGroup, TensorParallelLinear,
@@ -43,7 +43,7 @@ pub struct Parallel3DTrainer<B: Backend> {
 
 impl<B: Backend> Parallel3DTrainer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create a new 3D parallel trainer.
     pub fn new(device_mesh: DeviceMesh, pipeline_trainer: PipelineParallelTrainer<B>) -> Result<Self> {
@@ -220,7 +220,7 @@ pub struct Parallel3DLayer<B: Backend> {
 
 impl<B: Backend> Parallel3DLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     pub fn new(in_features: usize, out_features: usize, tp_group: ProcessGroup, backend: &B) -> Result<Self> {
         let linear = TensorParallelLinear::column_parallel(in_features, out_features, &tp_group, backend)
@@ -232,7 +232,7 @@ where
 
 impl<B: Backend> Module<B> for Parallel3DLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     type Input = B::Tensor;
     type Output = B::Tensor;
@@ -335,8 +335,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode, Module};
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::{ForwardCtx, Mode, Module};
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_parallel_3d_config() {
@@ -407,15 +407,15 @@ mod tests {
         // Mock module that returns input unchanged
         struct IdentityModule;
         impl Module<CpuBackend> for IdentityModule {
-            type Input = <CpuBackend as mnr_core::Backend>::Tensor;
-            type Output = <CpuBackend as mnr_core::Backend>::Tensor;
+            type Input = <CpuBackend as rustral_core::Backend>::Tensor;
+            type Output = <CpuBackend as rustral_core::Backend>::Tensor;
             fn forward(&self, input: Self::Input, _ctx: &mut ForwardCtx<CpuBackend>) -> Result<Self::Output> {
                 Ok(input)
             }
         }
 
         let mut model = IdentityModule;
-        let mut loss_fn = |_output: &<CpuBackend as mnr_core::Backend>::Tensor,
+        let mut loss_fn = |_output: &<CpuBackend as rustral_core::Backend>::Tensor,
                            _ctx: &mut ForwardCtx<CpuBackend>| {
             backend.tensor_from_vec(vec![0.5f32], &[1])
         };

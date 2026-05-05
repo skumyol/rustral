@@ -1,6 +1,6 @@
 //! Convolutional layers for neural networks.
 
-use mnr_core::{
+use rustral_core::{
     Backend, CoreError, ForwardCtx, Module, Parameter, ParameterRef, Result, Trainable,
 };
 use serde::{Deserialize, Serialize};
@@ -249,7 +249,7 @@ pub fn max_pool2d<B: Backend>(
     stride_h: usize,
     stride_w: usize,
     no_padding: bool,
-    ops: &dyn mnr_core::TensorOps<B>,
+    ops: &dyn rustral_core::TensorOps<B>,
 ) -> Result<B::Tensor> {
     let input_shape = ops.shape(input);
 
@@ -314,7 +314,7 @@ pub fn max_pool2d<B: Backend>(
 /// Global max pooling over spatial dimensions.
 pub fn global_max_pool2d<B: Backend>(
     input: &B::Tensor,
-    ops: &dyn mnr_core::TensorOps<B>,
+    ops: &dyn rustral_core::TensorOps<B>,
 ) -> Result<B::Tensor> {
     let shape = ops.shape(input);
     if shape.len() != 3 && shape.len() != 4 {
@@ -349,7 +349,7 @@ mod tests {
     #[test]
     fn test_output_size_no_padding() {
         let config = Conv2dConfig::new(32, 3, 3);
-        let mock_backend = mnr_ndarray_backend::CpuBackend::default();
+        let mock_backend = rustral_ndarray_backend::CpuBackend::default();
         let filter = mock_backend.normal_parameter("W", &[32, 3, 3, 3], 42, 0.1).unwrap();
         let conv = Conv2d::from_parameters(config.clone(), filter, None);
 
@@ -361,7 +361,7 @@ mod tests {
     #[test]
     fn test_output_size_with_stride() {
         let config = Conv2dConfig::new(32, 3, 3).with_stride(2, 2);
-        let mock_backend = mnr_ndarray_backend::CpuBackend::default();
+        let mock_backend = rustral_ndarray_backend::CpuBackend::default();
         let filter = mock_backend.normal_parameter("W", &[32, 3, 3, 3], 42, 0.1).unwrap();
         let conv = Conv2d::from_parameters(config.clone(), filter, None);
 
@@ -372,8 +372,8 @@ mod tests {
 
     #[test]
     fn test_conv2d_forward_3d() {
-        let backend = mnr_ndarray_backend::CpuBackend::default();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let backend = rustral_ndarray_backend::CpuBackend::default();
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
 
         let config = Conv2dConfig::new(2, 2, 2).with_stride(1, 1);
         // 2 output channels, 1 input channel, 2x2 kernel
@@ -386,7 +386,7 @@ mod tests {
                 &[2, 1, 2, 2],
             )
             .unwrap();
-        let filter_param = mnr_core::Parameter::new("W", filter);
+        let filter_param = rustral_core::Parameter::new("W", filter);
 
         let conv = Conv2d::from_parameters(config, filter_param, None);
 
@@ -401,7 +401,7 @@ mod tests {
 
     #[test]
     fn test_max_pool2d() {
-        let backend = mnr_ndarray_backend::CpuBackend::default();
+        let backend = rustral_ndarray_backend::CpuBackend::default();
 
         // Input: 1 channel, 4x4
         let input = backend
@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_global_max_pool2d() {
-        let backend = mnr_ndarray_backend::CpuBackend::default();
+        let backend = rustral_ndarray_backend::CpuBackend::default();
 
         // Input: 2 channels, 2x2
         let input =
@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn test_conv2d_new_with_bias() {
-        let backend = mnr_ndarray_backend::CpuBackend::default();
+        let backend = rustral_ndarray_backend::CpuBackend::default();
         let config = Conv2dConfig::new(4, 3, 3).with_bias();
         let conv = Conv2d::new(&backend, config).unwrap();
         assert_eq!(conv.parameters().len(), 2);
@@ -445,12 +445,12 @@ mod tests {
 
     #[test]
     fn test_conv2d_config_accessor() {
-        let backend = mnr_ndarray_backend::CpuBackend::default();
+        let backend = rustral_ndarray_backend::CpuBackend::default();
         let config = Conv2dConfig::new(4, 3, 3);
         let weight = backend.tensor_from_vec(vec![0.0; 36], &[4, 1, 3, 3]).unwrap();
-        let conv = Conv2d::<mnr_ndarray_backend::CpuBackend>::from_parameters(
+        let conv = Conv2d::<rustral_ndarray_backend::CpuBackend>::from_parameters(
             config.clone(),
-            mnr_core::Parameter::new("w", weight),
+            rustral_core::Parameter::new("w", weight),
             None,
         );
         assert_eq!(conv.config().out_channels, 4);
@@ -458,13 +458,13 @@ mod tests {
 
     #[test]
     fn test_conv2d_forward_4d() {
-        let backend = mnr_ndarray_backend::CpuBackend::default();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let backend = rustral_ndarray_backend::CpuBackend::default();
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
 
         let config = Conv2dConfig::new(2, 2, 2).with_stride(1, 1);
         let filter =
             backend.tensor_from_vec(vec![1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0], &[2, 1, 2, 2]).unwrap();
-        let filter_param = mnr_core::Parameter::new("W", filter);
+        let filter_param = rustral_core::Parameter::new("W", filter);
         let conv = Conv2d::from_parameters(config, filter_param, None);
 
         // Input: [batch=2, channels=1, 3x3]
@@ -484,18 +484,18 @@ mod tests {
 
     #[test]
     fn test_conv2d_invalid_filter_shape() {
-        let backend = mnr_ndarray_backend::CpuBackend::default();
-        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let backend = rustral_ndarray_backend::CpuBackend::default();
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
         let config = Conv2dConfig::new(2, 2, 2);
         let filter = backend.tensor_from_vec(vec![0.0; 4], &[2, 2]).unwrap();
-        let conv = Conv2d::from_parameters(config, mnr_core::Parameter::new("W", filter), None);
+        let conv = Conv2d::from_parameters(config, rustral_core::Parameter::new("W", filter), None);
         let input = backend.tensor_from_vec(vec![0.0; 9], &[1, 3, 3]).unwrap();
         assert!(conv.forward(input, &mut ctx).is_err());
     }
 
     #[test]
     fn test_max_pool2d_with_padding() {
-        let backend = mnr_ndarray_backend::CpuBackend::default();
+        let backend = rustral_ndarray_backend::CpuBackend::default();
         let input = backend.tensor_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[1, 2, 2]).unwrap();
         let output = max_pool2d(&input, 2, 2, 2, 2, false, backend.ops()).unwrap();
         let shape = backend.ops().shape(&output);
@@ -504,7 +504,7 @@ mod tests {
 
     #[test]
     fn test_global_max_pool2d_invalid_shape() {
-        let backend = mnr_ndarray_backend::CpuBackend::default();
+        let backend = rustral_ndarray_backend::CpuBackend::default();
         let input = backend.tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap();
         assert!(global_max_pool2d(&input, backend.ops()).is_err());
     }

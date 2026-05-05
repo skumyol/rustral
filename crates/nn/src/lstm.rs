@@ -3,7 +3,7 @@
 //! This module provides LSTM cell implementations following the legacy
 //! DyNet wrapper architecture, but with explicit state management.
 
-use mnr_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, StatefulModule, Trainable};
+use rustral_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, StatefulModule, Trainable};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for an LSTM cell.
@@ -83,7 +83,7 @@ impl<B: Backend> LstmCell<B> {
     fn split_gates(
         &self,
         gates: &B::Tensor,
-        ops: &dyn mnr_core::TensorOps<B>,
+        ops: &dyn rustral_core::TensorOps<B>,
     ) -> Result<(B::Tensor, B::Tensor, B::Tensor, B::Tensor)> {
         let hidden_dim = self.config.hidden_dim;
         let shape = ops.shape(gates);
@@ -264,7 +264,7 @@ impl<B: Backend> GruCell<B> {
     fn split_gates(
         &self,
         gates: &B::Tensor,
-        ops: &dyn mnr_core::TensorOps<B>,
+        ops: &dyn rustral_core::TensorOps<B>,
     ) -> Result<(B::Tensor, B::Tensor, B::Tensor)> {
         let hidden_dim = self.config.hidden_dim;
         let shape = ops.shape(gates);
@@ -502,7 +502,7 @@ where
     F: RnnCell<B> + Trainable<B>,
     Bw: RnnCell<B, State = <F as RnnCell<B>>::State> + Trainable<B>,
 {
-    fn parameters(&self) -> Vec<mnr_core::ParameterRef> {
+    fn parameters(&self) -> Vec<rustral_core::ParameterRef> {
         let mut params = self.forward.parameters();
         params.extend(self.backward.parameters());
         params
@@ -512,8 +512,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode, Parameter};
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::{ForwardCtx, Mode, Parameter};
+    use rustral_ndarray_backend::CpuBackend;
 
     fn create_mock_lstm_cell(input_dim: usize, hidden_dim: usize) -> LstmCell<CpuBackend> {
         let backend = CpuBackend::default();

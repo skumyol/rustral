@@ -1,27 +1,26 @@
-# Modular Neural Runtime (MNR)
+# Rustral
 
-> **A Rust Deep Learning Framework for Students, Researchers, and Production Engineers**
+> **A Rust neural network framework for learning, research, and experiments**
 
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org)
-[![License](https://img.shields.io/badge/License-MIT%2FApache--2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
 
-## What is MNR?
+## What is Rustral?
 
-**MNR is a deep learning framework written in Rust.** It is a toolkit for building and training neural networks—from simple classifiers to transformers and mixture-of-experts models.
+**Rustral** is a deep learning toolkit in Rust for building and training neural networks—from small tutorials to transformers and mixture-of-experts experiments.
 
-Unlike Python frameworks, MNR gives you:
+Unlike Python frameworks, Rustral aims for:
 
-- **Memory safety** at compile time (no segfaults in production)
-- **Fearless concurrency** for data loading and distributed training
-- **Single binary deployment** with no Python environment to manage
-- **Transparent internals**—read the source to see exactly how backprop, optimizers, and distributed training work
+- **Memory safety** at compile time (no hidden C++/CUDA footguns in your Rust code)
+- **Explicit state** (`ForwardCtx`, backends) instead of hidden global tensors
+- **Single-binary workflows** when you deploy trained logic
+- **Readable internals**—use the source to see how autodiff, optimizers, and layers behave
 
-### Who Should Use MNR?
+### Who is it for?
 
-- **Students** learning how neural networks work under the hood
-- **Researchers** building models that need to be correct and reproducible
-- **Engineers** shipping systems that must not crash
-- **Anyone** who wants to understand deep learning without hidden magic
+- **Students** learning how networks work under the hood
+- **Researchers** who want reproducible, typed model code
+- **Engineers** experimenting with Rust-native ML pipelines
 
 ---
 
@@ -33,9 +32,9 @@ Unlike Python frameworks, MNR gives you:
 # Install Rust (if you haven't)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Clone MNR
-git clone https://github.com/your-org/modular-neural-runtime.git
-cd modular-neural-runtime
+# Clone Rustral
+git clone https://github.com/skumyol/rustral.git
+cd rustral
 
 # Build everything (takes ~5 min on modern hardware)
 cargo build --workspace
@@ -47,7 +46,7 @@ cargo build --workspace
 ./run_tests.sh
 ```
 
-This runs formatting checks, clippy lints, the full workspace build, and tests for all 14 crates.
+This runs formatting checks, clippy lints, the full workspace build, and tests for all **16** workspace crates (`rustral-wgpu-backend` may warn on some GPU/driver stacks).
 
 ### 3. Run Your First Example: XOR
 
@@ -62,15 +61,15 @@ cd examples && cargo run --bin xor
 ### 4. Run a Transformer Example
 
 ```bash
-cargo run -p mnr-nn --example linear_readout
-cargo run -p mnr-nn --example transformer_bert_encoder
+cargo run -p rustral-nn --example linear_readout
+cargo run -p rustral-nn --example transformer_bert_encoder
 ```
 
 ---
 
 ## Architecture
 
-MNR is organized as a workspace of focused crates. Each crate handles one piece of the puzzle:
+Rustral is organized as a workspace of focused crates. Each crate handles one piece of the puzzle:
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
@@ -83,23 +82,23 @@ MNR is organized as a workspace of focused crates. Each crate handles one piece 
 │  └──────┬───────┘                                                   │
 │         │                                                           │
 │  ┌──────┴─────────────────────────────────────────────────────┐    │
-│  │              mnr_nn: Neural Network Layers                   │    │
+│  │              rustral_nn: Neural Network Layers                   │    │
 │  │  Linear · Conv2d · LSTM · Transformer · Attention · MoE     │    │
 │  └──────┬─────────────────────────────────────────────────────┘    │
 │         │                                                           │
 │  ┌──────┴─────────────────────────────────────────────────────┐    │
-│  │             mnr_core: Tensors, Backends, Module trait         │    │
+│  │             rustral_core: Tensors, Backends, Module trait         │    │
 │  │  TensorOps · Backend · Parameter · ForwardCtx · Tape         │    │
 │  └──────┬─────────────────────────────────────────────────────┘    │
 │         │                                                           │
 │  ┌──────┴──────────┬─────────────────────┬─────────────────────┐   │
-│  │ mnr_optim       │ mnr_autodiff        │ mnr_distributed      │   │
+│  │ rustral_optim       │ rustral_autodiff        │ rustral_distributed      │   │
 │  │ SGD · Adam ·    │ Reverse-mode        │ Data Parallel ·      │   │
 │  │ AdamW · Schedules │ autodiff · Gradients │ Pipeline · ZeRO · FSDP │   │
 │  └─────────────────┴─────────────────────┴─────────────────────┘   │
 │         │                                                           │
 │  ┌──────┴──────────┬─────────────────────┬─────────────────────┐   │
-│  │ mnr_ndarray_      │ mnr_candle_        │ mnr_wgpu_          │   │
+│  │ rustral_ndarray_  │ rustral_candle_    │ rustral_wgpu_      │   │
 │  │ backend           │ backend            │ backend            │   │
 │  │ (CPU reference)   │ (CPU/CUDA)         │ (Vulkan/Metal/DX12)│   │
 │  └───────────────────┴─────────────────────┴─────────────────────┘   │
@@ -110,29 +109,31 @@ MNR is organized as a workspace of focused crates. Each crate handles one piece 
 
 | Crate | What It Does |
 |-------|-------------|
-| `mnr_core` | **Tensors, backends, and the `Module` trait**—the foundation everything builds on |
-| `mnr_nn` | **Neural network layers**: Linear, Conv2d, LSTM, Transformer, Attention, MoE, Flash Attention |
-| `mnr_autodiff` | **Automatic differentiation**—computes gradients via reverse-mode autodiff |
-| `mnr_optim` | **Optimizers**: SGD, Adam, AdamW + learning rate schedules + mixed precision |
-| `mnr_distributed` | **Multi-GPU training**: data parallel, tensor parallel, pipeline, ZeRO, FSDP |
-| `mnr_data` | **Data loading**: batching, shuffling, transforms |
-| `mnr_io` | **Save/load models** in SafeTensors format |
-| `mnr_wgpu_backend` | **GPU compute** using WebGPU (Vulkan/Metal/DX12) |
-| `mnr_candle_backend` | **Optimized CPU/CUDA backend** using candle-core (up to ~20x faster than ndarray on CPU) |
-| `mnr_ndarray_backend` | **Reference CPU backend** for correctness testing |
-| `mnr_metrics` | **Track training**: loss curves, accuracy, throughput |
-| `mnr_autotuner` | **Automatically find the fastest GPU settings** |
-| `mnr_symbolic` | **Vocabulary and label dictionaries** for NLP tasks |
-| `mnr_bench` | **Performance benchmarks** for operations |
+| `rustral_core` | **Tensors, backends, and the `Module` trait**—the foundation everything builds on |
+| `rustral_nn` | **Neural network layers**: Linear, Conv2d, LSTM, Transformer, Attention, MoE, Flash Attention |
+| `rustral_autodiff` | **Automatic differentiation**—computes gradients via reverse-mode autodiff |
+| `rustral_optim` | **Optimizers**: SGD, Adam, AdamW + learning rate schedules + mixed precision |
+| `rustral_distributed` | **Parallel training APIs** (ZeRO/FSDP-style sharding, threading/MPI hooks—see docs for current scope) |
+| `rustral_data` | **Data loading**: batching, shuffling, transforms |
+| `rustral_io` | **Save/load models** in SafeTensors format |
+| `rustral_wgpu_backend` | **Experimental GPU** via WebGPU (Vulkan/Metal/DX12)—see **Backends** |
+| `rustral_candle_backend` | **Optimized CPU/CUDA backend** using candle-core (up to ~20x faster than ndarray on CPU) |
+| `rustral_ndarray_backend` | **Reference CPU backend** for correctness testing |
+| `rustral_metrics` | **Track training**: loss curves, accuracy, throughput |
+| `rustral_autotuner` | **Automatically find the fastest GPU settings** |
+| `rustral_symbolic` | **Vocabulary and label dictionaries** for NLP tasks |
+| `rustral_bench` | **Criterion benchmarks** for core operations |
+| `rustral_runtime` | **Training/inference orchestration** (trainers, pools) |
+| `rustral_hf` | **Optional Hugging Face Hub** helpers for weights |
 
 ### Backends
 
-MNR is designed to be backend-agnostic. You can swap backends without changing your model code:
+Rustral is designed to be backend-agnostic. You can swap backends without changing your model code:
 
 ```rust
-use mnr_ndarray_backend::CpuBackend;      // Reference CPU backend
-use mnr_candle_backend::CandleBackend;    // Optimized CPU/CUDA
-use mnr_wgpu_backend::WgpuBackend;        // Cross-platform GPU
+use rustral_ndarray_backend::CpuBackend;      // Reference CPU backend
+use rustral_candle_backend::CandleBackend;    // Optimized CPU/CUDA
+use rustral_wgpu_backend::WgpuBackend;        // Cross-platform GPU
 
 // All three work with the same model code
 let backend = CpuBackend::default();
@@ -142,11 +143,11 @@ let backend = CpuBackend::default();
 
 | Backend | Hardware | Best For | Status |
 |---------|----------|----------|--------|
-| `mnr-ndarray-backend` | CPU | Reference/testing, correctness baselines | Stable |
-| `mnr-candle-backend` | CPU, CUDA (optional) | Production training, large models | Stable |
-| `mnr-wgpu-backend` | GPU (Vulkan/Metal/DX12) | Cross-platform GPU inference | Beta* |
+| `rustral-ndarray-backend` | CPU | Reference/testing, correctness baselines | Stable |
+| `rustral-candle-backend` | CPU, CUDA (optional) | Production training, large models | Stable |
+| `rustral-wgpu-backend` | GPU (Vulkan/Metal/DX12) | Experiments / inference prototyping | **Experimental** |
 
-\* The wgpu backend uses compute shaders for element-wise ops, matrix multiplication, transpose, and gather. On Linux with NVIDIA drivers, the test binary may segfault on process exit due to a known wgpu 0.19 + Vulkan driver cleanup bug. Individual tests pass when run in isolation.
+\* **Experimental:** uses WGSL compute for matmul, element-wise ops, etc. On some Linux + NVIDIA stacks, full test binaries have aborted during teardown (allocator/driver interaction with `wgpu` 0.19). CI runs these tests as non-blocking; use Candle for reliable GPU-ish throughput until `wgpu` is upgraded.
 
 ---
 
@@ -183,7 +184,7 @@ This means you can swap a `Linear` for a `Conv2d` and the rest of your code does
 
 ### 3. Forward Context
 
-Unlike PyTorch's hidden global state, MNR makes everything explicit:
+Unlike PyTorch's hidden global state, rustral makes everything explicit:
 
 ```rust
 let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
@@ -251,18 +252,18 @@ Some crates also provide standalone examples:
 
 | Example | Run Command |
 |---------|-------------|
-| Linear Readout | `cargo run -p mnr-nn --example linear_readout` |
-| BERT Encoder | `cargo run -p mnr-nn --example transformer_bert_encoder` |
-| GPT Decoder | `cargo run -p mnr-nn --example transformer_gpt_decoder` |
-| Candle Benchmark | `cargo run -p mnr-candle-backend --example benchmark` |
+| Linear Readout | `cargo run -p rustral-nn --example linear_readout` |
+| BERT Encoder | `cargo run -p rustral-nn --example transformer_bert_encoder` |
+| GPT Decoder | `cargo run -p rustral-nn --example transformer_gpt_decoder` |
+| Candle Benchmark | `cargo run -p rustral-candle-backend --example benchmark` |
 
 ---
 
 ## Building a Model
 
 ```rust
-use mnr_core::{Backend, ForwardCtx, Module, Mode};
-use mnr_nn::{Linear, LinearBuilder, Conv2d, Conv2dConfig, max_pool2d};
+use rustral_core::{Backend, ForwardCtx, Module, Mode};
+use rustral_nn::{Linear, LinearBuilder, Conv2d, Conv2dConfig, max_pool2d};
 
 struct MyModel<B: Backend> {
     conv1: Conv2d<B>,
@@ -296,10 +297,13 @@ impl<B: Backend> MyModel<B> {
 
 ## Advanced Features
 
-### Multi-GPU Training
+### Multi-GPU / distributed-style training
+
+v0.1.0 focuses on **correct, inspectable building blocks**. `ProcessGroup::new_threaded` and the data-parallel / ZeRO-style trainers run as **single-process simulations** (threads) for learning and tests—not a drop-in replacement for multi-node PyTorch yet. Optional `mpi` / `nccl` **feature flags** are hooks for future work; they do not provide a full production cluster stack out of the box.
 
 ```rust
-use mnr_distributed::{ProcessGroup, DataParallelTrainer, ZeROOptimizer};
+use rustral_distributed::{DataParallelTrainer, ProcessGroup};
+use rustral_optim::Adam;
 
 let pg = ProcessGroup::new_threaded(8, rank)?;
 let trainer = DataParallelTrainer::new(pg, Adam::new(0.001));
@@ -308,7 +312,7 @@ let trainer = DataParallelTrainer::new(pg, Adam::new(0.001));
 ### Mixed Precision Training
 
 ```rust
-use mnr_optim::{MixedPrecisionOptimizer, DType};
+use rustral_optim::{MixedPrecisionOptimizer, DType};
 
 let optimizer = MixedPrecisionOptimizer::new(Adam::new(0.001))
     .with_dtype(DType::Float16)
@@ -320,7 +324,7 @@ let optimizer = MixedPrecisionOptimizer::new(Adam::new(0.001))
 The candle backend uses the [candle-core](https://github.com/huggingface/candle) library for highly optimized CPU (and optional CUDA) execution:
 
 ```rust
-use mnr_candle_backend::CandleBackend;
+use rustral_candle_backend::CandleBackend;
 
 let backend = CandleBackend::cpu();
 // Or with CUDA (requires nvcc / CUDA toolkit):
@@ -332,7 +336,7 @@ On large linear layers, candle can be **up to ~20x faster** than the ndarray bac
 ### Flash Attention
 
 ```rust
-use mnr_nn::{FlashAttention, SelfAttentionConfig};
+use rustral_nn::{FlashAttention, SelfAttentionConfig};
 
 let config = SelfAttentionConfig::new(768, 12);
 let flash_attn = FlashAttention::new(&backend, config, 42)?;
@@ -341,7 +345,7 @@ let flash_attn = FlashAttention::new(&backend, config, 42)?;
 ### Mixture of Experts (MoE)
 
 ```rust
-use mnr_nn::{ExpertLayer, MoEConfig};
+use rustral_nn::{ExpertLayer, MoEConfig};
 
 let config = MoEConfig::new(512, 64, 2048, 2);
 let moe = ExpertLayer::new(&backend, config, 42)?;
@@ -351,24 +355,17 @@ let moe = ExpertLayer::new(&backend, config, 42)?;
 
 ## Development Status
 
-MNR has comprehensive test coverage across all crates:
+- **Library tests:** ~**639** passed across workspace crates with `cargo test --workspace --exclude rustral-wgpu-backend` (exact count changes as tests land).
+- **`rustral-wgpu-backend`:** run separately; CI executes it with `continue-on-error` because some platforms abort during teardown.
+- **Examples:** built in a nested workspace under `examples/` (`cargo build --manifest-path examples/Cargo.toml --workspace`).
 
-| Component | Tests | Notes |
-|-----------|-------|-------|
-| Core (tensors, backend trait) | 20+ | Backend abstraction, shapes, parameters |
-| Autodiff | 15+ | Gradient computation, tape operations |
-| Optimizers | 20+ | SGD, Adam, AdamW, mixed precision, schedules |
-| Neural Network Layers | 200+ | Conv2d, Linear, Transformer, Attention, MoE, normalization |
-| GPU Backend (wgpu) | 20+ | Matmul, transpose, gather, dropout, element-wise ops |
-| Candle Backend | 8+ | Creation, matmul, ops, softmax, transpose |
-| Distributed Training | 30+ | ZeRO, FSDP, checkpointing, parallelism |
-| Data Loading | 5+ | Batching, shuffling, transforms |
-| **Total** | **350+** | |
-
-Run the full suite:
+Run formatting, clippy, and tests locally:
 
 ```bash
 ./run_tests.sh
+# stricter CI parity:
+cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings \
+  && cargo test --workspace --exclude rustral-wgpu-backend
 ```
 
 ---
@@ -421,18 +418,18 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MNR is dual-licensed under:
+Rustral is dual-licensed under:
 
-- **MIT License** — use freely in commercial or open-source projects
-- **Apache License 2.0** — same freedoms, different legal wording
+- **[MIT](LICENSE-MIT)** — short permissive license
+- **[Apache License 2.0](LICENSE-APACHE)** — same intent, different legal wording
 
-Choose whichever works better for your project.
+You may use either license.
 
 ---
 
 ## Acknowledgments
 
-MNR was inspired by the Rust machine learning ecosystem and aims to provide a **transparent, educational, and production-ready** alternative to Python frameworks.
+Rustral draws ideas from the Rust ML ecosystem and aims to stay **transparent and hackable** alongside crates like Candle and Burn.
 
 **Key design influences:**
 - PyTorch's eager execution and intuitive API

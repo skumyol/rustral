@@ -9,9 +9,9 @@
 //!
 //! Run with: `cargo run --bin train_demo`
 
-use mnr_autodiff::{Tape, GradExt, GradExtFromStore};
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_ndarray_backend::CpuBackend;
+use rustral_autodiff::{Tape, GradExt, GradExtFromStore};
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_ndarray_backend::CpuBackend;
 
 fn main() {
     println!("Training Demo");
@@ -91,8 +91,8 @@ fn main() {
             let b_val = b.tensor().values()[0];
             let new_w = backend.tensor_from_vec(vec![w_val - learning_rate * w_grad], &[1]).unwrap();
             let new_b = backend.tensor_from_vec(vec![b_val - learning_rate * b_grad], &[1]).unwrap();
-            w = mnr_core::Parameter::new("weight", new_w);
-            b = mnr_core::Parameter::new("bias", new_b);
+            w = rustral_core::Parameter::new("weight", new_w);
+            b = rustral_core::Parameter::new("bias", new_b);
         }
 
         if epoch % 20 == 0 {

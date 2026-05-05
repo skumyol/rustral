@@ -2,7 +2,7 @@
 //!
 //! A minimal GPT-style language model trained with manual backpropagation.
 //! This example demonstrates how to train a small neural network on GPU
-//! using the candle backend with MNR's tensor operations.
+//! using the candle backend with Rustral's tensor operations.
 //!
 //! ## Architecture
 //! - Character-level tokenization (each character = one token)
@@ -26,11 +26,11 @@
 //!
 //! ## Note on Autodiff
 //! This example uses manual backprop for educational clarity and to avoid
-//! limitations in MNR's tape-based autodiff for parameter gradients.
+//! limitations in Rustral's tape-based autodiff for parameter gradients.
 //! Future versions will integrate full automatic differentiation.
 
-use mnr_candle_backend::CandleBackend;
-use mnr_core::{Backend, Parameter, Result, TensorOps};
+use rustral_candle_backend::CandleBackend;
+use rustral_core::{Backend, Parameter, Result, TensorOps};
 use rand::Rng;
 
 /// Tiny Shakespeare excerpt for training.
@@ -373,7 +373,7 @@ fn update_param(
     let current = param.tensor();
     let scaled_grad = ops.mul_scalar(grad, lr)?;
     let new_val = ops.sub(current, &scaled_grad)?;
-    *param = mnr_core::Parameter::new(param.name(), new_val);
+    *param = rustral_core::Parameter::new(param.name(), new_val);
     Ok(())
 }
 

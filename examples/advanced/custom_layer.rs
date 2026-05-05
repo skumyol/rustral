@@ -4,8 +4,8 @@
 //!
 //! Run with: `cargo run --example custom_layer`
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module, Tensor};
-use mnr_ndarray_backend::CpuBackend;
+use rustral_core::{Backend, ForwardCtx, Mode, Module, Tensor};
+use rustral_ndarray_backend::CpuBackend;
 
 /// Custom layer: SwiGLU activation
 /// SwiGLU(x) = Swish(xW + b) ⊗ (xV + c)

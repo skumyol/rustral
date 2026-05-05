@@ -1,4 +1,4 @@
-//! Auto-Tuner for the Modular Neural Runtime
+//! Auto-Tuner for the Rustral
 #![allow(dead_code)]
 //!
 //! Provides automatic kernel configuration search, block size optimization,
@@ -8,7 +8,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use mnr_autotuner::{AutoTuner, KernelConfig, TunerConfig};
+//! use rustral_autotuner::{AutoTuner, KernelConfig, TunerConfig};
 //!
 //! let tuner = AutoTuner::new(TunerConfig::default());
 //!

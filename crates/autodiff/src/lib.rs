@@ -1,4 +1,4 @@
-//! Automatic differentiation for MNR using reverse-mode autodiff.
+//! Automatic differentiation for Rustral using reverse-mode autodiff.
 #![allow(dead_code)]
 //!
 //! Provides a `Tape` for recording operations and computing gradients
@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use mnr_core::{Backend, ForwardCtx, Parameter, ParameterId, Result};
+use rustral_core::{Backend, ForwardCtx, Parameter, ParameterId, Result};
 
 pub mod checkpoint;
 
@@ -34,7 +34,7 @@ struct Op<B: Backend> {
     output: TensorId,
     /// Backward function that computes gradients given upstream grad and tensor ops.
     backward: Box<
-        dyn Fn(&B::Tensor, &mut GradientStore<B>, &dyn mnr_core::TensorOps<B>) -> Result<Vec<B::Tensor>>
+        dyn Fn(&B::Tensor, &mut GradientStore<B>, &dyn rustral_core::TensorOps<B>) -> Result<Vec<B::Tensor>>
             + Send
             + Sync,
     >,
@@ -117,7 +117,7 @@ impl<B: Backend> Tape<B> {
     /// store, and the tensor ops, and returns gradients for each input.
     pub fn record<F>(&mut self, inputs: &[TensorId], output_tensor: B::Tensor, backward: F) -> TensorId
     where
-        F: Fn(&B::Tensor, &mut GradientStore<B>, &dyn mnr_core::TensorOps<B>) -> Result<Vec<B::Tensor>>
+        F: Fn(&B::Tensor, &mut GradientStore<B>, &dyn rustral_core::TensorOps<B>) -> Result<Vec<B::Tensor>>
             + Send
             + Sync
             + 'static,
@@ -133,7 +133,7 @@ impl<B: Backend> Tape<B> {
     /// Get a tensor value by id, returning an error if not found.
     fn get_value(&self, id: TensorId) -> Result<&B::Tensor> {
         self.values.get(&id).ok_or_else(|| {
-            mnr_core::CoreError::InvalidArgument(format!("TensorId {:?} not found in tape values", id.0))
+            rustral_core::CoreError::InvalidArgument(format!("TensorId {:?} not found in tape values", id.0))
         })
     }
 
@@ -373,7 +373,7 @@ impl<B: Backend> Tape<B> {
     /// Backward: gradients accumulate into table rows
     pub fn gather_rows_tape(
         &mut self,
-        table: &mnr_core::Parameter<B>,
+        table: &rustral_core::Parameter<B>,
         ids: TensorId,
         ctx: &mut ForwardCtx<B>,
     ) -> Result<TensorId>
@@ -392,7 +392,7 @@ impl<B: Backend> Tape<B> {
         let mut id_vec = Vec::with_capacity(num_indices);
         for i in 0..num_indices {
             let val = ops.tensor_element(&ids_val, i).map_err(|e| {
-                mnr_core::CoreError::InvalidArgument(format!("Failed to get tensor element {}: {:?}", i, e))
+                rustral_core::CoreError::InvalidArgument(format!("Failed to get tensor element {}: {:?}", i, e))
             })?;
             id_vec.push(val as usize);
         }
@@ -534,8 +534,8 @@ impl<B: Backend> Tape<B> {
     pub fn layer_norm_tape(
         &mut self,
         input: TensorId,
-        gamma: &mnr_core::Parameter<B>,
-        beta: &mnr_core::Parameter<B>,
+        gamma: &rustral_core::Parameter<B>,
+        beta: &rustral_core::Parameter<B>,
         eps: f32,
         ctx: &mut ForwardCtx<B>,
     ) -> Result<TensorId>
@@ -674,7 +674,7 @@ impl<B: Backend> Tape<B> {
         mut self,
         output: TensorId,
         make_ones: F,
-        ops: &dyn mnr_core::TensorOps<B>,
+        ops: &dyn rustral_core::TensorOps<B>,
     ) -> Result<GradientStore<B>>
     where
         B::Tensor: Clone,
@@ -683,7 +683,7 @@ impl<B: Backend> Tape<B> {
         // Seed gradient at output: d(output)/d(output) = 1.0 for each element
         // This assumes the loss is the sum of all output elements
         let out_val = self.values.get(&output).ok_or_else(|| {
-            mnr_core::CoreError::InvalidArgument(format!(
+            rustral_core::CoreError::InvalidArgument(format!(
                 "Output tensor {:?} not found for backward",
                 output.0
             ))
@@ -758,8 +758,8 @@ impl<B: Backend> GradExtFromStore<B> for Parameter<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode};
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::{ForwardCtx, Mode};
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_tape_creation() {

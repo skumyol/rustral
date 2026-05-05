@@ -5,13 +5,13 @@
 use std::fs;
 use std::thread;
 
-use mnr_core::{Backend, ForwardCtx, Mode};
-use mnr_distributed::{
+use rustral_core::{Backend, ForwardCtx, Mode};
+use rustral_distributed::{
     DataParallelTrainer, DistributedCheckpointManager,
     ParallelStyle, ProcessGroup, TensorParallelLinear, ZeRoMemoryStats, ZeroOptimizer,
 };
-use mnr_ndarray_backend::CpuBackend;
-use mnr_optim::{Adam, Gradient};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_optim::{Adam, Gradient};
 
 /// Test single-process data parallel trainer.
 #[test]
@@ -241,7 +241,7 @@ fn test_e2e_distributed_training() {
 /// Test gradient accumulation.
 #[test]
 fn test_gradient_accumulation() {
-    use mnr_distributed::GradientAccumulator;
+    use rustral_distributed::GradientAccumulator;
 
     let backend = CpuBackend::default();
     let pg = ProcessGroup::new_single_process();
@@ -249,7 +249,7 @@ fn test_gradient_accumulation() {
     let mut acc = GradientAccumulator::new(pg);
 
     // Create some dummy gradients
-    let param_id = mnr_core::ParameterId::fresh();
+    let param_id = rustral_core::ParameterId::fresh();
     let grad_tensor = backend.ops().tensor_from_vec(vec![1.0f32; 10], &[10]).unwrap();
     let gradients = vec![Gradient { param_id, tensor: grad_tensor }];
 
@@ -286,7 +286,7 @@ fn test_checkpoint_save_load() {
 
     // Load checkpoint
     let mut loaded_params = vec![("test_param".to_string(), param.clone())];
-    let (step, opt_ckpt) = manager.load(0, &mut loaded_params).unwrap();
+    let (step, opt_ckpt) = manager.load(0, &backend, &mut loaded_params).unwrap();
 
     assert_eq!(step, 100);
     assert!(opt_ckpt.is_none());
@@ -315,7 +315,7 @@ fn test_list_checkpoints() {
 /// Test async checkpoint writer.
 #[test]
 fn test_async_checkpoint_writer() {
-    use mnr_distributed::AsyncCheckpointWriter;
+    use rustral_distributed::AsyncCheckpointWriter;
     
     
 

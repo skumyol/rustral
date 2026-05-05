@@ -106,3 +106,5 @@ coverage/
 # ============================================================================
 legacy/
 docs/legacy-mapping.md
+scripts/publish_crates_io.sh
+vendor/*

@@ -3,9 +3,9 @@
 //! Tests Conv2d forward pass performance.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{Conv2d, Conv2dConfig};
+use rustral_core::{ForwardCtx, Mode, Module};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{Conv2d, Conv2dConfig};
 
 fn bench_conv2d(c: &mut Criterion) {
     let backend = CpuBackend::default();

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use mnr_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, Trainable};
-use mnr_symbolic::Vocabulary;
+use rustral_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, Trainable};
+use rustral_symbolic::Vocabulary;
 use serde::{Deserialize, Serialize};
 
 /// Configuration for an embedding table.
@@ -71,8 +71,8 @@ impl<B: Backend> Trainable<B> for Embedding<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode, Parameter};
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::{ForwardCtx, Mode, Parameter};
+    use rustral_ndarray_backend::CpuBackend;
 
     fn create_mock_embedding(vocab_size: usize, dim: usize) -> (Embedding<CpuBackend>, Arc<Vocabulary>) {
         let _backend = CpuBackend::default();

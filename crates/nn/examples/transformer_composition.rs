@@ -5,13 +5,13 @@
 //! - Adapter layers
 //! - Pre-trained model fine-tuning
 //!
-//! Run with: `cargo run -p mnr-nn --example transformer_composition`
+//! Run with: `cargo run -p rustral-nn --example transformer_composition`
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_nn::{Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig};
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_nn::{Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig};
 
 fn main() {
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_ndarray_backend::CpuBackend;
 
     println!("Composing Transformer Architectures");
     println!("====================================\n");

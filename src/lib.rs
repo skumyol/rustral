@@ -1,8 +1,8 @@
-//! Modular Neural Runtime (MNR) - System Integration Tests Root Package
+//! Rustral — workspace root crate for integration tests
 //!
-//! This root package exists to host workspace-level integration tests.
+//! Library functionality lives in `rustral-*` crates; this package wires them for system tests.
 
-pub use mnr_core;
-pub use mnr_data;
-pub use mnr_ndarray_backend;
-pub use mnr_nn;
+pub use rustral_core;
+pub use rustral_data;
+pub use rustral_ndarray_backend;
+pub use rustral_nn;

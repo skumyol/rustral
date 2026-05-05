@@ -5,9 +5,9 @@
 //!
 //! Run with: `cargo run --bin char_rnn`
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{Embedding, EmbeddingConfig, Linear, LinearConfig};
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{Embedding, EmbeddingConfig, Linear, LinearConfig};
 use std::collections::HashMap;
 
 /// Simple character vocabulary

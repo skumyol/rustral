@@ -20,7 +20,7 @@
 //! Each device computes attention for its query chunk against
 //! all key/value chunks in a ring-reduce pattern.
 
-use mnr_core::{Backend, CoreError, Result, TensorOps, TensorShape};
+use rustral_core::{Backend, CoreError, Result, TensorOps, TensorShape};
 
 use crate::ProcessGroup;
 
@@ -401,7 +401,7 @@ pub fn compute_sequence_sharding(total_seq_len: usize, num_devices: usize) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_sequence_sharding() {

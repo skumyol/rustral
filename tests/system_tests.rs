@@ -9,6 +9,8 @@
 //!
 //! Run with: `cargo test --test system_tests`
 
+#![allow(unused_imports, unused_variables, clippy::redundant_field_names)]
+
 mod bug_regression;
 mod common;
 mod edge_cases;
@@ -22,7 +24,7 @@ use common::TestRunner;
 #[test]
 fn run_all_system_tests() {
     println!("\n{}", "=".repeat(80));
-    println!("  NEURAL ENGINE SYSTEM TEST SUITE");
+    println!("  RUSTRAL SYSTEM TEST SUITE");
     println!("  Bug Detection | Performance | Integration | Edge Cases | Stress");
     println!("{}", "=".repeat(80));
 
@@ -60,8 +62,8 @@ fn smoke_test() {
 
     runner.run_test("smoke_core_module", || {
         // Quick sanity check that core modules load
-        use mnr_core::{Backend, ForwardCtx, Mode};
-        use mnr_ndarray_backend::CpuBackend;
+        use rustral_core::{Backend, ForwardCtx, Mode};
+        use rustral_ndarray_backend::CpuBackend;
 
         let backend = CpuBackend::default();
         let _ctx = ForwardCtx::new(&backend, Mode::Inference);
@@ -69,9 +71,9 @@ fn smoke_test() {
     });
 
     runner.run_test("smoke_nn_module", || {
-        use mnr_core::Backend;
-        use mnr_ndarray_backend::CpuBackend;
-        use mnr_nn::{Linear, LinearConfig};
+        use rustral_core::Backend;
+        use rustral_ndarray_backend::CpuBackend;
+        use rustral_nn::{Linear, LinearConfig};
 
         let backend = CpuBackend::default();
         let _linear = Linear::new(&backend, LinearConfig::new(10, 5)).unwrap();
@@ -79,7 +81,7 @@ fn smoke_test() {
     });
 
     runner.run_test("smoke_data_module", || {
-        use mnr_data::{DataLoader, DataLoaderConfig, Dataset};
+        use rustral_data::{DataLoader, DataLoaderConfig, Dataset};
         // Verify data module is available
         let _config = DataLoaderConfig { batch_size: 32, ..Default::default() };
         Ok(())

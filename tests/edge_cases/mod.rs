@@ -1,8 +1,10 @@
 //! Edge Cases and Boundary Condition Tests
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Mode, Module};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{
+#![allow(unused_imports)]
+
+use rustral_core::{Backend, CoreError, ForwardCtx, Mode, Module};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{
     Conv2d, Conv2dConfig, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig,
     SelfAttention, SelfAttentionConfig, TransformerEncoder, TransformerEncoderConfig,
 };

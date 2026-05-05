@@ -9,7 +9,7 @@
 //! This follows the legacy DyNet wrapper design where dropout behavior
 //! is controlled by a training mode guard.
 
-use mnr_core::{Backend, ForwardCtx, Module, Result};
+use rustral_core::{Backend, ForwardCtx, Module, Result};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for dropout regularization.
@@ -37,9 +37,9 @@ impl Default for DropoutConfig {
 /// # Example
 ///
 /// ```
-/// use mnr_nn::{Dropout, DropoutConfig};
-/// use mnr_core::{ForwardCtx, Mode, Module};
-/// use mnr_ndarray_backend::CpuBackend;
+/// use rustral_nn::{Dropout, DropoutConfig};
+/// use rustral_core::{ForwardCtx, Mode, Module};
+/// use rustral_ndarray_backend::CpuBackend;
 ///
 /// let backend = CpuBackend::default();
 /// let mut ctx = ForwardCtx::new(&backend, Mode::Train);  // Dropout active
@@ -77,8 +77,8 @@ impl<B: Backend> Module<B> for Dropout<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode};
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::{ForwardCtx, Mode};
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_dropout_inference_is_identity() {

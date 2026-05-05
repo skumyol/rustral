@@ -16,7 +16,7 @@
 //!
 //! # Example
 //! ```rust,ignore
-//! use mnr_distributed::nccl::{NcclCommunicator, AllReduceOp};
+//! use rustral_distributed::nccl::{NcclCommunicator, AllReduceOp};
 //!
 //! let nccl = NcclCommunicator::init(world_size, rank)?;
 //! let mut grads = vec![1.0f32; 1024 * 1024];

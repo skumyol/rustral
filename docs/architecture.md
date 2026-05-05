@@ -28,7 +28,7 @@ The legacy C++ wrapper reduces boilerplate by hiding graph lifetime and paramete
 
 ## Backend abstraction
 
-`mnr-core::Backend` is intentionally small. It lets the architecture support a simple CPU reference backend today and a production backend later. A future Burn or Candle backend should implement the same `TensorOps` contract or a richer extension trait.
+`rustral-core::Backend` is intentionally small. It lets the architecture support a simple CPU reference backend today and a production backend later. A future Burn or Candle backend should implement the same `TensorOps` contract or a richer extension trait.
 
 ## Parallelism
 

@@ -22,7 +22,7 @@
 //! # Examples
 //!
 //! ```rust,ignore
-//! use mnr_nn::transformer::{TransformerEncoder, TransformerEncoderConfig};
+//! use rustral_nn::transformer::{TransformerEncoder, TransformerEncoderConfig};
 //!
 //! // BERT-style encoder for classification
 //! let config = TransformerEncoderConfig::new(768, 12, 12, 3072); // d_model, heads, layers, ff_dim
@@ -30,7 +30,7 @@
 //! let cls_output = encoder.forward(input, &mut ctx)?; // [batch, d_model]
 //! ```
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Module, ParameterRef, Result, TensorOps, Trainable};
+use rustral_core::{Backend, CoreError, ForwardCtx, Module, ParameterRef, Result, TensorOps, Trainable};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -60,7 +60,7 @@ pub struct PositionalEncoding<B: Backend> {
 
 impl<B: Backend> PositionalEncoding<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create positional encoding.
     pub fn new(backend: &B, d_model: usize, max_len: usize) -> Result<Self> {
@@ -102,7 +102,7 @@ where
 
 impl<B: Backend> Module<B> for PositionalEncoding<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     type Input = B::Tensor;
     type Output = B::Tensor;
@@ -207,7 +207,7 @@ pub struct TransformerEncoderLayer<B: Backend> {
 
 impl<B: Backend> TransformerEncoderLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create encoder layer.
     pub fn new(backend: &B, config: &TransformerEncoderConfig, seed: u64) -> Result<Self> {
@@ -287,7 +287,7 @@ where
 
 impl<B: Backend> Module<B> for TransformerEncoderLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     type Input = B::Tensor;
     type Output = B::Tensor;
@@ -329,7 +329,7 @@ pub struct TransformerEncoder<B: Backend> {
 
 impl<B: Backend> TransformerEncoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create transformer encoder.
     pub fn new(backend: &B, config: TransformerEncoderConfig, vocab_size: usize, seed: u64) -> Result<Self> {
@@ -430,7 +430,7 @@ where
 
 impl<B: Backend> Module<B> for TransformerEncoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     type Input = Vec<usize>;
     type Output = B::Tensor;
@@ -508,7 +508,7 @@ pub struct TransformerDecoderLayer<B: Backend> {
 
 impl<B: Backend> TransformerDecoderLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     pub fn new(backend: &B, config: &TransformerDecoderConfig, seed: u64) -> Result<Self> {
         let attn_config =
@@ -568,7 +568,7 @@ where
 
 impl<B: Backend> Module<B> for TransformerDecoderLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     type Input = B::Tensor;
     type Output = B::Tensor;
@@ -604,7 +604,7 @@ pub struct TransformerDecoder<B: Backend> {
 
 impl<B: Backend> TransformerDecoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     pub fn new(backend: &B, config: TransformerDecoderConfig, vocab_size: usize, seed: u64) -> Result<Self> {
         let token_embedding =
@@ -705,7 +705,7 @@ where
 
 impl<B: Backend> Module<B> for TransformerDecoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     type Input = Vec<usize>;
     type Output = B::Tensor;
@@ -775,7 +775,7 @@ pub struct TransformerEncoderDecoder<B: Backend> {
 
 impl<B: Backend> TransformerEncoderDecoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     /// Create encoder-decoder model.
     pub fn new(
@@ -883,8 +883,8 @@ impl<B: Backend> Trainable<B> for TransformerEncoderDecoder<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::Mode;
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::Mode;
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_positional_encoding() {
@@ -1192,7 +1192,7 @@ mod tests {
         let backend = CpuBackend::default();
         let config = EncoderDecoderConfig::symmetric(64, 4, 2, 256);
         let model = TransformerEncoderDecoder::new(&backend, config.clone(), 100, 100, 42).unwrap();
-        assert_eq!(model.config().shared_embeddings, true);
+        assert!(model.config().shared_embeddings);
     }
 
     #[test]

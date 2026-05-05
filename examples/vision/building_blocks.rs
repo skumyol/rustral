@@ -1,4 +1,4 @@
-//! Building Blocks: Understanding MNR's Core Abstractions
+//! Building Blocks: Understanding Rustral's Core Abstractions
 //!
 //! Demonstrates the fundamental abstractions:
 //! - Backend: Where computation happens (CPU/GPU)
@@ -8,13 +8,13 @@
 //!
 //! Run with: `cargo run --example building_blocks`
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{Linear, LinearConfig};
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{Linear, LinearConfig};
 
 fn main() {
     println!("╔══════════════════════════════════════════════════════════╗");
-    println!("║  MNR Building Blocks: Core Abstractions Explained        ║");
+    println!("║  Rustral Building Blocks: Core Abstractions Explained        ║");
     println!("╚══════════════════════════════════════════════════════════╝\n");
 
     // ═══════════════════════════════════════════════════════════

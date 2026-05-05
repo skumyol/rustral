@@ -22,7 +22,7 @@
 //!
 //! # Example
 //! ```rust,ignore
-//! use mnr_distributed::pipeline_parallel::{PipelineParallel, StageSplitter};
+//! use rustral_distributed::pipeline_parallel::{PipelineParallel, StageSplitter};
 //!
 //! let stages = StageSplitter::auto_split(model, 4)?; // Split into 4 stages
 //! let pipeline = PipelineParallel::new(stages, process_group)?;
@@ -32,7 +32,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Mode, Module, Parameter, ParameterRef, Result, Trainable};
+use rustral_core::{Backend, CoreError, ForwardCtx, Mode, Module, Parameter, ParameterRef, Result, Trainable};
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
 
@@ -222,7 +222,7 @@ pub struct PipelineParallel<B: Backend> {
 
 impl<B: Backend> PipelineParallel<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     pub fn new(
         stages: Vec<PipelineStage<B>>,
@@ -417,7 +417,7 @@ pub fn create_pipeline<B: Backend, M: Module<B> + Trainable<B>>(
     config: PipelineConfig,
 ) -> DistributedResult<PipelineParallel<B>>
 where
-    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
 {
     let num_stages = process_group.world_size();
     let stages = StageSplitter::auto_split(&model, num_stages)?;
@@ -427,9 +427,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{ForwardCtx, Mode};
-    use mnr_ndarray_backend::CpuBackend;
-    use mnr_nn::{Linear, LinearConfig};
+    use rustral_core::{ForwardCtx, Mode};
+    use rustral_ndarray_backend::CpuBackend;
+    use rustral_nn::{Linear, LinearConfig};
 
     #[test]
     fn test_pipeline_config() {
@@ -706,7 +706,7 @@ mod tests {
 
         let tensor = backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap();
         comm.send(tensor);
-        assert!(comm.send_queue.lock().unwrap().len() > 0);
+        assert!(!comm.send_queue.lock().unwrap().is_empty());
 
         let comm2 = PipelineComm::<CpuBackend>::new(1, 3);
         assert_eq!(comm2.next_stage, Some(2));

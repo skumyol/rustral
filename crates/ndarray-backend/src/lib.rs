@@ -11,7 +11,7 @@
 //! - **ARM/AArch64**: NEON SIMD instructions (when `neon` feature enabled)
 //! - **Fallback**: Portable scalar implementation
 
-use mnr_core::{Backend, CoreError, Parameter, Result, ShapeExt, TensorOps};
+use rustral_core::{Backend, CoreError, Parameter, Result, ShapeExt, TensorOps};
 use rand::thread_rng;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
@@ -55,7 +55,7 @@ impl AsRef<[f32]> for CpuTensor {
     }
 }
 
-impl mnr_core::TensorShape for CpuTensor {
+impl rustral_core::TensorShape for CpuTensor {
     fn shape(&self) -> &[usize] {
         &self.shape
     }
@@ -664,7 +664,7 @@ impl TensorOps<CpuBackend> for CpuOps {
             return Err(CoreError::ShapeMismatch { expected: a.shape.clone(), actual: b.shape.clone() });
         }
         // Check for division by zero
-        if b.values.iter().any(|&v| v == 0.0) {
+        if b.values.contains(&0.0) {
             return Err(CoreError::InvalidArgument("division by zero".into()));
         }
         CpuTensor::new(a.values.iter().zip(b.values.iter()).map(|(x, y)| x / y).collect(), &a.shape)
@@ -720,13 +720,13 @@ impl TensorOps<CpuBackend> for CpuOps {
     }
 }
 
-impl mnr_core::TensorView<CpuBackend> for CpuOps {
+impl rustral_core::TensorView<CpuBackend> for CpuOps {
     fn as_slice_f32<'a>(&self, tensor: &'a CpuTensor) -> Result<&'a [f32]> {
         Ok(&tensor.values)
     }
 }
 
-impl mnr_core::TensorInPlaceOps<CpuBackend> for CpuOps {
+impl rustral_core::TensorInPlaceOps<CpuBackend> for CpuOps {
     fn add_assign(&self, tensor: &mut CpuTensor, other: &CpuTensor) -> Result<()> {
         if tensor.shape != other.shape {
             return Err(CoreError::ShapeMismatch {

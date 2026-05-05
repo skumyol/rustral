@@ -3,9 +3,9 @@
 //! Tests attention mechanism performance.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{MultiHeadAttention, SelfAttentionConfig};
+use rustral_core::{ForwardCtx, Mode, Module};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_nn::{MultiHeadAttention, SelfAttentionConfig};
 
 fn bench_attention(c: &mut Criterion) {
     let backend = CpuBackend::default();
@@ -23,7 +23,7 @@ fn bench_attention(c: &mut Criterion) {
         let mha = MultiHeadAttention::new(&backend, config, 42).unwrap();
 
         let input =
-            backend.tensor_from_vec(vec![1.0f32; 1 * seq_len * d_model], &[1, seq_len, d_model]).unwrap();
+            backend.tensor_from_vec(vec![1.0f32; seq_len * d_model], &[1, seq_len, d_model]).unwrap();
 
         group.bench_with_input(
             BenchmarkId::new("forward", name),
