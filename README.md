@@ -21,6 +21,8 @@ Rustral is not trying to be a Python framework with Rust syntax. It is built aro
 - **Inspectable internals.** Autodiff, optimizers, layers, distributed training hooks, and runtime orchestration live in focused crates. The framework is meant to be read, modified, and audited.
 - **Rust-native deployment paths.** Trained logic can be compiled into ordinary Rust binaries and services, which reduces the gap between experiment code and production code.
 
+The intended user experience is simple: define a model with normal Rust structs, choose a backend once, run forward passes through an explicit context, then keep the same model shape as you move from tutorials to training loops, checkpointing, and inference.
+
 ### Who is it for?
 
 - **Students** learning how networks work under the hood
@@ -45,6 +47,21 @@ Most deep learning frameworks optimize for interactive velocity: global tensor s
 
 Rustral makes those boundaries explicit. The result is a framework where model code is more portable across backends, easier to test at crate boundaries, and easier to integrate into Rust systems that already care about memory safety, concurrency, deployment, and reproducible builds.
 
+### Ease Of Use, Not Hidden State
+
+Rustral treats ease of use as a systems problem: the common path should be short, but the important state should still be visible when something goes wrong.
+
+| User need | Rustral design choice |
+|-----------|-----------------------|
+| Build a layer without boilerplate | Builders such as `LinearBuilder` initialize backend-owned parameters for you. |
+| Run the same model on another backend | Model code depends on `Backend` and `TensorOps`, not a concrete tensor library. |
+| Know whether a pass is training or inference | `ForwardCtx` carries `Mode::Train` or `Mode::Inference` explicitly. |
+| Compose larger models from smaller pieces | `Module` gives each layer a typed forward contract. |
+| Inspect, test, or replace internals | Autodiff, optimizers, runtime, data, and backends are separate crates. |
+| Move toward deployment | Rust binaries can embed the same model logic used in experiments. |
+
+The design is intentionally not "magic-free at any cost." The goal is to put convenience at the edges through builders, trainers, examples, and checkpoint helpers while keeping ownership, backend selection, and execution mode clear in the core API.
+
 ### Practical Advantages
 
 | Advantage | Why it matters |
@@ -65,6 +82,8 @@ Rustral makes those boundaries explicit. The result is a framework where model c
 - A workspace architecture where each subsystem can be tested and evolved independently.
 
 Rustral is currently best viewed as a research and systems framework: useful for learning, experiments, backend work, and Rust-native ML infrastructure. If you need the largest pretrained model ecosystem today, Python frameworks remain the practical default. If you want a framework whose execution model is explicit and whose internals are approachable, Rustral is designed for that.
+
+The current improvement roadmap is tracked in [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md).
 
 ## Quick Start (5 Minutes)
 
@@ -112,6 +131,45 @@ cargo run -p rustral-nn --example transformer_bert_encoder
 ## Architecture
 
 Rustral is organized as a workspace of focused crates. Each crate handles one piece of the puzzle:
+
+```mermaid
+flowchart TD
+    app["Examples and applications"]
+    nn["rustral-nn<br/>layers and model composition"]
+    core["rustral-core<br/>Backend, TensorOps, Module, ForwardCtx, Parameter"]
+    autodiff["rustral-autodiff<br/>tape and gradients"]
+    optim["rustral-optim<br/>SGD, Adam, AdamW, schedules"]
+    runtime["rustral-runtime<br/>trainers and inference orchestration"]
+    dist["rustral-distributed<br/>DP, TP, PP, ZeRO, FSDP-style APIs"]
+    data["rustral-data<br/>batches, shuffling, transforms"]
+    io["rustral-io<br/>SafeTensors save/load"]
+    metrics["rustral-metrics<br/>loss, accuracy, throughput"]
+    autotune["rustral-autotuner<br/>backend tuning"]
+    symbolic["rustral-symbolic<br/>vocabularies and labels"]
+    hf["rustral-hf<br/>Hugging Face helpers"]
+    ndarray["rustral-ndarray-backend<br/>reference CPU"]
+    candle["rustral-candle-backend<br/>CPU/CUDA via Candle"]
+    wgpu["rustral-wgpu-backend<br/>experimental Vulkan/Metal/DX12"]
+
+    app --> nn
+    nn --> core
+
+    runtime --> nn
+    runtime --> autodiff
+    runtime --> optim
+    runtime --> io
+    runtime --> metrics
+    dist --> core
+
+    nn --> data
+    nn --> symbolic
+    hf --> io
+    autotune --> wgpu
+
+    core --> ndarray
+    core --> candle
+    core --> wgpu
+```
 
 ```text
 examples and applications
@@ -290,6 +348,8 @@ Some crates also provide standalone examples:
 
 ## Building a Model
 
+The model surface is ordinary Rust: store layers as fields, initialize them from a backend, and thread a `ForwardCtx` through the forward pass. That keeps the easy path readable while still making backend ownership and execution mode explicit.
+
 ```rust
 use rustral_core::{Backend, ForwardCtx, Module, Mode};
 use rustral_nn::{Linear, LinearBuilder, Conv2d, Conv2dConfig, max_pool2d};
@@ -427,6 +487,7 @@ cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warni
 | [`docs/architecture.md`](docs/architecture.md) | System design and crate relationships |
 | [`docs/api-signatures.md`](docs/api-signatures.md) | Public function signatures |
 | [`docs/master-plan.md`](docs/master-plan.md) | Feature roadmap |
+| [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md) | Concrete engineering plan for closing current abstraction and usability gaps |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Security guidelines |
 | API Docs (rustdoc) | `cargo doc --open` |
 
