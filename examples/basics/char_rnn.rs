@@ -62,13 +62,13 @@ fn main() {
     let vocab = Vocabulary::from_text(text);
     let vocab_size = vocab.size();
     let embedding_dim = 16;
-    let hidden_size = 32;
+    let _hidden_size = 32;
 
     println!("Vocabulary size: {}", vocab_size);
     println!("Text length: {} characters\n", text.len());
 
     // Create model components
-    let embedding = Embedding::new(&backend, EmbeddingConfig::new(vocab_size, embedding_dim)).unwrap();
+    let embedding = Embedding::new(&backend, EmbeddingConfig::new(vocab_size, embedding_dim), 42).unwrap();
     let output = Linear::new(&backend, LinearConfig::new(embedding_dim, vocab_size)).unwrap();
 
     // Encode text
@@ -86,7 +86,7 @@ fn main() {
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
 
         // Get embedding
-        let emb = embedding.forward(&[idx], ops).unwrap();
+        let emb = embedding.forward(vec![idx], &mut ctx).unwrap();
 
         // Simple output projection
         let logits = output.forward(emb, &mut ctx).unwrap();
