@@ -293,4 +293,15 @@ mod tests {
         // Predicted should be based on threshold 0.5
         assert_eq!(prediction.predicted, prediction.probability > 0.5);
     }
+
+    #[test]
+    fn test_binary_readout_module_forward() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
+        let br = create_mock_binary_readout(4);
+
+        let hidden = backend.tensor_from_vec(vec![0.1, 0.2, 0.3, 0.4], &[4]).unwrap();
+        let output = br.forward(hidden, &mut ctx).unwrap();
+        assert_eq!(output.shape(), &[1, 1]);
+    }
 }

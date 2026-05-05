@@ -16,11 +16,13 @@ mod continuous_batching;
 mod conv;
 mod dropout;
 mod embedding;
+mod expert_choice;
 mod kv_cache;
 mod linear;
 mod loss;
 mod lstm;
 mod moe;
+mod shared_expert;
 mod multi_readout;
 mod normalization;
 mod quantization;
@@ -49,7 +51,15 @@ pub use kv_cache::{
 pub use linear::{Linear, LinearBuilder, LinearConfig};
 pub use loss::{MSELoss, CrossEntropyLoss, BCEWithLogitsLoss};
 pub use lstm::{BidirectionalOutput, BidirectionalRnn, GruCell, GruConfig, GruState, LstmCell, LstmConfig, LstmState, RnnCell, StackedLstm};
+pub use expert_choice::{
+    ExpertChoiceConfig, ExpertChoiceRouter, ExpertChoiceStats,
+    ExpertAssignments, TokenAssignment, RoutingComparison,
+};
 pub use moe::{Expert, ExpertLayer, ExpertParallel, GatingOutput, MoEConfig, MoEOutput, MoEStats, TopKGating};
+pub use shared_expert::{
+    SharedExpertLayer, SharedExpertConfig, SharedExpertStats,
+    HybridRouting, SharedAndRoutedConfig,
+};
 pub use multi_readout::{BinaryPrediction, BinaryReadout, LabelBinaryPrediction, MultiReadout};
 pub use normalization::{BatchNorm, BatchNormConfig, LayerNorm, LayerNormConfig};
 pub use quantization::{

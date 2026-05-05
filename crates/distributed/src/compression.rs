@@ -19,6 +19,8 @@
 //! ```
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
+use mnr_core::{Backend, Parameter};
+use std::collections::HashMap;
 
 /// Type of compression
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -95,7 +97,7 @@ impl CompressedCommunicator {
     }
 
     /// All-reduce sum with compression
-    pub fn all_reduce_sum(&self, data: &mut [f32]) -> DistributedResult<()> {
+    pub fn all_reduce_sum(&mut self, data: &mut [f32]) -> DistributedResult<()> {
         if data.is_empty() {
             return Ok(());
         }
@@ -123,7 +125,7 @@ impl CompressedCommunicator {
     }
 
     /// All-reduce average with compression
-    pub fn all_reduce_avg(&self, data: &mut [f32]) -> DistributedResult<()> {
+    pub fn all_reduce_avg(&mut self, data: &mut [f32]) -> DistributedResult<()> {
         self.all_reduce_sum(data)?;
         let world_size = self.inner.world_size() as f32;
         for v in data.iter_mut() {
@@ -228,7 +230,7 @@ impl CompressedCommunicator {
         let bits = v.to_bits();
         let sign = (bits >> 31) as u16;
         let exponent = ((bits >> 23) & 0xFF) as u16;
-        let mantissa = (bits & 0x7FFFFF) as u16;
+        let mantissa = bits & 0x7FFFFF;
 
         // Convert exponent bias from 127 to 15
         let new_exponent = if exponent == 0 {
@@ -247,7 +249,7 @@ impl CompressedCommunicator {
         };
 
         // Truncate mantissa from 23 to 10 bits
-        let new_mantissa = mantissa >> 13;
+        let new_mantissa = (mantissa >> 13) as u16;
 
         (sign << 15) | (new_exponent << 10) | new_mantissa
     }
@@ -432,13 +434,27 @@ impl BandwidthStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mnr_ndarray_backend::CpuBackend;
+    use mnr_core::Parameter;
 
     #[test]
     fn test_compression_ratios() {
         assert_eq!(CompressionType::None.compression_ratio(), 1.0);
         assert_eq!(CompressionType::Fp16.compression_ratio(), 2.0);
+        assert_eq!(CompressionType::Bf16.compression_ratio(), 2.0);
+        assert_eq!(CompressionType::Fp8.compression_ratio(), 4.0);
         assert_eq!(CompressionType::OneBit.compression_ratio(), 32.0);
         assert_eq!(CompressionType::FourBit.compression_ratio(), 8.0);
+    }
+
+    #[test]
+    fn test_bits_per_element() {
+        assert_eq!(CompressionType::None.bits_per_element(), 32);
+        assert_eq!(CompressionType::Fp16.bits_per_element(), 16);
+        assert_eq!(CompressionType::Bf16.bits_per_element(), 16);
+        assert_eq!(CompressionType::Fp8.bits_per_element(), 8);
+        assert_eq!(CompressionType::OneBit.bits_per_element(), 1);
+        assert_eq!(CompressionType::FourBit.bits_per_element(), 4);
     }
 
     #[test]
@@ -495,11 +511,147 @@ mod tests {
     }
 
     #[test]
+    fn test_one_bit_decompress_partial() {
+        let compressed = vec![0b1010_1010u8];
+        let decompressed = CompressedCommunicator::one_bit_decompress(&compressed, 4);
+        assert_eq!(decompressed.len(), 4);
+        // 0b1010_1010: bits 0,2,4,6 = 0 -> -1.0; bits 1,3,5,7 = 1 -> 1.0
+        assert!(decompressed[0] < 0.0); // bit 0 = 0
+        assert!(decompressed[1] > 0.0);  // bit 1 = 1
+        assert!(decompressed[2] < 0.0); // bit 2 = 0
+        assert!(decompressed[3] > 0.0);  // bit 3 = 1
+    }
+
+    #[test]
     fn test_bandwidth_stats() {
         let stats = BandwidthStats::calculate(1_000_000, CompressionType::Fp16);
 
         assert_eq!(stats.original_bytes, 4_000_000);
         assert_eq!(stats.compressed_bytes, 2_000_000);
         assert_eq!(stats.bandwidth_reduction, 2.0);
+    }
+
+    #[test]
+    fn test_compressed_communicator_creation() {
+        let pg = ProcessGroup::new_single_process();
+        let comm = CompressedCommunicator::new(pg.clone(), CompressionType::Fp16)
+            .with_error_feedback(100)
+            .with_seed(123);
+
+        assert_eq!(comm.error_feedback.len(), 100);
+        assert_eq!(comm.seed, 123);
+    }
+
+    #[test]
+    fn test_all_reduce_sum_none() {
+        let pg = ProcessGroup::new_single_process();
+        let mut comm = CompressedCommunicator::new(pg, CompressionType::None);
+        let mut data = vec![1.0f32, 2.0, 3.0];
+        comm.all_reduce_sum(&mut data).unwrap();
+        assert_eq!(data, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_all_reduce_sum_fp16() {
+        let pg = ProcessGroup::new_single_process();
+        let mut comm = CompressedCommunicator::new(pg, CompressionType::Fp16);
+        let mut data = vec![1.0f32, 2.0, 3.0];
+        comm.all_reduce_sum(&mut data).unwrap();
+        // With single process, data passes through compression round-trip
+        for (i, &v) in data.iter().enumerate() {
+            let expected = [1.0f32, 2.0, 3.0][i];
+            assert!((v - expected).abs() < 0.01, "FP16 round-trip failed: {} vs {}", v, expected);
+        }
+    }
+
+    #[test]
+    fn test_all_reduce_sum_bf16() {
+        let pg = ProcessGroup::new_single_process();
+        let mut comm = CompressedCommunicator::new(pg, CompressionType::Bf16);
+        let mut data = vec![1.0f32, 2.0, 3.0];
+        comm.all_reduce_sum(&mut data).unwrap();
+        for (i, &v) in data.iter().enumerate() {
+            let expected = [1.0f32, 2.0, 3.0][i];
+            assert!((v - expected).abs() < 0.01, "BF16 round-trip failed: {} vs {}", v, expected);
+        }
+    }
+
+    #[test]
+    fn test_all_reduce_sum_fp8() {
+        let pg = ProcessGroup::new_single_process();
+        let mut comm = CompressedCommunicator::new(pg, CompressionType::Fp8);
+        let mut data = vec![1.0f32, 2.0, 3.0];
+        comm.all_reduce_sum(&mut data).unwrap();
+    }
+
+    #[test]
+    fn test_all_reduce_sum_one_bit() {
+        let pg = ProcessGroup::new_single_process();
+        let mut comm = CompressedCommunicator::new(pg, CompressionType::OneBit)
+            .with_error_feedback(3);
+        let mut data = vec![1.0f32, -1.0, 0.5];
+        comm.all_reduce_sum(&mut data).unwrap();
+    }
+
+    #[test]
+    fn test_all_reduce_sum_four_bit() {
+        let pg = ProcessGroup::new_single_process();
+        let mut comm = CompressedCommunicator::new(pg, CompressionType::FourBit);
+        let mut data = vec![1.0f32, 2.0, 3.0];
+        comm.all_reduce_sum(&mut data).unwrap();
+    }
+
+    #[test]
+    fn test_all_reduce_avg() {
+        let pg = ProcessGroup::new_single_process();
+        let mut comm = CompressedCommunicator::new(pg, CompressionType::None);
+        let mut data = vec![1.0f32, 2.0, 3.0];
+        comm.all_reduce_avg(&mut data).unwrap();
+        // With single process, avg = sum / 1 = same data
+        assert_eq!(data, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_all_reduce_empty() {
+        let pg = ProcessGroup::new_single_process();
+        let mut comm = CompressedCommunicator::new(pg, CompressionType::Fp16);
+        let mut data: Vec<f32> = vec![];
+        comm.all_reduce_sum(&mut data).unwrap();
+        assert!(data.is_empty());
+    }
+
+    #[test]
+    fn test_one_bit_adam() {
+        let backend = CpuBackend::default();
+        let adam = mnr_optim::Adam::<CpuBackend>::new(0.001);
+        let pg = ProcessGroup::new_single_process();
+        let mut one_bit_adam = OneBitAdam::new(adam, pg);
+
+        let params = vec![
+            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()),
+        ];
+        one_bit_adam.all_reduce_states(&params).unwrap();
+    }
+
+    #[test]
+    fn test_error_feedback_compression() {
+        let mut efc = ErrorFeedbackCompression::new(CompressionType::OneBit, 4);
+        let mut gradient = vec![0.5f32, -0.5, 0.3, -0.3];
+        let compressed = efc.compress(&mut gradient);
+        assert!(!compressed.is_empty());
+
+        let decompressed = efc.decompress(&compressed);
+        assert_eq!(decompressed.len(), 4);
+    }
+
+    #[test]
+    fn test_error_feedback_compression_non_onebit() {
+        let mut efc = ErrorFeedbackCompression::new(CompressionType::FourBit, 4);
+        let mut gradient = vec![0.5f32, -0.5, 0.3, -0.3];
+        let compressed = efc.compress(&mut gradient);
+        assert!(!compressed.is_empty());
+
+        let decompressed = efc.decompress(&compressed);
+        assert_eq!(decompressed.len(), 4);
     }
 }

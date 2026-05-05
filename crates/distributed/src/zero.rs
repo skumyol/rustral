@@ -121,7 +121,7 @@ where
             let owner_rank = self.get_owner_rank(param.id());
             self.process_group
                 .broadcast(&mut data, owner_rank)
-                .map_err(|e| OptimError::Backend(e.into()))?;
+                .map_err(|e| OptimError::Backend(e.to_string()))?;
 
             // Update parameter with broadcasted data
             let shape = ctx.backend().ops().shape(param.tensor());
@@ -129,7 +129,7 @@ where
                 .backend()
                 .ops()
                 .tensor_from_vec(data, &shape)
-                .map_err(|e| OptimError::Backend(e.into()))?;
+                .map_err(|e| OptimError::Backend(e.to_string()))?;
 
             *param = Parameter::new(param.name(), new_tensor);
         }
@@ -287,7 +287,7 @@ where
             self.zero1
                 .process_group
                 .all_reduce_sum(&format!("grad_{}", grad.param_id.get()), &mut data)
-                .map_err(|e| OptimError::Backend(e.into()))?;
+                .map_err(|e| OptimError::Backend(e.to_string()))?;
 
             // Average by world size
             let world_size = self.zero1.process_group.world_size() as f32;
@@ -375,17 +375,148 @@ impl ZeRoMemoryStats {
 mod tests {
     use super::*;
     use mnr_ndarray_backend::CpuBackend;
+    use mnr_core::{ForwardCtx, Mode};
 
     #[test]
     fn test_zero_optimizer_creation() {
         let backend = CpuBackend::default();
         let pg = ProcessGroup::new_single_process();
-        let adam = Adam::new(0.001);
+        let adam = Adam::<CpuBackend>::new(0.001);
 
         let zero = ZeroOptimizer::new(adam, pg, 100);
 
-        assert_eq!(zero.total_params, 100);
-        assert_eq!(zero.process_group.world_size(), 1);
+        assert_eq!(zero.total_params(), 100);
+        assert_eq!(zero.process_group().world_size(), 1);
+    }
+
+    #[test]
+    fn test_zero_optimizer_build_shard_mapping() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_threaded(2, 0).unwrap();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let mut zero = ZeroOptimizer::new(adam, pg, 4);
+
+        let params = vec![
+            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()),
+            Parameter::new("p1", backend.tensor_from_vec(vec![2.0f32], &[1]).unwrap()),
+            Parameter::new("p2", backend.tensor_from_vec(vec![3.0f32], &[1]).unwrap()),
+            Parameter::new("p3", backend.tensor_from_vec(vec![4.0f32], &[1]).unwrap()),
+        ];
+
+        zero.build_shard_mapping(&params);
+        assert!(!zero.parameter_shard.is_empty());
+    }
+
+    #[test]
+    fn test_zero_optimizer_step() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let mut zero = ZeroOptimizer::new(adam, pg, 2);
+
+        let mut params = vec![
+            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()),
+            Parameter::new("p1", backend.tensor_from_vec(vec![2.0f32], &[1]).unwrap()),
+        ];
+
+        zero.build_shard_mapping(&params);
+
+        let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
+        let gradients = vec![Gradient {
+            param_id: params[0].id(),
+            tensor: grad_tensor,
+        }];
+
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        zero.step(&mut params, &gradients, &mut ctx).unwrap();
+    }
+
+    #[test]
+    fn test_zero_optimizer_get_owner_rank() {
+        let pg = ProcessGroup::new_threaded(4, 0).unwrap();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let zero = ZeroOptimizer::new(adam, pg, 8);
+
+        // For unknown param_id, should distribute based on id
+        let unknown_id = ParameterId::fresh();
+        let rank = zero.get_owner_rank(unknown_id);
+        assert!(rank < 4);
+    }
+
+    #[test]
+    fn test_zero_optimizer_save_and_load_checkpoint() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let mut zero = ZeroOptimizer::new(adam, pg, 2);
+
+        let params = vec![
+            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()),
+        ];
+
+        let checkpoint = zero.save_checkpoint(&params);
+        assert_eq!(checkpoint.rank, 0);
+        assert_eq!(checkpoint.world_size, 1);
+
+        let result = zero.load_checkpoint(&checkpoint, &params, backend.ops());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_zero_optimizer_load_checkpoint_mismatch() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let mut zero = ZeroOptimizer::new(adam, pg, 2);
+
+        let params = vec![
+            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()),
+        ];
+
+        let inner_ckpt = zero.inner().save_checkpoint();
+        let checkpoint = ZeroCheckpoint {
+            rank: 1,
+            world_size: 1,
+            inner: inner_ckpt,
+            shard_state: HashMap::new(),
+        };
+
+        assert!(zero.load_checkpoint(&checkpoint, &params, backend.ops()).is_err());
+    }
+
+    #[test]
+    fn test_zero_optimizer_inner() {
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let mut zero = ZeroOptimizer::new(adam, pg, 2);
+
+        assert_eq!(zero.inner().lr, 0.001);
+        zero.inner_mut().lr = 0.01;
+        assert_eq!(zero.inner().lr, 0.01);
+    }
+
+    #[test]
+    fn test_zero2_optimizer_step() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let mut zero2 = Zero2Optimizer::new(adam, pg, 2);
+
+        let mut params = vec![
+            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()),
+            Parameter::new("p1", backend.tensor_from_vec(vec![2.0f32], &[1]).unwrap()),
+        ];
+
+        zero2.zero1.build_shard_mapping(&params);
+
+        let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
+        let gradients = vec![Gradient {
+            param_id: params[0].id(),
+            tensor: grad_tensor,
+        }];
+
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        zero2.step(&mut params, &gradients, &mut ctx).unwrap();
     }
 
     #[test]
@@ -396,9 +527,10 @@ mod tests {
             8,             // 8 GPUs
         );
 
-        // With ZeRO-1: optimizer states sharded 8 ways
-        // Memory saved should be significant
         assert!(stats.memory_saved_percent > 50.0);
+        assert!(stats.local_optimizer_states_mb > 0.0);
+        assert!(stats.local_params_mb > 0.0);
+        assert!(stats.local_gradients_mb > 0.0);
     }
 
     #[test]
@@ -409,7 +541,7 @@ mod tests {
             8,
         );
 
-        // ZeRO-2 saves more memory than ZeRO-1
         assert!(stats.local_gradients_mb < stats.total_params_mb);
+        assert!(stats.memory_saved_percent > 50.0);
     }
 }

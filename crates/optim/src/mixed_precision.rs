@@ -200,12 +200,12 @@ impl<O> MixedPrecisionOptimizer<O> {
     }
 }
 
-impl<B: Backend, O: Optimizer<B>> MixedPrecisionOptimizer<O>
-where
-    B::Tensor: Clone + AsRef<[f32]>,
-{
+impl<O> MixedPrecisionOptimizer<O> {
     /// Initialize master weights from parameters.
-    pub fn initialize_master_weights(&mut self, params: &[Parameter<B>]) {
+    pub fn initialize_master_weights<B: Backend>(&mut self, params: &[Parameter<B>])
+    where
+        B::Tensor: AsRef<[f32]>,
+    {
         if self.dtype == DType::BFloat16 {
             // BF16 doesn't need master weights (sufficient range)
             return;
@@ -218,7 +218,7 @@ where
     }
 
     /// Convert tensor to low precision.
-    fn to_low_precision(&self, tensor: &B::Tensor, ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
+    fn to_low_precision<B: Backend>(&self, tensor: &B::Tensor, ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
         match self.dtype {
             DType::Float32 => Ok(tensor.clone()),
             DType::Float16 => {
@@ -234,7 +234,10 @@ where
     }
 
     /// Check if gradients have overflow (Inf/NaN).
-    fn has_overflow(&self, gradients: &[Gradient<B>]) -> bool {
+    fn has_overflow<B: Backend>(&self, gradients: &[Gradient<B>]) -> bool
+    where
+        B::Tensor: AsRef<[f32]>,
+    {
         for grad in gradients {
             let data: &[f32] = grad.tensor.as_ref();
             for &v in data {
@@ -247,11 +250,14 @@ where
     }
 
     /// Scale gradients by loss scale.
-    fn scale_gradients(
+    fn scale_gradients<B: Backend>(
         &self,
         gradients: &[Gradient<B>],
         ops: &dyn TensorOps<B>,
-    ) -> Result<Vec<Gradient<B>>> {
+    ) -> Result<Vec<Gradient<B>>>
+    where
+        B::Tensor: AsRef<[f32]>,
+    {
         let scale = self.loss_scale.current_scale();
         if scale == 1.0 {
             return Ok(gradients.to_vec());
@@ -277,11 +283,14 @@ where
     }
 
     /// Unscale gradients after optimizer step.
-    fn unscale_gradients(
+    fn unscale_gradients<B: Backend>(
         &self,
         gradients: &[Gradient<B>],
         ops: &dyn TensorOps<B>,
-    ) -> Result<Vec<Gradient<B>>> {
+    ) -> Result<Vec<Gradient<B>>>
+    where
+        B::Tensor: AsRef<[f32]>,
+    {
         let scale = self.loss_scale.current_scale();
         if scale == 1.0 {
             return Ok(gradients.to_vec());
@@ -351,7 +360,7 @@ where
         // Scale gradients
         let scaled_grads = self
             .scale_gradients(gradients, ctx.backend().ops())
-            .map_err(|e| OptimError::Backend(e.into()))?;
+            .map_err(|e| OptimError::Backend(e.to_string()))?;
 
         // For FP16: convert params to FP32 master weights, optimize, copy back
         if self.dtype == DType::Float16 {
@@ -399,7 +408,7 @@ where
                         ctx.backend()
                             .ops()
                             .tensor_from_vec(fp16_data, &shape)
-                            .map_err(|e| OptimError::Backend(e.into()))?
+                            .map_err(|e| OptimError::Backend(e.to_string()))?
                     }
                     _ => fp32_param.tensor().clone(),
                 };
@@ -411,6 +420,10 @@ where
         }
 
         Ok(())
+    }
+
+    fn zero_grad(&mut self) {
+        self.inner.zero_grad();
     }
 }
 

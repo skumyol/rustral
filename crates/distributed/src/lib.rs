@@ -9,20 +9,36 @@ use std::sync::{Arc, Mutex};
 use mnr_core::{Backend, CoreError, ForwardCtx, Parameter, Result, TensorOps};
 use mnr_optim::{Gradient, Optimizer};
 
+mod chaos_engineering;
 mod checkpoint;
 mod compression;
+mod context_parallel;
+mod device_mesh;
 mod fault_tolerance;
 mod fsdp;
+#[cfg(feature = "nccl")]
 mod nccl;
+mod parallelism_3d;
 mod pipeline_parallel;
+mod sequence_parallel;
 mod tensor_parallel;
 mod zero;
 mod zero_infinity;
 
+pub use chaos_engineering::{
+    ChaosMonkey, FaultInjection, FaultResult, FaultType,
+    CheckpointCorruption, ChaosScenarios, TestReport,
+};
 pub use checkpoint::{DistributedCheckpointManager, CheckpointMetadata, AsyncCheckpointWriter};
 pub use compression::{
     CompressedCommunicator, CompressionType, ErrorFeedbackCompression, OneBitAdam,
     BandwidthStats,
+};
+pub use context_parallel::{
+    ContextParallel, ContextParallelConfig, CommunicationStats, DynamicLoadBalancer,
+};
+pub use device_mesh::{
+    DeviceMesh, MeshCoord, ParallelismConfig,
 };
 pub use fault_tolerance::{
     ElasticProcessGroup, ElasticTrainer, HealthMonitor, MembershipChange,
@@ -31,16 +47,25 @@ pub use fault_tolerance::{
 };
 pub use fsdp::{
     FSDP, FSDPConfig, FSDPMemoryStats, FSDPCheckpoint,
-    auto_wrap, StageSplitter,
+    auto_wrap,
 };
+#[cfg(feature = "nccl")]
 pub use nccl::{
     NcclCommunicator, NcclProcessGroup, NcclRedOp, NcclDataType,
     AllReduceOp, NcclCompressedCommunicator,
+};
+pub use parallelism_3d::{
+    Parallel3DTrainer, Parallel3DConfig, Parallel3DLayer,
+    create_3d_parallel_model,
 };
 pub use pipeline_parallel::{
     PipelineParallel, PipelineStage, PipelineConfig, PipelineSchedule,
     PipelineStats, StageSplitter as PipelineStageSplitter,
     create_pipeline, PipelineComm,
+};
+pub use sequence_parallel::{
+    SequenceParallelConfig, RingAttention,
+    shard_sequence, gather_sequence, compute_sequence_sharding,
 };
 pub use tensor_parallel::{
     TensorParallelLinear, PipelineStage as TensorPipelineStage,
@@ -262,7 +287,9 @@ where
         let mut local_gradients: HashMap<mnr_core::ParameterId, Vec<f32>> = HashMap::new();
         let mut total_loss = 0.0;
 
-        for sample in local_batch {
+        let local_batch_size = local_batch.len().max(1);
+
+        for sample in &local_batch {
             let (loss, grads) = loss_fn(sample, ctx).map_err(DistributedError::Backend)?;
             total_loss += loss;
 
@@ -280,7 +307,6 @@ where
         }
 
         // Average local gradients by local batch size
-        let local_batch_size = local_batch.len().max(1);
         for data in local_gradients.values_mut() {
             for v in data.iter_mut() {
                 *v /= local_batch_size as f32;
@@ -321,7 +347,7 @@ where
 
         self.optimizer
             .step(params, &synced_gradients, ctx)
-            .map_err(|e| DistributedError::Backend(e.into()))?;
+            .map_err(|e| DistributedError::Backend(CoreError::Other(format!("{:?}", e))))?;
 
         // All-reduce loss for reporting
         let mut loss_data = [total_loss / local_batch_size as f32];
@@ -331,7 +357,7 @@ where
     }
 
     /// Split a batch across processes.
-    fn split_batch<D>(&self, batch: &[D], rank: usize, world_size: usize) -> Vec<&D> {
+    fn split_batch<'a, D>(&self, batch: &'a [D], rank: usize, world_size: usize) -> Vec<&'a D> {
         batch
             .iter()
             .enumerate()
@@ -383,7 +409,9 @@ where
     }
 
     /// Perform all-reduce and return accumulated gradients.
-    pub fn all_reduce(&mut self) -> DistributedResult<Vec<Gradient<B>>>
+    /// Note: gradients remain as Vec<f32> since we don't have backend access.
+    /// Caller must convert back to tensors.
+    pub fn all_reduce(&mut self) -> DistributedResult<Vec<(mnr_core::ParameterId, Vec<f32>)>>
     where
         B::Tensor: AsRef<[f32]> + mnr_core::TensorShape,
     {
@@ -402,22 +430,7 @@ where
                 *v /= (world_size * self.steps) as f32;
             }
 
-            // Convert back to tensor
-            let shape = tensor.shape().to_vec();
-            let new_tensor = self
-                .process_group
-                .backend
-                .as_tensor_ops()
-                .map(|ops| ops.tensor_from_vec(data, &shape))
-                .transpose()
-                .map_err(DistributedError::Backend)?;
-
-            if let Some(t) = new_tensor {
-                result.push(Gradient {
-                    param_id: *param_id,
-                    tensor: t,
-                });
-            }
+            result.push((*param_id, data));
         }
 
         // Reset accumulator
@@ -456,6 +469,24 @@ mod tests {
     }
 
     #[test]
+    fn test_process_group_threaded_error() {
+        let result = ProcessGroup::new_threaded(4, 4);
+        assert!(result.is_err());
+        if let Err(DistributedError::RankMismatch { expected, actual }) = result {
+            assert_eq!(expected, 4);
+            assert_eq!(actual, 4);
+        }
+    }
+
+    #[test]
+    fn test_broadcast() {
+        let pg = ProcessGroup::new_single_process();
+        let mut data = vec![1.0f32, 2.0, 3.0];
+        pg.broadcast(&mut data, 0).unwrap();
+        assert_eq!(data, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
     fn test_all_reduce_sum() {
         let pg = ProcessGroup::new_threaded(2, 1).unwrap();
 
@@ -470,6 +501,33 @@ mod tests {
         // Both should see the sum after all-reduce
         // In threaded mode with shared memory, this depends on order
         // For testing, we verify the mechanism works
+    }
+
+    #[test]
+    fn test_data_parallel_trainer() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let optimizer = Sgd::new(0.01);
+        let mut trainer = DataParallelTrainer::new(pg, optimizer);
+
+        let mut params = vec![
+            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()),
+        ];
+        let param_id = params[0].id();
+
+        let batch = vec![backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()];
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+
+        let mut loss_fn = |_item: &<CpuBackend as mnr_core::Backend>::Tensor, _ctx: &mut ForwardCtx<CpuBackend>| {
+            let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
+            Ok((0.5f32, vec![Gradient {
+                param_id,
+                tensor: grad_tensor,
+            }]))
+        };
+
+        let loss = trainer.step(&mut params, &batch, &mut loss_fn, &mut ctx).unwrap();
+        assert!(loss >= 0.0);
     }
 
     #[test]
@@ -489,6 +547,35 @@ mod tests {
         acc.accumulate(&gradients, backend.ops()).unwrap();
         acc.accumulate(&gradients, backend.ops()).unwrap();
 
-        assert_eq!(acc.steps, 2);
+        assert_eq!(acc.steps(), 2);
+    }
+
+    #[test]
+    fn test_gradient_accumulator_all_reduce() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let mut acc = GradientAccumulator::<CpuBackend>::new(pg);
+
+        let grad_tensor = backend.tensor_from_vec(vec![1.0f32, 2.0], &[2]).unwrap();
+        let gradients = vec![Gradient {
+            param_id: mnr_core::ParameterId::fresh(),
+            tensor: grad_tensor,
+        }];
+
+        acc.accumulate(&gradients, backend.ops()).unwrap();
+        let result = acc.all_reduce().unwrap();
+        assert_eq!(acc.steps(), 0); // Reset after all_reduce
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_distributed_error_display() {
+        let err = DistributedError::RankMismatch { expected: 4, actual: 5 };
+        let msg = format!("{}", err);
+        assert!(msg.contains("rank error"));
+
+        let err = DistributedError::Communication("network failure".to_string());
+        let msg = format!("{}", err);
+        assert!(msg.contains("network failure"));
     }
 }

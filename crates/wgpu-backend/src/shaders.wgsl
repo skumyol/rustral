@@ -796,3 +796,91 @@ fn strided_copy(@builtin(global_invocation_id) global_id: vec3<u32>) {
         output_strided[idx] = input_strided[input_idx];
     }
 }
+
+// ============================================================================
+// Dropout with RNG (GPU Random Number Generation)
+// ============================================================================
+
+struct DropoutParams {
+    probability: f32,      // Dropout probability (0-1)
+    scale: f32,          // Scale factor (1/(1-p))
+    seed: u32,           // Random seed
+    training: u32,       // 1 for training, 0 for inference
+}
+
+@group(0) @binding(0) var<storage, read> input_dropout: array<f32>;
+@group(0) @binding(1) var<storage, read_write> output_dropout: array<f32>;
+@group(0) @binding(2) var<uniform> dropout_params: DropoutParams;
+
+// PCG (Permuted Congruential Generator) hash for RNG
+// Provides deterministic, high-quality random numbers from seed + index
+fn pcg_hash(seed: u32) -> u32 {
+    let state: u32 = seed * 747796405u + 2891336453u;
+    let word: u32 = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+// Generate random float in [0, 1) from index and seed
+fn random_f32(idx: u32, seed: u32) -> f32 {
+    // Combine global seed with element index for unique per-element random
+    let combined_seed: u32 = seed + idx * 12345u;
+    let hash: u32 = pcg_hash(combined_seed);
+    // Convert to float in [0, 1)
+    return f32(hash) / 4294967295.0; // 2^32 - 1
+}
+
+// Dropout: randomly zero elements during training
+// During inference: identity (or scale by p if using inverted dropout)
+@compute @workgroup_size(256)
+fn dropout(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    let n = arrayLength(&output_dropout);
+    
+    if (idx >= n) {
+        return;
+    }
+    
+    // Inference mode: return input unchanged (inverted dropout scales during training)
+    if (dropout_params.training == 0u) {
+        output_dropout[idx] = input_dropout[idx];
+        return;
+    }
+    
+    // Training mode: apply dropout
+    let rand_val = random_f32(idx, dropout_params.seed);
+    
+    // Keep element with probability (1 - dropout_probability)
+    if (rand_val >= dropout_params.probability) {
+        // Keep and scale
+        output_dropout[idx] = input_dropout[idx] * dropout_params.scale;
+    } else {
+        // Drop (set to zero)
+        output_dropout[idx] = 0.0;
+    }
+}
+
+// ============================================================================
+// Masked Operations (for attention, etc.)
+// ============================================================================
+
+@group(0) @binding(0) var<storage, read> input_masked: array<f32>;
+@group(0) @binding(1) var<storage, read> mask: array<f32>;
+@group(0) @binding(2) var<storage, read_write> output_masked: array<f32>;
+@group(0) @binding(3) var<uniform> mask_value: f32;
+
+// Apply mask: output[i] = mask[i] > 0 ? input[i] : mask_value
+@compute @workgroup_size(256)
+fn apply_mask(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    let n = arrayLength(&input_masked);
+    
+    if (idx >= n) {
+        return;
+    }
+    
+    if (mask[idx] > 0.0) {
+        output_masked[idx] = input_masked[idx];
+    } else {
+        output_masked[idx] = mask_value;
+    }
+}

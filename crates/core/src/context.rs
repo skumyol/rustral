@@ -68,3 +68,22 @@ impl<'a, B: Backend> ForwardCtx<'a, B> {
         matches!(self.mode, Mode::Train)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_run_id_fresh() {
+        let id1 = RunId::fresh();
+        let id2 = RunId::fresh();
+        assert_ne!(id1.get(), id2.get());
+    }
+
+    #[test]
+    fn test_mode_equality() {
+        assert_eq!(Mode::Train, Mode::Train);
+        assert_eq!(Mode::Inference, Mode::Inference);
+        assert_ne!(Mode::Train, Mode::Inference);
+    }
+}

@@ -7,12 +7,12 @@
 //! 4. Iteration-level scheduling
 //!
 //! # Request Lifecycle
-//!```
+//! ```text
 //! [Prompt Processing] → [Generation] → [Completion]
 //!       ↑                     ↑
 //!   High compute          Low compute
 //!   (can batch more)      (cache-bound)
-//!```
+//! ```
 //!
 //! # Example
 //!```rust,ignore
@@ -315,7 +315,7 @@ where
                 let current_blocks = req.blocks.len();
 
                 if blocks_needed > current_blocks {
-                    let new_blocks = self.cache.allocate(id, blocks_needed - current_blocks);
+                    let new_blocks = self.cache.allocate(id as usize, blocks_needed - current_blocks);
                     if let Some(blocks) = new_blocks {
                         req.blocks.extend(blocks);
                     } else {
@@ -337,7 +337,7 @@ where
                 let prompt_len = req.prompt.len();
                 let blocks_needed = (prompt_len + self.block_size - 1) / self.block_size;
 
-                if let Some(blocks) = self.cache.allocate(req.id, blocks_needed) {
+                if let Some(blocks) = self.cache.allocate(req.id as usize, blocks_needed) {
                     req.blocks = blocks;
                     req.state = RequestState::Prefill;
                     self.running.insert(req.id, req);
@@ -386,7 +386,7 @@ where
             if let Some(id) = to_preempt {
                 if let Some(mut req) = self.running.remove(&id) {
                     // Free cache blocks (but keep on CPU for resume)
-                    self.cache.free(req.id);
+                    self.cache.free(req.id as usize);
                     req.blocks.clear();
                     req.state = RequestState::Paused;
                     self.paused.push(req);
@@ -630,5 +630,131 @@ mod tests {
         let high = RequestPriority::Critical;
         let low = RequestPriority::Low;
         assert!(high > low);
+    }
+
+    #[test]
+    fn test_request_next_pos() {
+        let req = Request::new(0, vec![1, 2, 3], 100, RequestPriority::Normal);
+        assert_eq!(req.next_pos(), 3);
+    }
+
+    #[test]
+    fn test_request_should_complete_eos() {
+        let mut req = Request::new(0, vec![1, 2], 5, RequestPriority::Normal);
+        req.add_token(2); // Assuming 2 is EOS
+        assert!(req.should_complete());
+    }
+
+    #[test]
+    fn test_request_complete() {
+        let mut req = Request::new(0, vec![1, 2, 3], 100, RequestPriority::Normal);
+        req.complete();
+        assert!(req.is_completed);
+        assert_eq!(req.state, RequestState::Completed);
+    }
+
+    #[test]
+    fn test_scheduler_add_priority_request() {
+        let backend = CpuBackend::default();
+        let cache = PagedCache::new(16, 100, &backend).unwrap();
+        let mut scheduler = Scheduler::new(cache, SchedulingPolicy::Fcfs, 8, 8192);
+
+        let id = scheduler.add_priority_request(vec![1, 2, 3], 100, RequestPriority::High);
+        assert_eq!(id, 0);
+        assert_eq!(scheduler.pending_count(), 1);
+    }
+
+    #[test]
+    fn test_scheduler_schedule_and_update() {
+        let backend = CpuBackend::default();
+        let cache = PagedCache::new(16, 100, &backend).unwrap();
+        let mut scheduler = Scheduler::new(cache, SchedulingPolicy::Fcfs, 8, 8192);
+
+        let id = scheduler.add_request(vec![1, 2, 3], 5);
+        // Schedule should admit the request and return a batch
+        let batch = scheduler.schedule(1);
+        assert!(batch.is_some());
+        let batch = batch.unwrap();
+        assert!(batch.request_ids.contains(&id));
+
+        // Update with generated tokens
+        let mut outputs = std::collections::HashMap::new();
+        outputs.insert(id, 10u32);
+        scheduler.update(outputs).unwrap();
+
+        assert_eq!(scheduler.running_count(), 1);
+    }
+
+    #[test]
+    fn test_scheduler_completion_and_counts() {
+        let backend = CpuBackend::default();
+        let cache = PagedCache::new(16, 100, &backend).unwrap();
+        let mut scheduler = Scheduler::new(cache, SchedulingPolicy::Fcfs, 8, 8192);
+
+        let id = scheduler.add_request(vec![1, 2], 1);
+        let batch = scheduler.schedule(1).unwrap();
+        assert_eq!(batch.request_ids.len(), 1);
+
+        let mut outputs = std::collections::HashMap::new();
+        outputs.insert(id, 1u32);
+        scheduler.update(outputs).unwrap();
+
+        // After max_tokens=1 reached, schedule should move to completed
+        let _ = scheduler.schedule(1);
+        assert_eq!(scheduler.completed_count(), 1);
+        assert_eq!(scheduler.running_count(), 0);
+        assert_eq!(scheduler.pending_count(), 0);
+    }
+
+    #[test]
+    fn test_scheduler_stats_with_completed() {
+        let backend = CpuBackend::default();
+        let cache = PagedCache::new(16, 100, &backend).unwrap();
+        let mut scheduler = Scheduler::new(cache, SchedulingPolicy::Fcfs, 8, 8192);
+
+        let id = scheduler.add_request(vec![1, 2], 1);
+        let _ = scheduler.schedule(1);
+        let mut outputs = std::collections::HashMap::new();
+        outputs.insert(id, 1u32);
+        scheduler.update(outputs).unwrap();
+        let _ = scheduler.schedule(1);
+
+        let stats = scheduler.stats();
+        assert_eq!(stats.completed, 1);
+        assert_eq!(stats.total_tokens_generated, 1);
+    }
+
+    #[test]
+    fn test_sampler_temperature_zero() {
+        let logits = vec![0.1f32, 0.5, 0.3, 0.9, 0.2];
+        let token = Sampler::temperature(&logits, 0.0);
+        assert_eq!(token, 3); // same as greedy
+    }
+
+    #[test]
+    fn test_sampler_temperature_nonzero() {
+        let logits = vec![0.1f32, 0.5, 0.3, 0.9, 0.2];
+        let token = Sampler::temperature(&logits, 1.0);
+        // With fixed r=0.5, it should return some token
+        assert!(token < 5);
+    }
+
+    #[test]
+    fn test_serving_engine() {
+        let backend = CpuBackend::default();
+        let cache = PagedCache::new(16, 100, &backend).unwrap();
+        let scheduler = Scheduler::new(cache, SchedulingPolicy::Fcfs, 8, 8192);
+        let mut engine = ServingEngine::new(scheduler);
+
+        let id = engine.submit(vec![1, 2, 3], 2);
+        assert_eq!(id, 0);
+
+        // Run a few steps
+        for _ in 0..5 {
+            engine.step().unwrap();
+        }
+
+        // Run to completion
+        engine.run_to_completion().unwrap();
     }
 }

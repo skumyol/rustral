@@ -5,21 +5,53 @@ edition = "2021"
 
 [workspace]
 
+# Basic Examples - Learning fundamentals
 [[bin]]
 name = "xor"
-path = "src/xor.rs"
-
-[[bin]]
-name = "mnist"
-path = "src/mnist.rs"
-
-[[bin]]
-name = "char_rnn"
-path = "src/char_rnn.rs"
+path = "basics/xor.rs"
 
 [[bin]]
 name = "train_demo"
-path = "src/train_demo.rs"
+path = "basics/train_demo.rs"
+
+[[bin]]
+name = "mnist"
+path = "basics/mnist.rs"
+
+[[bin]]
+name = "char_rnn"
+path = "basics/char_rnn.rs"
+
+# Vision Examples - Computer vision and image processing
+[[example]]
+name = "building_blocks"
+path = "vision/building_blocks.rs"
+
+[[example]]
+name = "resnet_image_classification"
+path = "vision/resnet_image_classification.rs"
+
+[[example]]
+name = "diffusion_model"
+path = "vision/diffusion_model.rs"
+
+# NLP Examples - Natural language processing
+[[example]]
+name = "bert_fine_tuning"
+path = "nlp/bert_fine_tuning.rs"
+
+[[example]]
+name = "gpt_training"
+path = "nlp/gpt_training.rs"
+
+# Advanced Examples - Complex architectures and techniques
+[[example]]
+name = "moe_training"
+path = "advanced/moe_training.rs"
+
+[[example]]
+name = "custom_layer"
+path = "advanced/custom_layer.rs"
 
 [dependencies]
 mnr-core = { path = "../crates/core" }
@@ -28,4 +60,7 @@ mnr-nn = { path = "../crates/nn" }
 mnr-autodiff = { path = "../crates/autodiff" }
 mnr-optim = { path = "../crates/optim" }
 mnr-data = { path = "../crates/data" }
+mnr-distributed = { path = "../crates/distributed" }
+mnr-runtime = { path = "../crates/runtime" }
+mnr-symbolic = { path = "../crates/symbolic" }
 rand = "0.8"

@@ -105,4 +105,24 @@ mod tests {
         // With p=0, output should equal input
         assert_eq!(input.values(), output.values());
     }
+
+    #[test]
+    fn test_dropout_config_default() {
+        let config: DropoutConfig = Default::default();
+        assert_eq!(config.p, 0.1);
+    }
+
+    #[test]
+    fn test_dropout_config_clamp() {
+        let config = DropoutConfig::new(1.5);
+        assert_eq!(config.p, 1.0);
+        let config2 = DropoutConfig::new(-0.5);
+        assert_eq!(config2.p, 0.0);
+    }
+
+    #[test]
+    fn test_dropout_config_accessor() {
+        let dropout = Dropout::<CpuBackend>::new(DropoutConfig::new(0.3));
+        assert_eq!(dropout.config().p, 0.3);
+    }
 }

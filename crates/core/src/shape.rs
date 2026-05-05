@@ -55,3 +55,61 @@ pub trait TensorShape {
     /// Return the tensor shape as a slice of dimensions.
     fn shape(&self) -> &[usize];
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_shape_new_valid() {
+        let shape = Shape::new(vec![2, 3, 4]).unwrap();
+        assert_eq!(shape.0, vec![2, 3, 4]);
+    }
+
+    #[test]
+    fn test_shape_new_empty_fails() {
+        let result = Shape::new(vec![]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_shape_new_zero_dim_fails() {
+        let result = Shape::new(vec![2, 0, 4]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_shape_as_slice() {
+        let shape = Shape::new(vec![2, 3]).unwrap();
+        assert_eq!(shape.as_slice(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_shape_rank() {
+        let shape = Shape::new(vec![2, 3, 4]).unwrap();
+        assert_eq!(shape.rank(), 3);
+    }
+
+    #[test]
+    fn test_shape_elem_count() {
+        let shape = Shape::new(vec![2, 3, 4]).unwrap();
+        assert_eq!(shape.elem_count(), 24);
+    }
+
+    #[test]
+    fn test_shape_elem_count_single() {
+        let shape = Shape::new(vec![5]).unwrap();
+        assert_eq!(shape.elem_count(), 5);
+    }
+
+    #[test]
+    fn test_shape_ext_empty() {
+        let slice: &[usize] = &[];
+        assert_eq!(slice.elem_count(), 1);
+    }
+
+    #[test]
+    fn test_shape_ext() {
+        assert_eq!([2, 3, 4].elem_count(), 24);
+    }
+}

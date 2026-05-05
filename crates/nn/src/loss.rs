@@ -305,6 +305,21 @@ mod tests {
     }
 
     #[test]
+    fn test_mse_loss_default() {
+        let _loss: MSELoss = Default::default();
+    }
+
+    #[test]
+    fn test_cross_entropy_default() {
+        let _loss: CrossEntropyLoss = Default::default();
+    }
+
+    #[test]
+    fn test_bce_with_logits_default() {
+        let _loss: BCEWithLogitsLoss = Default::default();
+    }
+
+    #[test]
     fn test_bce_with_logits_loss() {
         let backend = CpuBackend::default();
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);

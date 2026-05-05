@@ -12,6 +12,7 @@ description = "Optimization algorithms for MNR (SGD, Adam, AdamW)"
 [dependencies]
 mnr-core = { path = "../core" }
 
+serde = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

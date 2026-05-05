@@ -81,7 +81,7 @@ fn smoke_test() {
     runner.run_test("smoke_data_module", || {
         use mnr_data::{Dataset, DataLoader, DataLoaderConfig};
         // Verify data module is available
-        let _config = DataLoaderConfig::new(32);
+        let _config = DataLoaderConfig { batch_size: 32, ..Default::default() };
         Ok(())
     });
 

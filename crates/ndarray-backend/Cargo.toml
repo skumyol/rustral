@@ -8,8 +8,6 @@ rust-version.workspace = true
 [features]
 default = ["matrixmultiply"]
 matrixmultiply = ["dep:matrixmultiply"]
-# Enable ARM NEON optimizations when available
-neon = ["matrixmultiply?/neon"]
 
 [dependencies]
 mnr-core = { path = "../core" }

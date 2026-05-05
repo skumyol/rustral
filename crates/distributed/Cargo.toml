@@ -8,12 +8,17 @@ rust-version.workspace = true
 [features]
 default = []
 mpi = ["dep:mpi"]
+nccl = []
 
 [dependencies]
 mnr-core = { path = "../core" }
+mnr-io = { path = "../io" }
+mnr-nn = { path = "../nn" }
 mnr-optim = { path = "../optim" }
 serde.workspace = true
+serde_json = "1.0"
 thiserror.workspace = true
+rand = { workspace = true }
 rayon = { workspace = true, optional = true }
 
 # MPI for distributed training (optional)

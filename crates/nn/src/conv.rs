@@ -64,6 +64,19 @@ pub struct Conv2d<B: Backend> {
 }
 
 impl<B: Backend> Conv2d<B> {
+    /// Create a Conv2D layer with randomly initialized parameters.
+    pub fn new(backend: &B, config: Conv2dConfig) -> Result<Self> {
+        let in_channels = 1; // Will be inferred from input at runtime
+        let filter_shape = vec![config.out_channels, in_channels, config.kernel_h, config.kernel_w];
+        let filter = backend.normal_parameter("filter", &filter_shape, 42, 0.1)?;
+        let bias = if config.bias {
+            Some(backend.normal_parameter("bias", &[config.out_channels], 43, 0.1)?)
+        } else {
+            None
+        };
+        Ok(Self { config, filter, bias })
+    }
+
     /// Create a Conv2D layer from explicit parameters.
     pub fn from_parameters(config: Conv2dConfig, filter: Parameter<B>, bias: Option<Parameter<B>>) -> Self {
         Self { config, filter, bias }
@@ -73,8 +86,8 @@ impl<B: Backend> Conv2d<B> {
     pub fn output_size(&self, input_h: usize, input_w: usize) -> (usize, usize) {
         let (out_h, out_w) = if self.config.no_padding {
             (
-                (input_h - self.config.kernel_h) / self.config.stride_h + 1,
-                (input_w - self.config.kernel_w) / self.config.stride_w + 1,
+                input_h.saturating_sub(self.config.kernel_h) / self.config.stride_h + 1,
+                input_w.saturating_sub(self.config.kernel_w) / self.config.stride_w + 1,
             )
         } else {
             (
@@ -434,5 +447,82 @@ mod tests {
             .filter_map(|i| backend.ops().tensor_element(&output, i).ok())
             .collect();
         assert_eq!(values, vec![4.0, 8.0]);
+    }
+
+    #[test]
+    fn test_conv2d_new_with_bias() {
+        let backend = mnr_ndarray_backend::CpuBackend::default();
+        let config = Conv2dConfig::new(4, 3, 3).with_bias();
+        let conv = Conv2d::new(&backend, config).unwrap();
+        assert_eq!(conv.parameters().len(), 2);
+    }
+
+    #[test]
+    fn test_conv2d_config_accessor() {
+        let backend = mnr_ndarray_backend::CpuBackend::default();
+        let config = Conv2dConfig::new(4, 3, 3);
+        let weight = backend.tensor_from_vec(vec![0.0; 36], &[4, 1, 3, 3]).unwrap();
+        let conv = Conv2d::<mnr_ndarray_backend::CpuBackend>::from_parameters(config.clone(), mnr_core::Parameter::new("w", weight), None);
+        assert_eq!(conv.config().out_channels, 4);
+    }
+
+    #[test]
+    fn test_conv2d_forward_4d() {
+        let backend = mnr_ndarray_backend::CpuBackend::default();
+        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+
+        let config = Conv2dConfig::new(2, 2, 2).with_stride(1, 1);
+        let filter = backend.tensor_from_vec(
+            vec![1.0, 0.0, 0.0, 1.0,
+                 0.0, 1.0, 1.0, 0.0],
+            &[2, 1, 2, 2]
+        ).unwrap();
+        let filter_param = mnr_core::Parameter::new("W", filter);
+        let conv = Conv2d::from_parameters(config, filter_param, None);
+
+        // Input: [batch=2, channels=1, 3x3]
+        let input = backend.tensor_from_vec(
+            vec![1.0, 2.0, 3.0,
+                 4.0, 5.0, 6.0,
+                 7.0, 8.0, 9.0,
+                 1.0, 1.0, 1.0,
+                 1.0, 1.0, 1.0,
+                 1.0, 1.0, 1.0],
+            &[2, 1, 3, 3]
+        ).unwrap();
+
+        let output = conv.forward(input, &mut ctx).unwrap();
+        let shape = backend.ops().shape(&output);
+        assert_eq!(shape, &[2, 2, 2, 2]);
+    }
+
+    #[test]
+    fn test_conv2d_invalid_filter_shape() {
+        let backend = mnr_ndarray_backend::CpuBackend::default();
+        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let config = Conv2dConfig::new(2, 2, 2);
+        let filter = backend.tensor_from_vec(vec![0.0; 4], &[2, 2]).unwrap();
+        let conv = Conv2d::from_parameters(config, mnr_core::Parameter::new("W", filter), None);
+        let input = backend.tensor_from_vec(vec![0.0; 9], &[1, 3, 3]).unwrap();
+        assert!(conv.forward(input, &mut ctx).is_err());
+    }
+
+    #[test]
+    fn test_max_pool2d_with_padding() {
+        let backend = mnr_ndarray_backend::CpuBackend::default();
+        let input = backend.tensor_from_vec(
+            vec![1.0, 2.0, 3.0, 4.0],
+            &[1, 2, 2]
+        ).unwrap();
+        let output = max_pool2d(&input, 2, 2, 2, 2, false, backend.ops()).unwrap();
+        let shape = backend.ops().shape(&output);
+        assert_eq!(shape, &[1, 1, 1]);
+    }
+
+    #[test]
+    fn test_global_max_pool2d_invalid_shape() {
+        let backend = mnr_ndarray_backend::CpuBackend::default();
+        let input = backend.tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap();
+        assert!(global_max_pool2d(&input, backend.ops()).is_err());
     }
 }

@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Module, Parameter, Result, TensorOps};
+use mnr_core::{Backend, CoreError, ForwardCtx, Module, Parameter, Result, TensorOps, Trainable};
 use mnr_nn::Linear;
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
@@ -39,7 +39,7 @@ pub struct TensorParallelLinear<B: Backend> {
 }
 
 /// Style of tensor parallelism.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParallelStyle {
     /// Column-wise: split output features across GPUs.
     ColumnParallel,
@@ -122,7 +122,7 @@ where
         match self.parallel_style {
             ParallelStyle::ColumnParallel => {
                 // Each GPU computes partial output
-                let local_output = self.local_linear.forward(input, ctx)
+                let local_output = self.local_linear.forward(input.clone(), ctx)
                     .map_err(|e| DistributedError::Backend(e.into()))?;
 
                 // All-gather: collect partial outputs from all GPUs
@@ -133,7 +133,7 @@ where
             ParallelStyle::RowParallel => {
                 // Split input (in practice, input would already be split)
                 // Each GPU computes partial result
-                let local_output = self.local_linear.forward(input, ctx)
+                let local_output = self.local_linear.forward(input.clone(), ctx)
                     .map_err(|e| DistributedError::Backend(e.into()))?;
 
                 // All-reduce: sum partial results from all GPUs
@@ -157,7 +157,7 @@ where
     }
 
     /// Get local parameters.
-    pub fn parameters(&self) -> Vec<&Parameter<B>> {
+    pub fn parameters(&self) -> Vec<mnr_core::ParameterRef> {
         self.local_linear.parameters()
     }
 }
@@ -268,13 +268,20 @@ impl<B: Backend> PipelineParallelTrainer<B> {
         // Forward pass: send micro-batches through pipeline
         let mut outputs = Vec::new();
         for micro_batch in &micro_batches {
-            let (loss, output) = loss_fn(micro_batch, ctx)?;
-            outputs.push((loss, output));
+            // Process first item in micro-batch
+            if let Some(item) = micro_batch.first() {
+                let (loss, output) = loss_fn(item, ctx)?;
+                outputs.push((loss, output));
+            }
         }
 
         // Average loss
         let total_loss: f32 = outputs.iter().map(|(l, _)| l).sum();
-        Ok(total_loss / outputs.len() as f32)
+        if outputs.is_empty() {
+            Ok(0.0)
+        } else {
+            Ok(total_loss / outputs.len() as f32)
+        }
     }
 
     /// Split batch into micro-batches.
@@ -372,6 +379,8 @@ impl AllReduceOp {
 mod tests {
     use super::*;
     use mnr_ndarray_backend::CpuBackend;
+    use mnr_core::{ForwardCtx, Mode, Module};
+    use mnr_nn::{Linear, LinearConfig};
 
     #[test]
     fn test_tensor_parallel_linear_column() {
@@ -404,9 +413,138 @@ mod tests {
     }
 
     #[test]
+    fn test_tensor_parallel_linear_column_forward() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+
+        let linear = TensorParallelLinear::column_parallel(64, 128, &pg, &backend).unwrap();
+        let input = backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+
+        let output = linear.forward(&input, &mut ctx).unwrap();
+        let shape = backend.ops().shape(&output);
+        assert_eq!(shape[0], 1);
+    }
+
+    #[test]
+    fn test_tensor_parallel_linear_row_forward() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+
+        let linear = TensorParallelLinear::row_parallel(128, 64, &pg, &backend).unwrap();
+        let input = backend.tensor_from_vec(vec![1.0f32; 128], &[1, 128]).unwrap();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+
+        let output = linear.forward(&input, &mut ctx).unwrap();
+        let shape = backend.ops().shape(&output);
+        assert_eq!(shape[0], 1);
+    }
+
+    #[test]
+    fn test_tensor_parallel_linear_parameters() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+
+        let linear = TensorParallelLinear::column_parallel(64, 128, &pg, &backend).unwrap();
+        let params = linear.parameters();
+        assert!(!params.is_empty());
+    }
+
+    #[test]
+    fn test_tensor_parallel_linear_column_error() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_threaded(3, 0).unwrap();
+        // 128 not divisible by 3
+        assert!(TensorParallelLinear::column_parallel(64, 128, &pg, &backend).is_err());
+    }
+
+    #[test]
+    fn test_tensor_parallel_linear_row_error() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_threaded(3, 0).unwrap();
+        // 128 not divisible by 3
+        assert!(TensorParallelLinear::row_parallel(128, 64, &pg, &backend).is_err());
+    }
+
+    #[test]
     fn test_pipeline_stage() {
         let stage = PipelineStage::<CpuBackend>::new(0, 4, 2);
         assert_eq!(stage.stage_id(), 0);
+    }
+
+    #[test]
+    fn test_pipeline_stage_forward() {
+        let backend = CpuBackend::default();
+        let mut stage = PipelineStage::<CpuBackend>::new(0, 4, 2);
+        let linear = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
+        stage.add_layer(Box::new(linear));
+
+        let input = backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let output = stage.forward(input, &mut ctx).unwrap();
+        let shape = backend.ops().shape(&output);
+        assert_eq!(shape, vec![1, 64]);
+    }
+
+    #[test]
+    fn test_pipeline_stage_backward() {
+        let backend = CpuBackend::default();
+        let stage = PipelineStage::<CpuBackend>::new(0, 4, 2);
+        let grad = backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let output = stage.backward(grad, &mut ctx).unwrap();
+        let shape = backend.ops().shape(&output);
+        assert_eq!(shape, vec![1, 64]);
+    }
+
+    #[test]
+    fn test_pipeline_parallel_trainer() {
+        let backend = CpuBackend::default();
+        let mut trainer = PipelineParallelTrainer::<CpuBackend>::new(2);
+        let mut stage = PipelineStage::<CpuBackend>::new(0, 2, 1);
+        let linear = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
+        stage.add_layer(Box::new(linear));
+        trainer.add_stage(stage);
+
+        let input = backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let output = trainer.forward(input, &mut ctx).unwrap();
+        let shape = backend.ops().shape(&output);
+        assert_eq!(shape, vec![1, 64]);
+    }
+
+    #[test]
+    fn test_pipeline_parallel_trainer_train_step() {
+        let backend = CpuBackend::default();
+        let mut trainer = PipelineParallelTrainer::<CpuBackend>::new(1);
+        let mut stage = PipelineStage::<CpuBackend>::new(0, 1, 1);
+        let linear = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
+        stage.add_layer(Box::new(linear));
+        trainer.add_stage(stage);
+
+        let batch = vec![backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap()];
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+
+        let mut loss_fn = |_item: &<CpuBackend as mnr_core::Backend>::Tensor, _ctx: &mut ForwardCtx<CpuBackend>| {
+            backend.tensor_from_vec(vec![0.5f32], &[1])
+                .map(|t| (0.5f32, t))
+                .map_err(|e| CoreError::Other(format!("{:?}", e)))
+        };
+
+        let loss = trainer.train_step(&batch, &mut loss_fn, &mut ctx).unwrap();
+        assert!(loss >= 0.0);
+    }
+
+    #[test]
+    fn test_all_gather_op() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let op = AllGatherOp::<CpuBackend>::new(pg, 0);
+
+        let tensor = backend.tensor_from_vec(vec![1.0f32; 4], &[2, 2]).unwrap();
+        let output = op.execute(&tensor, backend.ops()).unwrap();
+        let shape = backend.ops().shape(&output);
+        assert_eq!(shape, vec![2, 2]);
     }
 
     #[test]
@@ -416,8 +554,27 @@ mod tests {
 
         let mut data = vec![1.0f32, 2.0, 3.0];
         op.execute(&mut data).unwrap();
+        assert_eq!(data, vec![1.0, 2.0, 3.0]);
+    }
 
-        // With single process, data should be unchanged
+    #[test]
+    fn test_all_reduce_op_mean() {
+        let pg = ProcessGroup::new_single_process();
+        let op = AllReduceOp::new(pg, ReduceOp::Mean);
+
+        let mut data = vec![1.0f32, 2.0, 3.0];
+        op.execute(&mut data).unwrap();
+        // With single process, data should be unchanged (divided by 1)
+        assert_eq!(data, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_all_reduce_op_max() {
+        let pg = ProcessGroup::new_single_process();
+        let op = AllReduceOp::new(pg, ReduceOp::Max);
+
+        let mut data = vec![1.0f32, 2.0, 3.0];
+        op.execute(&mut data).unwrap();
         assert_eq!(data, vec![1.0, 2.0, 3.0]);
     }
 }

@@ -110,3 +110,66 @@ impl ParallelTrainer {
         Ok(stats)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone, Debug)]
+    struct DummyUpdate(f32);
+
+    struct DummyLearner;
+
+    impl Learner<f32> for DummyLearner {
+        type BatchUpdate = DummyUpdate;
+
+        fn loss_and_update(&self, _datum: &f32) -> anyhow::Result<(f32, Self::BatchUpdate)> {
+            Ok((1.0, DummyUpdate(0.5)))
+        }
+
+        fn merge_updates(&self, updates: Vec<Self::BatchUpdate>) -> anyhow::Result<Self::BatchUpdate> {
+            let sum = updates.iter().map(|u| u.0).sum::<f32>();
+            Ok(DummyUpdate(sum))
+        }
+
+        fn apply_update(&mut self, _update: Self::BatchUpdate) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_trainer_config_default() {
+        let config = TrainerConfig::default();
+        assert_eq!(config.epochs, 1);
+        assert_eq!(config.batch_size, 32);
+        assert!(config.parallelism > 0);
+    }
+
+    #[test]
+    fn test_parallel_trainer_new() {
+        let config = TrainerConfig { epochs: 1, batch_size: 2, parallelism: 1 };
+        let trainer = ParallelTrainer::new(config);
+        let mut learner = DummyLearner;
+        let data = vec![1.0, 2.0, 3.0, 4.0];
+        let stats = trainer.train(&mut learner, &data).unwrap();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].epoch, 0);
+        assert_eq!(stats[0].examples, 4);
+    }
+
+    #[test]
+    fn test_parallel_trainer_zero_batch_size_fails() {
+        let config = TrainerConfig { epochs: 1, batch_size: 0, parallelism: 1 };
+        let trainer = ParallelTrainer::new(config);
+        let mut learner = DummyLearner;
+        let result = trainer.train(&mut learner, &[1.0]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_epoch_stats_debug() {
+        let stats = EpochStats { epoch: 0, examples: 10, mean_loss: 0.5, elapsed: Duration::from_secs(1) };
+        let debug = format!("{:?}", stats);
+        assert!(debug.contains("0.5"));
+    }
+}

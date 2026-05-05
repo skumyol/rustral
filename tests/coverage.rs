@@ -282,7 +282,7 @@ fn analyze_coverage() -> CoverageReport {
     for (dir, category) in &test_dirs {
         let path = Path::new(dir);
         if path.exists() {
-            for entry in fs::read_dir(path).unwrap_or_default() {
+            for entry in fs::read_dir(path).unwrap() {
                 if let Ok(entry) = entry {
                     let path = entry.path();
                     if path.extension().map(|e| e == "rs").unwrap_or(false) {
@@ -296,11 +296,11 @@ fn analyze_coverage() -> CoverageReport {
 
     // Count unit tests in src files
     let mut unit_tests = 0;
-    for crate_dir in fs::read_dir("crates").unwrap_or_default() {
+    for crate_dir in fs::read_dir("crates").unwrap() {
         if let Ok(crate_dir) = crate_dir {
             let src_dir = crate_dir.path().join("src");
             if src_dir.exists() {
-                for entry in fs::read_dir(&src_dir).unwrap_or_default() {
+                for entry in fs::read_dir(&src_dir).unwrap() {
                     if let Ok(entry) = entry {
                         let path = entry.path();
                         if path.extension().map(|e| e == "rs").unwrap_or(false) {
@@ -354,7 +354,7 @@ fn verify_bug_regression_coverage() {
     if bug_tests_dir.exists() {
         let mut total_tests = 0;
 
-        for entry in fs::read_dir(bug_tests_dir).unwrap_or_default() {
+        for entry in fs::read_dir(bug_tests_dir).unwrap() {
             if let Ok(entry) = entry {
                 let path = entry.path();
                 if path.extension().map(|e| e == "rs").unwrap_or(false) {
@@ -384,7 +384,7 @@ fn verify_performance_benchmarks() {
     if perf_dir.exists() {
         let mut total_benchmarks = 0;
 
-        for entry in fs::read_dir(perf_dir).unwrap_or_default() {
+        for entry in fs::read_dir(perf_dir).unwrap() {
             if let Ok(entry) = entry {
                 let path = entry.path();
                 if path.extension().map(|e| e == "rs").unwrap_or(false) {
@@ -438,7 +438,7 @@ fn count_module_tests(module: &str) -> usize {
     }
 
     let mut count = 0;
-    for entry in fs::read_dir(&path).unwrap_or_default() {
+    for entry in fs::read_dir(&path).unwrap() {
         if let Ok(entry) = entry {
             let path = entry.path();
             if path.extension().map(|e| e == "rs").unwrap_or(false) {

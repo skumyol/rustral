@@ -439,6 +439,84 @@ impl TensorOps<CpuBackend> for CpuOps {
         CpuTensor::new(x.values.iter().map(|&v| v + scalar).collect(), &x.shape)
     }
 
+    /// Element-wise multiplication by scalar.
+    fn mul_scalar(&self, x: &CpuTensor, scalar: f32) -> Result<CpuTensor> {
+        CpuTensor::new(x.values.iter().map(|&v| v * scalar).collect(), &x.shape)
+    }
+
+    /// Broadcast tensor to a new shape.
+    fn broadcast(&self, x: &CpuTensor, shape: &[usize]) -> Result<CpuTensor> {
+        let new_len: usize = shape.iter().product();
+        if x.values.len() == 1 {
+            // Broadcasting a scalar
+            CpuTensor::new(vec![x.values[0]; new_len], shape)
+        } else if x.values.len() == new_len {
+            // Already correct shape
+            Ok(x.clone())
+        } else {
+            // Try to broadcast by repeating dimensions
+            let old_shape = &x.shape;
+            let old_len = x.values.len();
+
+            // Check if broadcasting is possible: each dimension must be equal or 1
+            if old_shape.len() > shape.len() {
+                return Err(CoreError::InvalidArgument(
+                    format!("broadcast: cannot broadcast from {:?} to {:?}", old_shape, shape)
+                ));
+            }
+
+            // Pad old_shape with leading 1s to match target length
+            let mut padded_old = vec![1usize; shape.len() - old_shape.len()];
+            padded_old.extend_from_slice(old_shape);
+
+            // Validate compatibility
+            for (old_dim, new_dim) in padded_old.iter().zip(shape.iter()) {
+                if *old_dim != *new_dim && *old_dim != 1 {
+                    return Err(CoreError::InvalidArgument(
+                        format!("broadcast: cannot broadcast from {:?} to {:?}", old_shape, shape)
+                    ));
+                }
+            }
+
+            // Check total size consistency
+            let expected_new_len: usize = shape.iter().product();
+            let expanded_len: usize = padded_old.iter().product();
+            if expanded_len != old_len {
+                // The padded shape product should equal actual data length
+                return Err(CoreError::InvalidArgument(
+                    format!("broadcast: size mismatch {:?} vs {:?}", old_shape, shape)
+                ));
+            }
+
+            // Perform broadcasting by repeating elements
+            let mut result = x.values.clone();
+            for (axis_idx, (old_dim, new_dim)) in padded_old.iter().zip(shape.iter()).enumerate() {
+                if *old_dim == 1 && *new_dim > 1 {
+                    // Repeat along this axis
+                    let repeat = *new_dim;
+                    let inner_size: usize = shape[axis_idx + 1..].iter().product();
+                    let outer_size = result.len() / inner_size;
+
+                    let mut new_result = Vec::with_capacity(outer_size * repeat * inner_size);
+                    for chunk in result.chunks(inner_size) {
+                        for _ in 0..repeat {
+                            new_result.extend_from_slice(chunk);
+                        }
+                    }
+                    result = new_result;
+                }
+            }
+
+            if result.len() != expected_new_len {
+                return Err(CoreError::InvalidArgument(
+                    format!("broadcast: result size mismatch {} vs {}", result.len(), expected_new_len)
+                ));
+            }
+
+            CpuTensor::new(result, shape)
+        }
+    }
+
     /// Element-wise negation.
     fn neg(&self, x: &CpuTensor) -> Result<CpuTensor> {
         CpuTensor::new(x.values.iter().map(|&v| -v).collect(), &x.shape)

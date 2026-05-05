@@ -73,3 +73,29 @@ where
         self.workers.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_inference_pool_basic() {
+        let pool = InferencePool::new(2, 10, |x: i32| Ok(x * 2)).unwrap();
+        assert_eq!(pool.worker_count(), 2);
+
+        let result = pool.infer(5).unwrap();
+        assert_eq!(result, 10);
+    }
+
+    #[test]
+    fn test_inference_pool_zero_workers_fails() {
+        let result = InferencePool::<i32, i32>::new(0, 10, |x| Ok(x));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_inference_pool_zero_queue_fails() {
+        let result = InferencePool::<i32, i32>::new(1, 0, |x| Ok(x));
+        assert!(result.is_err());
+    }
+}

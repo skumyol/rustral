@@ -37,9 +37,9 @@ fn bench_lstm_forward(c: &mut Criterion) {
                         let input = backend
                             .tensor_from_vec(vec![1.0f32; hidden], &[hidden])
                             .unwrap();
-                        let result = lstm.forward((input, state.clone()), &mut ctx).unwrap();
-                        state = result.1;
-                        black_box(result);
+                        let result = lstm.forward((state.clone(), input), &mut ctx).unwrap();
+                        state = result;
+                        black_box(state.clone());
                     }
                 });
             },

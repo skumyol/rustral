@@ -4,8 +4,8 @@
 //! or NVMe SSD, enabling training models larger than GPU memory.
 //!
 //! # Memory Hierarchy
-//! ```
-//! GPU Memory (limited, fast) → CPU Memory (more, slower) → NVMe SSD (unlimited, slowest)
+//! ```text
+//! GPU Memory (limited, fast) -> CPU Memory (more, slower) -> NVMe SSD (unlimited, slowest)
 //!     Active params              Optimizer states           Checkpointing
 //!     Gradients (transient)      (m, v moments)             (long-term storage)
 //! ```
@@ -33,7 +33,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, Result, TensorOps};
+use mnr_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, Result, TensorOps, TensorShape};
 use mnr_optim::{Adam, AdamCheckpoint, Gradient, OptimError, Optimizer};
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
@@ -116,6 +116,7 @@ pub enum StorageLocation {
 }
 
 /// Offloaded optimizer state
+#[derive(Clone)]
 struct OffloadedState {
     /// Parameter ID
     param_id: ParameterId,
@@ -261,7 +262,8 @@ where
             let param_id = gradient.param_id;
 
             // Move state to GPU (if not already)
-            self.fetch_state_to_gpu(param_id, ops)?;
+            self.fetch_state_to_gpu(param_id, ops)
+                .map_err(|e| OptimError::Backend(e.to_string()))?;
 
             // Get parameter
             if let Some(param_idx) = self.param_map.get(&param_id) {
@@ -272,60 +274,69 @@ where
                         let shape = state.shape.clone();
                         let m_tensor = ops
                             .tensor_from_vec(state.m_data.clone(), &shape)
-                            .map_err(|e| OptimError::Backend(e.into()))?;
+                            .map_err(|e| OptimError::Backend(e.to_string()))?;
                         let v_tensor = ops
                             .tensor_from_vec(state.v_data.clone(), &shape)
-                            .map_err(|e| OptimError::Backend(e.into()))?;
+                            .map_err(|e| OptimError::Backend(e.to_string()))?;
 
                         // Apply Adam update (simplified)
-                        let beta1 = self.inner.beta1();
-                        let beta2 = self.inner.beta2();
-                        let eps = self.inner.eps();
+                        let beta1 = self.inner.beta1;
+                        let beta2 = self.inner.beta2;
+                        let eps = self.inner.eps;
+
+                        // Create scalar tensors
+                        let beta1_tensor = ops.tensor_from_vec(vec![beta1], &[1]).unwrap();
+                        let one_minus_beta1_tensor = ops.tensor_from_vec(vec![1.0 - beta1], &[1]).unwrap();
+                        let beta2_tensor = ops.tensor_from_vec(vec![beta2], &[1]).unwrap();
+                        let one_minus_beta2_tensor = ops.tensor_from_vec(vec![1.0 - beta2], &[1]).unwrap();
 
                         // Update biased first moment estimate: m = beta1 * m + (1 - beta1) * g
                         let m_new = ops
                             .add(
-                                &ops.mul(&m_tensor, ops.tensor_from_vec(vec![beta1], &[1]).unwrap()).unwrap(),
-                                &ops.mul(&gradient.tensor, ops.tensor_from_vec(vec![1.0 - beta1], &[1]).unwrap()).unwrap(),
+                                &ops.mul(&m_tensor, &beta1_tensor).unwrap(),
+                                &ops.mul(&gradient.tensor, &one_minus_beta1_tensor).unwrap(),
                             )
-                            .map_err(|e| OptimError::Backend(e.into()))?;
+                            .map_err(|e| OptimError::Backend(e.to_string()))?;
 
                         // Update biased second raw moment estimate: v = beta2 * v + (1 - beta2) * g^2
-                        let grad_squared = ops.mul(&gradient.tensor, &gradient.tensor).map_err(|e| OptimError::Backend(e.into()))?;
+                        let grad_squared = ops.mul(&gradient.tensor, &gradient.tensor).map_err(|e| OptimError::Backend(e.to_string()))?;
                         let v_new = ops
                             .add(
-                                &ops.mul(&v_tensor, ops.tensor_from_vec(vec![beta2], &[1]).unwrap()).unwrap(),
-                                &ops.mul(&grad_squared, ops.tensor_from_vec(vec![1.0 - beta2], &[1]).unwrap()).unwrap(),
+                                &ops.mul(&v_tensor, &beta2_tensor).unwrap(),
+                                &ops.mul(&grad_squared, &one_minus_beta2_tensor).unwrap(),
                             )
-                            .map_err(|e| OptimError::Backend(e.into()))?;
+                            .map_err(|e| OptimError::Backend(e.to_string()))?;
 
                         // Bias correction
-                        let bias_correction1 = 1.0 - beta1.powi(state.t as i32);
-                        let bias_correction2 = 1.0 - beta2.powi(state.t as i32);
+                        let bias_correction1: f32 = 1.0 - beta1.powi(state.t as i32);
+                        let bias_correction2: f32 = 1.0 - beta2.powi(state.t as i32);
 
                         // Compute step size
-                        let step_size = self.inner.lr() / bias_correction1;
+                        let step_size: f32 = self.inner.lr / bias_correction1;
 
                         // sqrt(v) + eps
-                        let v_sqrt = ops.sqrt(&v_new).map_err(|e| OptimError::Backend(e.into()))?;
+                        let v_sqrt = ops.sqrt(&v_new).map_err(|e| OptimError::Backend(e.to_string()))?;
+                        let bias_correction2_tensor = ops.tensor_from_vec(vec![bias_correction2.sqrt()], &[1]).unwrap();
                         let v_bias_corrected = ops
-                            .mul(&v_sqrt, ops.tensor_from_vec(vec![bias_correction2.sqrt()], &[1]).unwrap())
-                            .map_err(|e| OptimError::Backend(e.into()))?;
+                            .mul(&v_sqrt, &bias_correction2_tensor)
+                            .map_err(|e| OptimError::Backend(e.to_string()))?;
+                        let eps_tensor = ops.tensor_from_vec(vec![eps], &[1]).unwrap();
                         let denom = ops
-                            .add(&v_bias_corrected, ops.tensor_from_vec(vec![eps], &[1]).unwrap())
-                            .map_err(|e| OptimError::Backend(e.into()))?;
+                            .add(&v_bias_corrected, &eps_tensor)
+                            .map_err(|e| OptimError::Backend(e.to_string()))?;
 
                         // Update parameter
                         let update = ops
                             .div(&m_new, &denom)
-                            .map_err(|e| OptimError::Backend(e.into()))?;
+                            .map_err(|e| OptimError::Backend(e.to_string()))?;
+                        let step_size_tensor = ops.tensor_from_vec(vec![step_size], &[1]).unwrap();
                         let scaled_update = ops
-                            .mul(&update, ops.tensor_from_vec(vec![step_size], &[1]).unwrap())
-                            .map_err(|e| OptimError::Backend(e.into()))??;
+                            .mul(&update, &step_size_tensor)
+                            .map_err(|e| OptimError::Backend(e.to_string()))?;
 
                         let new_param = ops
                             .sub(param.tensor(), &scaled_update)
-                            .map_err(|e| OptimError::Backend(e.into()))?;
+                            .map_err(|e| OptimError::Backend(e.to_string()))?;
 
                         *param = Parameter::new(param.name(), new_param);
 
@@ -335,7 +346,8 @@ where
                         state.t += 1;
 
                         // Offload state based on memory pressure
-                        self.maybe_offload_state(param_id)?;
+                        self.maybe_offload_state(param_id)
+                            .map_err(|e| OptimError::Backend(e.to_string()))?;
                     }
                 }
             }
@@ -345,21 +357,31 @@ where
     }
 
     /// Fetch optimizer state to GPU memory
-    fn fetch_state_to_gpu(&mut self, param_id: ParameterId, ops: &dyn TensorOps<B>) -> Result<()> {
-        if let Some(state) = self.states.get_mut(&param_id) {
-            match state.location {
+    fn fetch_state_to_gpu(&mut self, param_id: ParameterId, _ops: &dyn TensorOps<B>) -> Result<()> {
+        // Check current location first
+        let location = self.states.get(&param_id).map(|s| s.location);
+
+        if let Some(location) = location {
+            match location {
                 StorageLocation::Gpu => {
                     // Already on GPU
                 }
                 StorageLocation::Cpu => {
                     // Will be loaded when converted to tensors
-                    state.location = StorageLocation::Gpu;
+                    if let Some(state) = self.states.get_mut(&param_id) {
+                        state.location = StorageLocation::Gpu;
+                    }
                 }
                 StorageLocation::Nvme => {
                     // Load from NVMe
-                    if let Some(offset) = state.nvme_offset {
-                        self.load_from_nvme(param_id, offset)?;
-                        state.location = StorageLocation::Gpu;
+                    let offset = self.states.get(&param_id)
+                        .and_then(|s| s.nvme_offset);
+                    if let Some(offset) = offset {
+                        self.load_from_nvme(param_id, offset)
+                            .map_err(|e| CoreError::Other(format!("{:?}", e)))?;
+                        if let Some(state) = self.states.get_mut(&param_id) {
+                            state.location = StorageLocation::Gpu;
+                        }
                     }
                 }
             }
@@ -372,16 +394,27 @@ where
     fn maybe_offload_state(&mut self, param_id: ParameterId) -> DistributedResult<()> {
         let memory_pressure = self.check_memory_pressure();
 
-        if let Some(state) = self.states.get_mut(&param_id) {
-            if memory_pressure > 0.9 && self.config.nvme_offload {
-                // High memory pressure, move to NVMe
-                let offset = self.save_to_nvme(param_id, state)?;
+        // Check conditions first, then do the offload in separate scope
+        let should_nvme_offload = memory_pressure > 0.9 && self.config.nvme_offload;
+        let should_cpu_offload = memory_pressure > 0.7 && self.config.cpu_offload;
+
+        if should_nvme_offload {
+            // NVMe offload - clone state to avoid borrow issues
+            let state_clone = self.states.get(&param_id)
+                .ok_or_else(|| DistributedError::Communication("State not found".to_string()))?
+                .clone();
+            let offset = self.save_to_nvme(param_id, &state_clone)?;
+
+            // Now update the state
+            if let Some(state) = self.states.get_mut(&param_id) {
                 state.nvme_offset = Some(offset);
                 state.location = StorageLocation::Nvme;
                 state.m_data.clear(); // Free CPU memory
                 state.v_data.clear();
-            } else if memory_pressure > 0.7 && self.config.cpu_offload {
-                // Medium pressure, keep on CPU
+            }
+        } else if should_cpu_offload {
+            // Medium pressure, keep on CPU
+            if let Some(state) = self.states.get_mut(&param_id) {
                 state.location = StorageLocation::Cpu;
             }
         }
@@ -564,6 +597,9 @@ pub struct ZeROMemoryEstimate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mnr_ndarray_backend::CpuBackend;
+    use mnr_core::{ForwardCtx, Mode, Parameter};
+    use mnr_optim::{Adam, Gradient};
 
     #[test]
     fn test_config_builder() {
@@ -575,6 +611,17 @@ mod tests {
         assert!(config.cpu_offload);
         assert_eq!(config.nvme_parallel, 8);
         assert_eq!(config.prefetch_depth, 8);
+    }
+
+    #[test]
+    fn test_config_default() {
+        let config = ZeroInfinityConfig::default();
+        assert!(config.cpu_offload);
+        assert!(!config.nvme_offload);
+        assert_eq!(config.nvme_quota, 100_000_000_000);
+        assert_eq!(config.nvme_parallel, 4);
+        assert_eq!(config.prefetch_depth, 4);
+        assert!(config.pin_memory);
     }
 
     #[test]
@@ -592,8 +639,110 @@ mod tests {
     }
 
     #[test]
-    fn test_memory_stats() {
-        // Can't test without actual GPU/NVMe
-        // This is a placeholder
+    fn test_zero_infinity_creation() {
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let config = ZeroInfinityConfig::new();
+        let zero = ZeroInfinity::new(adam, pg, config).unwrap();
+
+        assert_eq!(zero.total_params, 0);
+        assert!(zero.nvme_file.is_none());
+    }
+
+    #[test]
+    fn test_zero_infinity_with_nvme() {
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let temp_path = std::env::temp_dir().join("zero_infinity_test.bin");
+        let config = ZeroInfinityConfig::new()
+            .with_nvme_offload(&temp_path, 1_000_000_000);
+        let zero = ZeroInfinity::new(adam, pg, config).unwrap();
+        assert!(zero.nvme_file.is_some());
+
+        // Clean up
+        let _ = std::fs::remove_file(&temp_path);
+    }
+
+    #[test]
+    fn test_zero_infinity_nvme_error() {
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let config = ZeroInfinityConfig {
+            nvme_offload: true,
+            nvme_path: None,
+            ..ZeroInfinityConfig::default()
+        };
+        assert!(ZeroInfinity::new(adam, pg, config).is_err());
+    }
+
+    #[test]
+    fn test_zero_infinity_register_parameters() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let config = ZeroInfinityConfig::new();
+        let mut zero = ZeroInfinity::new(adam, pg, config).unwrap();
+
+        let params = vec![
+            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32; 4], &[2, 2]).unwrap()),
+            Parameter::new("p1", backend.tensor_from_vec(vec![2.0f32; 4], &[2, 2]).unwrap()),
+        ];
+
+        zero.register_parameters(&params).unwrap();
+        assert_eq!(zero.total_params, 2);
+        assert_eq!(zero.states.len(), 2);
+        assert_eq!(zero.param_map.len(), 2);
+    }
+
+    #[test]
+    fn test_zero_infinity_step() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let config = ZeroInfinityConfig::new();
+        let mut zero = ZeroInfinity::new(adam, pg, config).unwrap();
+
+        let mut params = vec![
+            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()),
+        ];
+
+        zero.register_parameters(&params).unwrap();
+
+        let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
+        let gradients = vec![Gradient {
+            param_id: params[0].id(),
+            tensor: grad_tensor,
+        }];
+
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        zero.step(&mut params, &gradients, &mut ctx).unwrap();
+    }
+
+    #[test]
+    fn test_zero_infinity_memory_stats() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let config = ZeroInfinityConfig::new();
+        let mut zero = ZeroInfinity::new(adam, pg, config).unwrap();
+
+        let params = vec![
+            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32; 4], &[2, 2]).unwrap()),
+        ];
+        zero.register_parameters(&params).unwrap();
+
+        let stats = zero.memory_stats();
+        assert_eq!(stats.total_params, 1);
+        assert_eq!(stats.gpu_states, 0); // All start on CPU
+        assert_eq!(stats.cpu_states, 1);
+        assert_eq!(stats.nvme_states, 0);
+    }
+
+    #[test]
+    fn test_storage_location_equality() {
+        assert_eq!(StorageLocation::Gpu, StorageLocation::Gpu);
+        assert_eq!(StorageLocation::Cpu, StorageLocation::Cpu);
+        assert_eq!(StorageLocation::Nvme, StorageLocation::Nvme);
+        assert_ne!(StorageLocation::Gpu, StorageLocation::Cpu);
     }
 }

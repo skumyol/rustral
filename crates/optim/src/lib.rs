@@ -5,11 +5,16 @@
 
 use std::collections::HashMap;
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, TensorOps};
+use mnr_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, TensorOps, TensorShape};
 use thiserror::Error;
 
+pub mod lr_scheduler;
 pub mod mixed_precision;
 
+pub use lr_scheduler::{
+    ConstantLR, CosineAnnealingLR, ExponentialLR, LinearWarmup, OneCycleLR,
+    PlateauLR, PolynomialLR, StepDecay, WarmupCosine, LRScheduler,
+};
 pub use mixed_precision::{
     DType, LossScaleScheduler, MixedPrecisionOptimizer, MixedPrecisionStats,
 };
@@ -20,6 +25,10 @@ pub enum OptimError {
     /// Underlying core error.
     #[error("core error: {0}")]
     Core(#[from] CoreError),
+
+    /// Backend operation failed.
+    #[error("backend error: {0}")]
+    Backend(String),
 
     /// Gradient computation failed.
     #[error("gradient error: {0}")]
@@ -38,6 +47,15 @@ pub enum OptimError {
 pub struct Gradient<B: Backend> {
     pub param_id: ParameterId,
     pub tensor: B::Tensor,
+}
+
+impl<B: Backend> Clone for Gradient<B> where B::Tensor: Clone {
+    fn clone(&self) -> Self {
+        Self {
+            param_id: self.param_id,
+            tensor: self.tensor.clone(),
+        }
+    }
 }
 
 /// Optimizer state for first and second moment tracking (used by Adam/AdamW).
@@ -181,7 +199,7 @@ where
             // Update parameter (requires consuming and recreating)
             // Note: In-place mutation would require TensorInPlaceOps support,
             // which backends may implement as an extension trait for performance.
-            *param = Parameter::new(param.name(), new_value);
+            *param = param.clone().with_tensor(new_value);
         }
 
         Ok(())
@@ -420,7 +438,7 @@ where
 
             // Update parameter
             let new_value = ops.add(current, &update)?;
-            *param = Parameter::new(param.name(), new_value);
+            *param = param.clone().with_tensor(new_value);
         }
 
         Ok(())
@@ -501,5 +519,112 @@ mod tests {
         // w[1] = 0 - 0.1 * 2.0 / 2.0 = -0.1
         assert!((values[0] - (-0.1)).abs() < 1e-6, "Expected ~-0.1, got {}", values[0]);
         assert!((values[1] - (-0.1)).abs() < 1e-6, "Expected ~-0.1, got {}", values[1]);
+    }
+
+    #[test]
+    fn test_sgd_default() {
+        let sgd: Sgd = Default::default();
+        assert_eq!(sgd.lr, 0.01);
+        assert_eq!(sgd.momentum, 0.0);
+        assert_eq!(sgd.weight_decay, 0.0);
+    }
+
+    #[test]
+    fn test_sgd_with_momentum() {
+        let sgd = Sgd::new(0.01).with_momentum(0.9);
+        assert_eq!(sgd.momentum, 0.9);
+    }
+
+    #[test]
+    fn test_sgd_with_weight_decay() {
+        let sgd = Sgd::new(0.01).with_weight_decay(0.01);
+        assert_eq!(sgd.weight_decay, 0.01);
+    }
+
+    #[test]
+    fn test_sgd_zero_grad() {
+        let mut sgd = Sgd::new(0.01);
+        Optimizer::<CpuBackend>::zero_grad(&mut sgd); // Should not panic
+    }
+
+    #[test]
+    fn test_adam_default() {
+        let adam: Adam<CpuBackend> = Default::default();
+        assert_eq!(adam.lr, 0.001);
+        assert_eq!(adam.beta1, 0.9);
+        assert_eq!(adam.beta2, 0.999);
+        assert_eq!(adam.eps, 1e-8);
+        assert_eq!(adam.weight_decay, 0.0);
+    }
+
+    #[test]
+    fn test_adam_with_betas() {
+        let adam = Adam::<CpuBackend>::new(0.01).with_betas(0.8, 0.9);
+        assert_eq!(adam.beta1, 0.8);
+        assert_eq!(adam.beta2, 0.9);
+    }
+
+    #[test]
+    fn test_adam_with_weight_decay() {
+        let adam = Adam::<CpuBackend>::new(0.01).with_weight_decay(0.01);
+        assert_eq!(adam.weight_decay, 0.01);
+    }
+
+    #[test]
+    fn test_adam_adamw() {
+        let adam = Adam::<CpuBackend>::new(0.01).adamw(0.1);
+        assert_eq!(adam.weight_decay, 0.1);
+    }
+
+    #[test]
+    fn test_adam_zero_grad() {
+        let mut adam = Adam::<CpuBackend>::new(0.01);
+        adam.zero_grad(); // Should not panic
+    }
+
+    #[test]
+    fn test_gradient_clone() {
+        let backend = CpuBackend::default();
+        let tensor = backend.ops().tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap();
+        let grad: Gradient<CpuBackend> = Gradient {
+            param_id: ParameterId::fresh(),
+            tensor,
+        };
+        let cloned = grad.clone();
+        assert_eq!(cloned.param_id, grad.param_id);
+    }
+
+    #[test]
+    fn test_adam_save_load_checkpoint() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+
+        let mut param = backend.normal_parameter("w", &[2], 42, 0.0).unwrap();
+        let grad_tensor = backend.ops().tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap();
+        let gradients = vec![Gradient {
+            param_id: param.id(),
+            tensor: grad_tensor,
+        }];
+
+        let mut adam = Adam::new(0.1);
+        adam.step(std::slice::from_mut(&mut param), &gradients, &mut ctx).unwrap();
+
+        let checkpoint = adam.save_checkpoint();
+        assert_eq!(checkpoint.lr, 0.1);
+        assert!(!checkpoint.state.is_empty());
+
+        let mut adam2 = Adam::<CpuBackend>::new(0.01);
+        adam2.load_checkpoint(&checkpoint, &[param.clone()], backend.ops()).unwrap();
+        assert_eq!(adam2.lr, 0.1);
+    }
+
+    #[test]
+    fn test_adam_step_no_grad() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut param = backend.normal_parameter("w", &[2], 42, 0.0).unwrap();
+        let mut adam = Adam::<CpuBackend>::new(0.1);
+        let result = adam.step(std::slice::from_mut(&mut param), &[], &mut ctx);
+        assert!(result.is_ok());
     }
 }

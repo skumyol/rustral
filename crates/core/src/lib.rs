@@ -6,6 +6,7 @@
 mod backend;
 mod context;
 mod error;
+mod memory_profiler;
 mod module;
 mod parameter;
 mod shape;
@@ -13,6 +14,10 @@ mod shape;
 pub use backend::{Backend, TensorInPlaceOps, TensorOps, TensorView};
 pub use context::{ForwardCtx, Mode, RunId};
 pub use error::{CoreError, Result};
+pub use memory_profiler::{
+    AllocationEvent, AllocationTracker, MemoryProfiler, MemorySnapshot,
+    MemorySummary, OomRisk, global_profiler,
+};
 pub use module::{Module, Saveable, StatefulModule, Trainable};
 pub use parameter::{Parameter, ParameterGroup, ParameterId, ParameterRef};
 pub use shape::{Shape, ShapeExt, TensorShape};

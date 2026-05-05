@@ -35,4 +35,12 @@ pub enum CoreError {
     /// Save/load failure.
     #[error("serialization error: {0}")]
     Serialization(String),
+
+    /// Generic shape-related error (for compatibility).
+    #[error("shape error: {0}")]
+    Shape(String),
+
+    /// Generic other error (for compatibility).
+    #[error("{0}")]
+    Other(String),
 }

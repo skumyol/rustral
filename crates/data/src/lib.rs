@@ -493,4 +493,68 @@ mod tests {
         assert_eq!(batches[0], vec![0, 1, 2]);
         assert_eq!(batches[1], vec![3, 4, 5]);
     }
+
+    #[test]
+    fn test_dataset_is_empty() {
+        let empty = InMemoryDataset::new(Vec::<i32>::new());
+        assert!(empty.is_empty());
+        let non_empty = InMemoryDataset::new(vec![1]);
+        assert!(!non_empty.is_empty());
+    }
+
+    #[test]
+    fn test_in_memory_dataset_into_inner() {
+        let data = vec![1, 2, 3];
+        let dataset = InMemoryDataset::new(data.clone());
+        assert_eq!(dataset.into_inner(), data);
+    }
+
+    #[test]
+    fn test_in_memory_dataset_get_batch() {
+        let data: Vec<i32> = (0..10).collect();
+        let dataset = InMemoryDataset::new(data);
+        let batch = dataset.get_batch(&[0, 2, 4]);
+        assert_eq!(batch, vec![0, 2, 4]);
+    }
+
+    #[test]
+    fn test_data_loader_num_batches() {
+        let data: Vec<i32> = (0..10).collect();
+        let loader = DataLoader::new(
+            Box::new(InMemoryDataset::new(data)),
+            DataLoaderConfig {
+                batch_size: 3,
+                shuffle: false,
+                seed: None,
+                num_workers: 0,
+            },
+        );
+        assert_eq!(loader.num_batches(), 4);
+    }
+
+    #[test]
+    fn test_data_loader_len_and_epoch_done() {
+        let mut loader = simple_loader(vec![1, 2, 3, 4], 2);
+        assert_eq!(loader.len(), 4);
+        assert!(!loader.is_epoch_done());
+        let _ = loader.next_batch();
+        let _ = loader.next_batch();
+        assert!(loader.is_epoch_done());
+    }
+
+    #[test]
+    fn test_shuffled_loader() {
+        let mut loader = shuffled_loader(vec![1, 2, 3, 4], 2, 42);
+        let batch = loader.next_batch().unwrap();
+        assert_eq!(batch.len(), 2);
+    }
+
+    #[test]
+    fn test_dataloader_default_config() {
+        let config: DataLoaderConfig = Default::default();
+        assert_eq!(config.batch_size, 1);
+        assert!(!config.shuffle);
+        assert_eq!(config.seed, None);
+        assert_eq!(config.num_workers, 0);
+    }
 }

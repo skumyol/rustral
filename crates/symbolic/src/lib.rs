@@ -104,6 +104,68 @@ impl Vocabulary {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vocabulary_with_specials() {
+        let vocab = Vocabulary::with_specials("<unk>");
+        assert_eq!(vocab.len(), 1);
+        assert_eq!(vocab.unk_id(), 0);
+        assert!(!vocab.is_empty());
+        assert!(!vocab.is_frozen());
+    }
+
+    #[test]
+    fn test_vocabulary_insert_and_lookup() {
+        let mut vocab = Vocabulary::with_specials("<unk>");
+        let id = vocab.insert("hello").unwrap();
+        assert_eq!(vocab.id("hello"), Some(id));
+        assert_eq!(vocab.token(id).unwrap(), "hello");
+        assert_eq!(vocab.id_or_unk("hello"), id);
+        assert_eq!(vocab.id_or_unk("missing"), 0);
+    }
+
+    #[test]
+    fn test_vocabulary_duplicate_insert_returns_same_id() {
+        let mut vocab = Vocabulary::with_specials("<unk>");
+        let id1 = vocab.insert("hello").unwrap();
+        let id2 = vocab.insert("hello").unwrap();
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn test_vocabulary_freeze() {
+        let mut vocab = Vocabulary::with_specials("<unk>");
+        vocab.insert("hello").unwrap();
+        vocab.freeze();
+        assert!(vocab.is_frozen());
+        assert!(vocab.insert("world").is_err());
+    }
+
+    #[test]
+    fn test_vocabulary_token_out_of_range() {
+        let vocab = Vocabulary::with_specials("<unk>");
+        assert!(vocab.token(99).is_err());
+    }
+
+    #[test]
+    fn test_vocabulary_tokens_iterator() {
+        let mut vocab = Vocabulary::with_specials("<unk>");
+        vocab.insert("a").unwrap();
+        vocab.insert("b").unwrap();
+        let tokens: Vec<&str> = vocab.tokens().collect();
+        assert_eq!(tokens, vec!["<unk>", "a", "b"]);
+    }
+
+    #[test]
+    fn test_label_prediction() {
+        let pred = LabelPrediction { label: "cat".to_string(), id: 0, score: 0.9 };
+        assert_eq!(pred.label, "cat");
+    }
+}
+
 /// Result of a label readout prediction.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LabelPrediction {

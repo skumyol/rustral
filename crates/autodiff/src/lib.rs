@@ -827,4 +827,242 @@ mod tests {
         assert!(grads.contains_key(&a));
         assert!(grads.contains_key(&b));
     }
+
+    #[test]
+    fn test_watch_parameter_and_param_map() {
+        let backend = CpuBackend::default();
+        let mut tape = Tape::<CpuBackend>::new();
+        let tensor = backend.tensor_from_vec(vec![1.0, 2.0, 3.0], &[3]).unwrap();
+        let param = Parameter::new("test_param", tensor.clone());
+
+        let id = tape.watch_parameter(&param);
+        assert_eq!(tape.param_tensor_id(param.id()), Some(id));
+        assert_eq!(tape.param_map().len(), 1);
+        assert!(tape.param_map().contains_key(&param.id()));
+    }
+
+    #[test]
+    fn test_mul_and_backward() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+
+        let a = tape.watch(backend.tensor_from_vec(vec![2.0], &[1]).unwrap());
+        let b = tape.watch(backend.tensor_from_vec(vec![3.0], &[1]).unwrap());
+        let c = tape.mul(a, b, &mut ctx).unwrap();
+
+        let c_vals: Vec<f32> = tape.value(c).unwrap().values().to_vec();
+        assert!((c_vals[0] - 6.0).abs() < 1e-6);
+
+        let grads = tape.backward(c, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        assert!(grads.contains_key(&a));
+        assert!(grads.contains_key(&b));
+    }
+
+    #[test]
+    fn test_relu_and_backward() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+
+        let a = tape.watch(backend.tensor_from_vec(vec![-1.0, 2.0, -3.0, 4.0], &[4]).unwrap());
+        let b = tape.relu(a, &mut ctx).unwrap();
+
+        let b_vals: Vec<f32> = tape.value(b).unwrap().values().to_vec();
+        assert!((b_vals[0] - 0.0).abs() < 1e-6);
+        assert!((b_vals[1] - 2.0).abs() < 1e-6);
+        assert!((b_vals[2] - 0.0).abs() < 1e-6);
+        assert!((b_vals[3] - 4.0).abs() < 1e-6);
+
+        let grads = tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        assert!(grads.contains_key(&a));
+    }
+
+    #[test]
+    fn test_linear_tape() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+
+        let input = tape.watch(backend.tensor_from_vec(vec![1.0, 2.0], &[1, 2]).unwrap());
+        let weight = backend.tensor_from_vec(vec![1.0, 0.0, 0.0, 1.0], &[2, 2]).unwrap();
+        let bias = Some(backend.tensor_from_vec(vec![0.5, 0.5], &[2]).unwrap());
+
+        let output = tape.linear_tape(input, weight, bias, &mut ctx).unwrap();
+        let out_vals: Vec<f32> = tape.value(output).unwrap().values().to_vec();
+        assert_eq!(out_vals.len(), 2);
+
+        let grads = tape.backward(output, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        assert!(grads.contains_key(&input));
+    }
+
+    #[test]
+    fn test_softmax_and_backward() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+
+        let a = tape.watch(backend.tensor_from_vec(vec![1.0, 2.0, 3.0], &[3]).unwrap());
+        let b = tape.softmax(a, &mut ctx).unwrap();
+
+        let b_vals: Vec<f32> = tape.value(b).unwrap().values().to_vec();
+        assert!((b_vals.iter().sum::<f32>() - 1.0).abs() < 1e-5);
+
+        let grads = tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        assert!(grads.contains_key(&a));
+    }
+
+    #[test]
+    fn test_log_softmax_and_backward() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+
+        let a = tape.watch(backend.tensor_from_vec(vec![1.0, 2.0, 3.0], &[3]).unwrap());
+        let b = tape.log_softmax(a, &mut ctx).unwrap();
+
+        let b_vals: Vec<f32> = tape.value(b).unwrap().values().to_vec();
+        assert!(b_vals.iter().all(|&v| v <= 0.0));
+
+        let grads = tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        assert!(grads.contains_key(&a));
+    }
+
+    #[test]
+    fn test_cross_entropy_loss() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+
+        let logits = tape.watch(backend.tensor_from_vec(vec![1.0, 2.0, 3.0], &[3]).unwrap());
+        let target = tape.watch(backend.tensor_from_vec(vec![0.0, 0.0, 1.0], &[3]).unwrap());
+        let loss = tape.cross_entropy_loss(logits, target, &mut ctx).unwrap();
+
+        let loss_val: Vec<f32> = tape.value(loss).unwrap().values().to_vec();
+        assert_eq!(loss_val.len(), 1);
+        assert!(loss_val[0] > 0.0);
+
+        let grads = tape.backward(loss, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        assert!(grads.contains_key(&logits));
+        assert!(grads.contains_key(&target));
+    }
+
+    #[test]
+    fn test_gather_rows_tape() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+
+        let table_data = backend.tensor_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
+        let table = Parameter::new("table", table_data);
+        let ids = tape.watch(backend.tensor_from_vec(vec![0.0, 1.0], &[2]).unwrap());
+
+        let output = tape.gather_rows_tape(&table, ids, &mut ctx).unwrap();
+        let out_vals: Vec<f32> = tape.value(output).unwrap().values().to_vec();
+        assert_eq!(out_vals.len(), 6);
+
+        let grads = tape.backward(output, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        assert!(grads.contains_key(&ids));
+    }
+
+    #[test]
+    fn test_concat_tape() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+
+        let a = tape.watch(backend.tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap());
+        let b = tape.watch(backend.tensor_from_vec(vec![3.0, 4.0], &[2]).unwrap());
+        let c = tape.concat_tape(&[a, b], 0, &mut ctx).unwrap();
+
+        let c_vals: Vec<f32> = tape.value(c).unwrap().values().to_vec();
+        assert_eq!(c_vals.len(), 4);
+
+        let grads = tape.backward(c, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        assert!(grads.contains_key(&a));
+        assert!(grads.contains_key(&b));
+    }
+
+    #[test]
+    fn test_slice_tape() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+
+        let a = tape.watch(backend.tensor_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[4]).unwrap());
+        let b = tape.slice_tape(a, 1, 3, &mut ctx).unwrap();
+
+        let b_vals: Vec<f32> = tape.value(b).unwrap().values().to_vec();
+        assert_eq!(b_vals.len(), 2);
+
+        let grads = tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        assert!(grads.contains_key(&a));
+    }
+
+    #[test]
+    fn test_reshape_tape() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+
+        let a = tape.watch(backend.tensor_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2]).unwrap());
+        let b = tape.reshape_tape(a, &[4], &mut ctx).unwrap();
+
+        let b_shape = backend.ops().shape(tape.value(b).unwrap());
+        assert_eq!(b_shape, vec![4]);
+
+        let grads = tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        assert!(grads.contains_key(&a));
+    }
+
+    #[test]
+    fn test_layer_norm_tape() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+
+        let input = tape.watch(backend.tensor_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2]).unwrap());
+        let gamma = Parameter::new("gamma", backend.tensor_from_vec(vec![1.0, 1.0], &[2]).unwrap());
+        let beta = Parameter::new("beta", backend.tensor_from_vec(vec![0.0, 0.0], &[2]).unwrap());
+
+        let output = tape.layer_norm_tape(input, &gamma, &beta, 1e-5, &mut ctx).unwrap();
+        let out_vals: Vec<f32> = tape.value(output).unwrap().values().to_vec();
+        assert_eq!(out_vals.len(), 4);
+
+        let grads = tape.backward(output, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        assert!(grads.contains_key(&input));
+    }
+
+    #[test]
+    fn test_grad_and_grad_ext() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+
+        let param_tensor = backend.tensor_from_vec(vec![2.0], &[1]).unwrap();
+        let param = Parameter::new("p", param_tensor.clone());
+        let a = tape.watch_parameter(&param);
+        let b = tape.watch(backend.tensor_from_vec(vec![3.0], &[1]).unwrap());
+        let c = tape.add(a, b, &mut ctx).unwrap();
+
+        let param_map = tape.param_map().clone();
+        let grads = tape.backward(c, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+
+        // Test GradExtFromStore
+        assert!(param.gradient_from_store(&grads, &param_map).is_some());
+    }
+
+    #[test]
+    fn test_tape_value_missing() {
+        let tape = Tape::<CpuBackend>::new();
+        let fake_id = TensorId(999);
+        assert!(tape.value(fake_id).is_none());
+    }
+
+    #[test]
+    fn test_get_value_error() {
+        let tape = Tape::<CpuBackend>::new();
+        let fake_id = TensorId(999);
+        assert!(tape.get_value(fake_id).is_err());
+    }
 }

@@ -152,4 +152,29 @@ mod tests {
         let loaded_test = loaded.get("test").unwrap();
         assert_eq!(loaded_test.len(), 4);
     }
+
+    #[test]
+    fn test_load_missing_tensor() {
+        let backend = CpuBackend::default();
+        let param = backend.normal_parameter("a", &[2], 1, 0.0).unwrap();
+        let params = vec![("a".to_string(), &param)];
+        let bytes = save_parameters::<CpuBackend>(&params).unwrap();
+
+        let loaded = load_parameters::<CpuBackend>(&bytes).unwrap();
+        assert!(loaded.get("b").is_none());
+    }
+
+    #[test]
+    fn test_save_multiple_tensors() {
+        let backend = CpuBackend::default();
+        let p1 = backend.normal_parameter("w", &[2, 2], 1, 0.0).unwrap();
+        let p2 = backend.normal_parameter("b", &[2], 2, 0.0).unwrap();
+        let params = vec![("w".to_string(), &p1), ("b".to_string(), &p2)];
+        let bytes = save_parameters::<CpuBackend>(&params).unwrap();
+
+        let loaded = load_parameters::<CpuBackend>(&bytes).unwrap();
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded.get("w").unwrap().len(), 4);
+        assert_eq!(loaded.get("b").unwrap().len(), 2);
+    }
 }

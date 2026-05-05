@@ -154,7 +154,7 @@ pub struct CheckpointedTransformerLayer<B: Backend, L: Module<B>> {
     _phantom: std::marker::PhantomData<B>,
 }
 
-impl<B: Backend, L: Module<B>> CheckpointedTransformerLayer<B, L> {
+impl<B: Backend, L: Module<B, Input = B::Tensor, Output = B::Tensor>> CheckpointedTransformerLayer<B, L> {
     /// Create a new checkpointed layer.
     pub fn new(layer: L, layer_idx: usize, config: &CheckpointConfig) -> Self {
         let should_checkpoint = config.enabled
@@ -177,7 +177,7 @@ impl<B: Backend, L: Module<B>> CheckpointedTransformerLayer<B, L> {
     pub fn forward(&self, input: B::Tensor, ctx: &mut ForwardCtx<B>) -> Result<B::Tensor> {
         if self.should_checkpoint {
             // Use checkpointing - only save input
-            checkpoint_segment(input, |x| self.layer.forward(x.clone(), ctx), &self.config, ctx)
+            checkpoint_segment(input, |x, c| self.layer.forward(x.clone(), c), &self.config, ctx)
         } else {
             // Normal forward - save all activations
             self.layer.forward(input, ctx)
@@ -306,7 +306,7 @@ pub fn checkpoint_model<B, L>(
 ) -> Vec<CheckpointedTransformerLayer<B, L>>
 where
     B: Backend,
-    L: Module<B>,
+    L: Module<B, Input = B::Tensor, Output = B::Tensor>,
 {
     layers
         .into_iter()
@@ -370,11 +370,161 @@ mod tests {
 
         assert_eq!(manager.memory_saved_bytes(), 0);
 
-        let mut manager_with_saved = CheckpointManager::new(CheckpointConfig::default());
+        let mut manager_with_saved: CheckpointManager<CpuBackend> = CheckpointManager::new(CheckpointConfig::default());
         manager_with_saved.add_memory_saved(1024 * 1024 * 100); // 100 MB
         assert_eq!(manager_with_saved.memory_saved_bytes(), 1024 * 1024 * 100);
 
         manager_with_saved.clear();
         assert_eq!(manager_with_saved.memory_saved_bytes(), 0);
+    }
+
+    #[test]
+    fn test_checkpoint_config_with_frequency() {
+        let config = CheckpointConfig::default().with_frequency(4);
+        assert_eq!(config.checkpoint_every_n_layers, 4);
+        assert!(config.enabled);
+    }
+
+    #[test]
+    fn test_checkpoint_config_preserve() {
+        let config = CheckpointConfig::default().preserve("layer1").preserve("layer2");
+        assert_eq!(config.preserve_patterns.len(), 2);
+        assert_eq!(config.preserve_patterns[0], "layer1");
+        assert_eq!(config.preserve_patterns[1], "layer2");
+    }
+
+    #[test]
+    fn test_checkpointed_segment() {
+        let backend = CpuBackend::default();
+        let input = backend.tensor_from_vec(vec![1.0, 2.0, 3.0], &[3]).unwrap();
+        let input_id = TensorId::fresh();
+        let output_id = TensorId::fresh();
+
+        let segment = CheckpointedSegment::<CpuBackend>::new(
+            input_id,
+            input.clone(),
+            output_id,
+            |tensor, _ctx| Ok(tensor.clone()),
+        );
+
+        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Train);
+        let recomputed = segment.recompute(&mut ctx).unwrap();
+        let vals: Vec<f32> = recomputed.values().to_vec();
+        assert_eq!(vals, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_checkpoint_segment_enabled() {
+        let backend = CpuBackend::default();
+        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Train);
+        let input = backend.tensor_from_vec(vec![1.0, 2.0, 3.0], &[3]).unwrap();
+        let config = CheckpointConfig::default();
+
+        let output = checkpoint_segment(input.clone(), |x, _ctx| Ok(x.clone()), &config, &mut ctx).unwrap();
+        let vals: Vec<f32> = output.values().to_vec();
+        assert_eq!(vals, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_checkpoint_segment_disabled() {
+        let backend = CpuBackend::default();
+        let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Train);
+        let input = backend.tensor_from_vec(vec![1.0, 2.0, 3.0], &[3]).unwrap();
+        let config = CheckpointConfig::disabled();
+
+        let output = checkpoint_segment(input.clone(), |x, _ctx| Ok(x.clone()), &config, &mut ctx).unwrap();
+        let vals: Vec<f32> = output.values().to_vec();
+        assert_eq!(vals, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_checkpointed_transformer_layer() {
+        use mnr_core::{Module, Backend, ForwardCtx, Result};
+
+        struct DummyLayer;
+
+        impl<B: Backend> Module<B> for DummyLayer {
+            type Input = B::Tensor;
+            type Output = B::Tensor;
+
+            fn forward(&self, input: Self::Input, _ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
+                Ok(input)
+            }
+        }
+
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Train);
+        let config = CheckpointConfig::default();
+
+        let layer = CheckpointedTransformerLayer::new(DummyLayer, 1, &config);
+        assert!(layer.uses_checkpointing());
+
+        let input = backend.tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap();
+        let output = layer.forward(input.clone(), &mut ctx).unwrap();
+        let vals: Vec<f32> = output.values().to_vec();
+        assert_eq!(vals, vec![1.0, 2.0]);
+
+        // Non-checkpointed layer
+        let layer2 = CheckpointedTransformerLayer::new(DummyLayer, 2, &config);
+        assert!(!layer2.uses_checkpointing());
+        let output2 = layer2.forward(input, &mut ctx).unwrap();
+        let vals2: Vec<f32> = output2.values().to_vec();
+        assert_eq!(vals2, vec![1.0, 2.0]);
+    }
+
+    #[test]
+    fn test_checkpoint_manager_register_and_get() {
+        let backend = CpuBackend::default();
+        let mut manager: CheckpointManager<CpuBackend> = CheckpointManager::new(CheckpointConfig::default());
+
+        let input = backend.tensor_from_vec(vec![1.0], &[1]).unwrap();
+        let segment = CheckpointedSegment::<CpuBackend>::new(
+            TensorId::fresh(),
+            input,
+            TensorId::fresh(),
+            |tensor: &_, _ctx| Ok(tensor.clone()),
+        );
+
+        manager.register_segment(0, segment);
+        assert!(manager.get_segment(0).is_some());
+        assert!(manager.get_segment(1).is_none());
+    }
+
+    #[test]
+    fn test_checkpoint_model() {
+        use mnr_core::{Module, Backend, ForwardCtx, Result};
+
+        struct DummyLayer;
+
+        impl<B: Backend> Module<B> for DummyLayer {
+            type Input = B::Tensor;
+            type Output = B::Tensor;
+
+            fn forward(&self, input: Self::Input, _ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
+                Ok(input)
+            }
+        }
+
+        let config = CheckpointConfig::default();
+        let layers = vec![DummyLayer, DummyLayer, DummyLayer, DummyLayer];
+        let checkpointed = checkpoint_model::<CpuBackend, _>(layers, &config);
+
+        assert_eq!(checkpointed.len(), 4);
+        assert!(!checkpointed[0].uses_checkpointing()); // idx 0: 0 % 2 != 1
+        assert!(checkpointed[1].uses_checkpointing());  // idx 1: 1 % 2 == 1
+        assert!(!checkpointed[2].uses_checkpointing()); // idx 2: 2 % 2 != 1
+        assert!(checkpointed[3].uses_checkpointing()); // idx 3: 3 % 2 == 1
+    }
+
+    #[test]
+    fn test_memory_stats_edge_cases() {
+        // Single layer
+        let stats = MemoryStats::calculate(1, 64, 64, 1, 1, 4);
+        assert!(stats.without_checkpointing_mb >= stats.with_checkpointing_mb);
+
+        // Large model
+        let stats_large = MemoryStats::calculate(96, 12288, 4096, 1, 2, 2);
+        assert!(stats_large.reduction_percent >= 0.0);
+        assert!(stats_large.saved_mb >= 0.0);
     }
 }

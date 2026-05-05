@@ -33,6 +33,7 @@
 //! ```
 
 use mnr_core::{Backend, CoreError, Result, TensorOps};
+use std::collections::HashMap;
 
 /// Cache quantization type
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -542,7 +543,7 @@ mod tests {
     fn test_quantization_memory_savings() {
         let base = CacheConfig::new(32, 128, 8192);
 
-        let fp32 = base.clone();
+        let fp32 = base.clone().with_quantization(CacheQuantization::Fp32);
         let fp16 = base.clone().with_quantization(CacheQuantization::Fp16);
         let fp8 = base.clone().with_quantization(CacheQuantization::Fp8);
 
@@ -575,5 +576,128 @@ mod tests {
         assert!(batched.get(0).is_some());
         assert!(batched.get(3).is_some());
         assert!(batched.get(4).is_none());
+    }
+
+    #[test]
+    fn test_cache_quantization_int8() {
+        assert_eq!(CacheQuantization::Int8.bytes_per_element(), 1);
+        let reduction = CacheQuantization::Int8.memory_reduction();
+        assert!(reduction > 0.0 && reduction < 1.0);
+    }
+
+    #[test]
+    fn test_kv_cache_append_overflow() {
+        let backend = CpuBackend::default();
+        let config = CacheConfig::new(2, 4, 4).with_batch_size(1);
+        let mut cache = KVCache::new(&backend, config).unwrap();
+
+        let k = backend.tensor_from_vec(vec![0.1f32; 8], &[1, 2, 1, 4]).unwrap();
+        let v = backend.tensor_from_vec(vec![0.1f32; 8], &[1, 2, 1, 4]).unwrap();
+        cache.append(&k, &v, backend.ops()).unwrap();
+
+        // Overflow: current_len=1 + new_len=4 > max_seq_len=4
+        let k2 = backend.tensor_from_vec(vec![0.1f32; 32], &[1, 2, 4, 4]).unwrap();
+        let v2 = backend.tensor_from_vec(vec![0.1f32; 32], &[1, 2, 4, 4]).unwrap();
+        let result = cache.append(&k2, &v2, backend.ops());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_kv_cache_append_int8() {
+        let backend = CpuBackend::default();
+        let config = CacheConfig::new(2, 4, 8)
+            .with_batch_size(1)
+            .with_quantization(CacheQuantization::Int8);
+        let mut cache = KVCache::new(&backend, config).unwrap();
+
+        let k = backend.tensor_from_vec(vec![0.1f32; 8], &[1, 2, 1, 4]).unwrap();
+        let v = backend.tensor_from_vec(vec![0.1f32; 8], &[1, 2, 1, 4]).unwrap();
+        cache.append(&k, &v, backend.ops()).unwrap();
+        assert_eq!(cache.current_len(), 1);
+        assert!(!cache.is_full());
+    }
+
+    #[test]
+    fn test_kv_cache_append_non_int8() {
+        let backend = CpuBackend::default();
+        let config = CacheConfig::new(2, 4, 8)
+            .with_batch_size(1)
+            .with_quantization(CacheQuantization::Fp32);
+        let mut cache = KVCache::new(&backend, config).unwrap();
+
+        let k = backend.tensor_from_vec(vec![0.1f32; 8], &[1, 2, 1, 4]).unwrap();
+        let v = backend.tensor_from_vec(vec![0.1f32; 8], &[1, 2, 1, 4]).unwrap();
+        cache.append(&k, &v, backend.ops()).unwrap();
+        assert_eq!(cache.current_len(), 1);
+    }
+
+    #[test]
+    fn test_kv_cache_accessors() {
+        let backend = CpuBackend::default();
+        let config = CacheConfig::new(2, 4, 8).with_batch_size(1);
+        let mut cache = KVCache::new(&backend, config).unwrap();
+
+        let k = backend.tensor_from_vec(vec![0.1f32; 8], &[1, 2, 1, 4]).unwrap();
+        let v = backend.tensor_from_vec(vec![0.1f32; 8], &[1, 2, 1, 4]).unwrap();
+        cache.append(&k, &v, backend.ops()).unwrap();
+
+        assert_eq!(cache.current_len(), 1);
+        assert_eq!(cache.max_len(), 8);
+        assert!(!cache.is_full());
+
+        // k_cache and v_cache accessors
+        let _ = cache.k_cache();
+        let _ = cache.v_cache();
+
+        // get_range
+        let (k_range, v_range) = cache.get_range(0, 1, backend.ops()).unwrap();
+        assert_eq!(backend.ops().shape(&k_range), &[1, 2, 8, 4]);
+        assert_eq!(backend.ops().shape(&v_range), &[1, 2, 8, 4]);
+
+        // clear
+        cache.clear();
+        assert_eq!(cache.current_len(), 0);
+        assert!(!cache.is_full());
+
+        // memory_stats after append
+        let stats = cache.memory_stats();
+        assert_eq!(stats.current_len, 0);
+    }
+
+    #[test]
+    fn test_sliding_window_cache() {
+        let backend = CpuBackend::default();
+        let config = CacheConfig::new(2, 4, 8).with_batch_size(1);
+        let mut sw_cache = SlidingWindowCache::new(&backend, config, 4).unwrap();
+
+        let k = backend.tensor_from_vec(vec![0.1f32; 8], &[1, 2, 1, 4]).unwrap();
+        let v = backend.tensor_from_vec(vec![0.1f32; 8], &[1, 2, 1, 4]).unwrap();
+        sw_cache.append(&k, &v, backend.ops()).unwrap();
+
+        let (k_win, v_win) = sw_cache.get_window(backend.ops()).unwrap();
+        assert_eq!(backend.ops().shape(&k_win), &[1, 2, 8, 4]);
+        assert_eq!(backend.ops().shape(&v_win), &[1, 2, 8, 4]);
+    }
+
+    #[test]
+    fn test_paged_cache_oom() {
+        let backend = CpuBackend::default();
+        let mut cache = PagedCache::new(16, 2, &backend).unwrap();
+
+        // Allocate for 100 tokens -> ceil(100/16)=7 blocks, but only 2 exist
+        let blocks = cache.allocate(0, 100);
+        assert!(blocks.is_none());
+    }
+
+    #[test]
+    fn test_batched_cache_clear_all() {
+        let backend = CpuBackend::default();
+        let config = CacheConfig::new(2, 4, 8).with_batch_size(1);
+        let mut batched = BatchedCache::new(&backend, config, 2).unwrap();
+
+        batched.clear_all();
+        // After clear, caches should be empty
+        let cache0 = batched.get(0).unwrap();
+        assert_eq!(cache0.current_len(), 0);
     }
 }

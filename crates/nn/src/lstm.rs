@@ -15,6 +15,25 @@ pub struct LstmConfig {
     pub hidden_dim: usize,
 }
 
+impl LstmConfig {
+    /// Create a new LSTM configuration.
+    /// When only one dimension is given, input and hidden dims are set equal.
+    pub fn new(dim: usize) -> Self {
+        Self {
+            input_dim: dim,
+            hidden_dim: dim,
+        }
+    }
+
+    /// Create with explicit input and hidden dimensions.
+    pub fn new_with_dims(input_dim: usize, hidden_dim: usize) -> Self {
+        Self {
+            input_dim,
+            hidden_dim,
+        }
+    }
+}
+
 /// LSTM cell state containing cell state and hidden state.
 #[derive(Clone, Debug)]
 pub struct LstmState<B: Backend> {
@@ -38,6 +57,15 @@ pub struct LstmCell<B: Backend> {
 }
 
 impl<B: Backend> LstmCell<B> {
+    /// Create an LSTM cell with randomly initialized parameters.
+    pub fn new(backend: &B, config: LstmConfig) -> Result<Self> {
+        let four_h = config.hidden_dim * 4;
+        let wx = backend.normal_parameter("wx", &[config.input_dim, four_h], 42, 0.1)?;
+        let wh = backend.normal_parameter("wh", &[config.hidden_dim, four_h], 43, 0.1)?;
+        let b = backend.normal_parameter("b", &[four_h], 44, 0.1)?;
+        Ok(Self { config, wx, wh, b })
+    }
+
     /// Create an LSTM cell from explicit parameters.
     pub fn from_parameters(config: LstmConfig, wx: Parameter<B>, wh: Parameter<B>, b: Parameter<B>) -> Self {
         Self { config, wx, wh, b }
@@ -741,5 +769,91 @@ mod tests {
 
         let params = bilstm.parameters();
         assert_eq!(params.len(), 6);  // 3 forward + 3 backward
+    }
+
+    #[test]
+    fn test_lstm_config_constructors() {
+        let config1 = LstmConfig::new(8);
+        assert_eq!(config1.input_dim, 8);
+        assert_eq!(config1.hidden_dim, 8);
+
+        let config2 = LstmConfig::new_with_dims(5, 3);
+        assert_eq!(config2.input_dim, 5);
+        assert_eq!(config2.hidden_dim, 3);
+    }
+
+    #[test]
+    fn test_lstm_cell_new() {
+        let backend = CpuBackend::default();
+        let config = LstmConfig::new(4);
+        let cell = LstmCell::new(&backend, config).unwrap();
+
+        // Check config accessor
+        assert_eq!(cell.config().input_dim, 4);
+        assert_eq!(cell.config().hidden_dim, 4);
+
+        // Check default state via inherent method
+        let state = cell.default_state(&backend).unwrap();
+        assert_eq!(state.cell.shape(), &[4]);
+        assert_eq!(state.hidden.shape(), &[4]);
+    }
+
+    #[test]
+    fn test_stacked_lstm_parameters() {
+        let backend = CpuBackend::default();
+        let cell1 = LstmCell::new(&backend, LstmConfig::new(3)).unwrap();
+        let cell2 = LstmCell::new(&backend, LstmConfig::new(3)).unwrap();
+        let stacked = StackedLstm::new(vec![cell1, cell2]);
+        assert_eq!(stacked.parameters().len(), 6); // 3 per cell
+    }
+
+    #[test]
+    fn test_gru_config_and_state() {
+        let backend = CpuBackend::default();
+        let cell = create_mock_gru_cell(3, 2);
+
+        // config accessor
+        assert_eq!(cell.config().input_dim, 3);
+        assert_eq!(cell.config().hidden_dim, 2);
+
+        // default state via inherent method
+        let state = cell.default_state(&backend).unwrap();
+        assert_eq!(state.hidden.shape(), &[2]);
+    }
+
+    #[test]
+    fn test_gru_cell_trait_methods() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
+        let cell = create_mock_gru_cell(3, 2);
+
+        // Test RnnCell trait methods for GruCell
+        let state = RnnCell::default_state(&cell, &backend).unwrap();
+        assert_eq!(state.hidden.shape(), &[2]);
+
+        let h = RnnCell::hidden(&cell, &state);
+        assert_eq!(h.shape(), &[2]);
+
+        // Forward via trait
+        let input = backend.tensor_from_vec(vec![0.1f32; 3], &[3]).unwrap();
+        let new_state = RnnCell::forward_sequence(&cell, state, vec![input], &mut ctx).unwrap();
+        assert_eq!(new_state.0.hidden.shape(), &[2]);
+        assert_eq!(new_state.1.len(), 1);
+    }
+
+    #[test]
+    fn test_bidirectional_empty_final_hidden() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
+
+        let forward_cell = create_mock_lstm_cell(3, 4);
+        let backward_cell = create_mock_lstm_cell(3, 4);
+        let bilstm = BidirectionalRnn::new(forward_cell, backward_cell);
+
+        let (forward_final, backward_final) = bilstm.final_hidden(vec![], &mut ctx).unwrap();
+        assert_eq!(forward_final.hidden.shape(), &[4]);
+        assert_eq!(forward_final.cell.shape(), &[4]);
+        assert_eq!(backward_final.hidden.shape(), &[4]);
+        assert_eq!(backward_final.cell.shape(), &[4]);
     }
 }

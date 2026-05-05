@@ -1,3 +1,30 @@
+[package]
+name = "mnr"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Modular Neural Runtime - System integration test root package"
+
+[dependencies]
+mnr-core = { path = "crates/core" }
+mnr-ndarray-backend = { path = "crates/ndarray-backend" }
+mnr-nn = { path = "crates/nn" }
+mnr-data = { path = "crates/data" }
+mnr-autodiff = { path = "crates/autodiff" }
+mnr-optim = { path = "crates/optim" }
+mnr-runtime = { path = "crates/runtime" }
+mnr-distributed = { path = "crates/distributed" }
+mnr-symbolic = { path = "crates/symbolic" }
+mnr-metrics = { path = "crates/metrics" }
+mnr-autotuner = { path = "crates/autotuner" }
+mnr-io = { path = "crates/io" }
+
+[dev-dependencies]
+rand = { workspace = true }
+
 [workspace]
 members = [
     "crates/core",
@@ -12,6 +39,8 @@ members = [
     "crates/data",
     "crates/bench",
     "crates/distributed",
+    "crates/metrics",
+    "crates/autotuner",
 ]
 resolver = "2"
 

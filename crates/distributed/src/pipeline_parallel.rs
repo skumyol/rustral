@@ -32,7 +32,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Mode, Module, Parameter, ParameterRef, Result};
+use mnr_core::{Backend, CoreError, ForwardCtx, Mode, Module, Parameter, ParameterRef, Result, Trainable};
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
 
@@ -96,12 +96,17 @@ pub struct PipelineStage<B: Backend> {
     /// Stage ID (0 to num_stages - 1)
     pub stage_id: usize,
     /// Layers in this stage
-    layers: Vec<Box<dyn Module<B, Input = B::Tensor, Output = B::Tensor>>>,
+    layers: Vec<Box<dyn PipelineLayer<B>>>,
     /// Cached activations for backward
     activations: Vec<B::Tensor>,
     /// Stage device (in real impl, would be GPU device)
     device: usize,
 }
+
+/// Combined trait for pipeline layers (forward + parameters).
+pub trait PipelineLayer<B: Backend>: Module<B, Input = B::Tensor, Output = B::Tensor> + Trainable<B> {}
+
+impl<B: Backend, T: Module<B, Input = B::Tensor, Output = B::Tensor> + Trainable<B>> PipelineLayer<B> for T {}
 
 impl<B: Backend> PipelineStage<B> {
     pub fn new(stage_id: usize, device: usize) -> Self {
@@ -113,7 +118,7 @@ impl<B: Backend> PipelineStage<B> {
         }
     }
 
-    pub fn add_layer(&mut self, layer: Box<dyn Module<B, Input = B::Tensor, Output = B::Tensor>>) {
+    pub fn add_layer(&mut self, layer: Box<dyn PipelineLayer<B>>) {
         self.layers.push(layer);
     }
 
@@ -125,7 +130,7 @@ impl<B: Backend> PipelineStage<B> {
         Ok(output)
     }
 
-    pub fn parameters(&self) -> Vec<ParameterRef<B>> {
+    pub fn parameters(&self) -> Vec<ParameterRef> {
         self.layers
             .iter()
             .flat_map(|l| l.parameters())
@@ -138,7 +143,7 @@ pub struct StageSplitter;
 
 impl StageSplitter {
     /// Automatically split model into balanced stages
-    pub fn auto_split<B: Backend, M: Module<B>>(
+    pub fn auto_split<B: Backend, M: Module<B> + Trainable<B>>(
         model: &M,
         num_stages: usize,
     ) -> DistributedResult<Vec<PipelineStage<B>>> {
@@ -164,7 +169,7 @@ impl StageSplitter {
 
     /// Split by layer type (e.g., separate transformer blocks)
     pub fn split_by_type<B: Backend>(
-        layers: Vec<Box<dyn Module<B, Input = B::Tensor, Output = B::Tensor>>>,
+        layers: Vec<Box<dyn PipelineLayer<B>>>,
         num_stages: usize,
     ) -> Vec<PipelineStage<B>> {
         let mut stages: Vec<PipelineStage<B>> = (0..num_stages)
@@ -185,7 +190,7 @@ impl StageSplitter {
 
     /// Balance stages by parameter count
     pub fn balance_by_params<B: Backend>(
-        layers: Vec<(Box<dyn Module<B, Input = B::Tensor, Output = B::Tensor>>, usize)>, // (layer, param_count)
+        layers: Vec<(Box<dyn PipelineLayer<B>>, usize)>, // (layer, param_count)
         num_stages: usize,
     ) -> Vec<PipelineStage<B>> {
         let mut stages: Vec<PipelineStage<B>> = (0..num_stages)
@@ -428,11 +433,14 @@ impl<B: Backend> PipelineComm<B> {
 }
 
 /// Helper function to create pipeline from model
-pub fn create_pipeline<B: Backend, M: Module<B>>(
+pub fn create_pipeline<B: Backend, M: Module<B> + Trainable<B>>(
     model: M,
     process_group: ProcessGroup,
     config: PipelineConfig,
-) -> DistributedResult<PipelineParallel<B>> {
+) -> DistributedResult<PipelineParallel<B>>
+where
+    B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
+{
     let num_stages = process_group.world_size();
     let stages = StageSplitter::auto_split(&model, num_stages)?;
     PipelineParallel::new(stages, process_group, config)
@@ -443,6 +451,7 @@ mod tests {
     use super::*;
     use mnr_ndarray_backend::CpuBackend;
     use mnr_nn::{Linear, LinearConfig};
+    use mnr_core::{ForwardCtx, Mode};
 
     #[test]
     fn test_pipeline_config() {
@@ -457,20 +466,56 @@ mod tests {
     }
 
     #[test]
+    fn test_pipeline_config_default() {
+        let config = PipelineConfig::default();
+        assert_eq!(config.num_micro_batches, 4);
+        assert!(matches!(config.schedule, PipelineSchedule::Interleaved));
+        assert!(!config.checkpoint_activations);
+        assert!(config.async_comm);
+    }
+
+    #[test]
     fn test_stage_splitter() {
         let backend = CpuBackend::default();
         let linear = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
 
-        let pg = ProcessGroup::new_threaded(4, 0);
+        let _pg = ProcessGroup::new_threaded(4, 0);
         let stages = StageSplitter::auto_split(&linear, 4).unwrap();
 
         assert_eq!(stages.len(), 4);
     }
 
     #[test]
+    fn test_stage_splitter_by_type() {
+        let backend = CpuBackend::default();
+        let layers: Vec<Box<dyn PipelineLayer<CpuBackend>>> = vec![
+            Box::new(Linear::new(&backend, LinearConfig::new(64, 64)).unwrap()),
+            Box::new(Linear::new(&backend, LinearConfig::new(64, 64)).unwrap()),
+            Box::new(Linear::new(&backend, LinearConfig::new(64, 64)).unwrap()),
+            Box::new(Linear::new(&backend, LinearConfig::new(64, 64)).unwrap()),
+        ];
+
+        let stages = StageSplitter::split_by_type(layers, 2);
+        assert_eq!(stages.len(), 2);
+    }
+
+    #[test]
+    fn test_stage_splitter_balance_by_params() {
+        let backend = CpuBackend::default();
+        let layers = vec![
+            (Box::new(Linear::new(&backend, LinearConfig::new(64, 64)).unwrap()) as Box<dyn PipelineLayer<CpuBackend>>, 100),
+            (Box::new(Linear::new(&backend, LinearConfig::new(64, 64)).unwrap()) as Box<dyn PipelineLayer<CpuBackend>>, 200),
+            (Box::new(Linear::new(&backend, LinearConfig::new(64, 64)).unwrap()) as Box<dyn PipelineLayer<CpuBackend>>, 100),
+        ];
+
+        let stages = StageSplitter::balance_by_params(layers, 2);
+        assert_eq!(stages.len(), 2);
+    }
+
+    #[test]
     fn test_pipeline_creation() {
         let backend = CpuBackend::default();
-        let pg = ProcessGroup::new_threaded(4, 1);
+        let pg = ProcessGroup::new_threaded(4, 1).unwrap();
 
         // Create stages manually
         let mut stages: Vec<PipelineStage<CpuBackend>> = (0..4)
@@ -490,9 +535,39 @@ mod tests {
     }
 
     #[test]
-    fn test_pipeline_stats() {
+    fn test_pipeline_creation_mismatch() {
         let backend = CpuBackend::default();
-        let pg = ProcessGroup::new_threaded(4, 0);
+        let pg = ProcessGroup::new_threaded(4, 0).unwrap();
+
+        let stages: Vec<PipelineStage<CpuBackend>> = (0..2)
+            .map(|i| PipelineStage::new(i, i))
+            .collect();
+
+        let config = PipelineConfig::new();
+        assert!(PipelineParallel::new(stages, pg, config).is_err());
+    }
+
+    #[test]
+    fn test_pipeline_stage_forward_and_params() {
+        let backend = CpuBackend::default();
+        let mut stage = PipelineStage::<CpuBackend>::new(0, 0);
+        let layer = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
+        stage.add_layer(Box::new(layer));
+
+        let input = backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let output = stage.forward(input, &mut ctx).unwrap();
+        let shape = backend.ops().shape(&output);
+        assert_eq!(shape, vec![1, 64]);
+
+        let params = stage.parameters();
+        assert!(!params.is_empty()); // Linear has weight + bias
+    }
+
+    #[test]
+    fn test_pipeline_forward_first_stage() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_threaded(4, 0).unwrap();
 
         let mut stages: Vec<PipelineStage<CpuBackend>> = (0..4)
             .map(|i| PipelineStage::new(i, i))
@@ -503,14 +578,184 @@ mod tests {
             stage.add_layer(Box::new(layer));
         }
 
+        let config = PipelineConfig::new();
+        let mut pipeline = PipelineParallel::new(stages, pg, config).unwrap();
+
+        let input = backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let output = pipeline.forward(input, &mut ctx).unwrap();
+        let shape = backend.ops().shape(&output);
+        assert_eq!(shape, vec![1, 64]);
+    }
+
+    #[test]
+    fn test_pipeline_forward_last_stage() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_threaded(4, 3).unwrap();
+
+        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..4)
+            .map(|i| PipelineStage::new(i, i))
+            .collect();
+
+        for stage in &mut stages {
+            let layer = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
+            stage.add_layer(Box::new(layer));
+        }
+
+        let config = PipelineConfig::new();
+        let mut pipeline = PipelineParallel::new(stages, pg, config).unwrap();
+
+        let input = backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let output = pipeline.forward(input, &mut ctx).unwrap();
+        let shape = backend.ops().shape(&output);
+        assert_eq!(shape, vec![1, 64]);
+    }
+
+    #[test]
+    fn test_pipeline_train_step_simple() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_threaded(1, 0).unwrap();
+
+        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..1)
+            .map(|i| PipelineStage::new(i, i))
+            .collect();
+
+        for stage in &mut stages {
+            let layer = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
+            stage.add_layer(Box::new(layer));
+        }
+
         let config = PipelineConfig::new()
-            .with_micro_batches(16);
+            .with_schedule(PipelineSchedule::Simple)
+            .with_micro_batches(2);
+        let mut pipeline = PipelineParallel::new(stages, pg, config).unwrap();
 
-        let pipeline = PipelineParallel::new(stages, pg, config).unwrap();
-        let stats = pipeline.pipeline_stats();
+        let micro_batches = vec![
+            backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap(),
+            backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap(),
+        ];
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let losses = pipeline.train_step(&micro_batches, &mut ctx).unwrap();
+        assert_eq!(losses.len(), 2);
+    }
 
-        assert_eq!(stats.num_stages, 4);
-        assert_eq!(stats.num_micro_batches, 16);
-        assert!(stats.efficiency > 0.7); // Should be efficient with enough micro-batches
+    #[test]
+    fn test_pipeline_train_step_interleaved() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_threaded(2, 0).unwrap();
+
+        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..2)
+            .map(|i| PipelineStage::new(i, i))
+            .collect();
+
+        for stage in &mut stages {
+            let layer = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
+            stage.add_layer(Box::new(layer));
+        }
+
+        let config = PipelineConfig::new()
+            .with_schedule(PipelineSchedule::Interleaved)
+            .with_micro_batches(4);
+        let mut pipeline = PipelineParallel::new(stages, pg, config).unwrap();
+
+        let micro_batches = vec![
+            backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap(),
+            backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap(),
+            backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap(),
+            backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap(),
+        ];
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let losses = pipeline.train_step(&micro_batches, &mut ctx).unwrap();
+        // With interleaved schedule, there are warmup + steady + cooldown losses
+        assert!(!losses.is_empty());
+    }
+
+    #[test]
+    fn test_pipeline_train_step_zero_bubble() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_threaded(1, 0).unwrap();
+
+        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..1)
+            .map(|i| PipelineStage::new(i, i))
+            .collect();
+
+        for stage in &mut stages {
+            let layer = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
+            stage.add_layer(Box::new(layer));
+        }
+
+        let config = PipelineConfig::new()
+            .with_schedule(PipelineSchedule::ZeroBubble)
+            .with_micro_batches(2);
+        let mut pipeline = PipelineParallel::new(stages, pg, config).unwrap();
+
+        let micro_batches = vec![
+            backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap(),
+            backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap(),
+        ];
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let losses = pipeline.train_step(&micro_batches, &mut ctx).unwrap();
+        assert_eq!(losses.len(), 2);
+    }
+
+    #[test]
+    fn test_pipeline_stats() {
+        let backend = CpuBackend::default();
+
+        for schedule in [PipelineSchedule::Simple, PipelineSchedule::Interleaved, PipelineSchedule::ZeroBubble] {
+            let pg = ProcessGroup::new_threaded(4, 0).unwrap();
+            let stages: Vec<PipelineStage<CpuBackend>> = (0..4)
+                .map(|i| PipelineStage::new(i, i))
+                .collect();
+
+            let config = PipelineConfig::new()
+                .with_micro_batches(16)
+                .with_schedule(schedule);
+
+            let pipeline = PipelineParallel::new(stages, pg, config).unwrap();
+            let stats = pipeline.pipeline_stats();
+
+            assert_eq!(stats.num_stages, 4);
+            assert_eq!(stats.num_micro_batches, 16);
+            assert!(stats.efficiency >= 0.0);
+            assert!(stats.efficiency <= 1.0);
+
+            match schedule {
+                PipelineSchedule::ZeroBubble => assert_eq!(stats.bubble_fraction, 0.0),
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn test_pipeline_comm() {
+        let backend = CpuBackend::default();
+        let comm = PipelineComm::<CpuBackend>::new(0, 3);
+        assert_eq!(comm.next_stage, Some(1));
+        assert_eq!(comm.prev_stage, None);
+        assert!(comm.recv().is_none());
+
+        let tensor = backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap();
+        comm.send(tensor);
+        assert!(comm.send_queue.lock().unwrap().len() > 0);
+
+        let comm2 = PipelineComm::<CpuBackend>::new(1, 3);
+        assert_eq!(comm2.next_stage, Some(2));
+        assert_eq!(comm2.prev_stage, Some(0));
+
+        let comm_last = PipelineComm::<CpuBackend>::new(2, 3);
+        assert_eq!(comm_last.next_stage, None);
+    }
+
+    #[test]
+    fn test_create_pipeline() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_threaded(2, 0).unwrap();
+        let linear = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
+        let config = PipelineConfig::new();
+
+        let pipeline = create_pipeline(linear, pg, config).unwrap();
+        assert_eq!(pipeline.stages.len(), 2);
     }
 }

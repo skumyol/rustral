@@ -59,6 +59,11 @@ impl<B: Backend> Parameter<B> {
     pub fn into_tensor(self) -> B::Tensor {
         self.tensor
     }
+
+    /// Replace the tensor while preserving id and name.
+    pub fn with_tensor(self, tensor: B::Tensor) -> Self {
+        Self { id: self.id, name: self.name, tensor }
+    }
 }
 
 /// Lightweight reference to a parameter by id.
@@ -124,5 +129,51 @@ impl ParameterGroup {
     /// parameter groups.
     pub fn into_refs(self) -> Vec<ParameterRef> {
         self.all()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parameter_id_fresh() {
+        let id1 = ParameterId::fresh();
+        let id2 = ParameterId::fresh();
+        assert_ne!(id1.get(), id2.get());
+    }
+
+    #[test]
+    fn test_parameter_ref_equality() {
+        let id = ParameterId::fresh();
+        let ref1 = ParameterRef { id };
+        let ref2 = ParameterRef { id };
+        assert_eq!(ref1, ref2);
+    }
+
+    #[test]
+    fn test_parameter_group() {
+        let mut group = ParameterGroup::new("encoder");
+        assert_eq!(group.name(), "encoder");
+        assert!(group.is_empty());
+
+        let id = ParameterId::fresh();
+        let pref = ParameterRef { id };
+        group.insert("weight", pref);
+        assert_eq!(group.len(), 1);
+        assert_eq!(group.get("weight"), Some(pref));
+        assert_eq!(group.get("bias"), None);
+
+        let all = group.all();
+        assert_eq!(all.len(), 1);
+
+        let refs = group.into_refs();
+        assert_eq!(refs.len(), 1);
+    }
+
+    #[test]
+    fn test_parameter_group_default() {
+        let group: ParameterGroup = Default::default();
+        assert!(group.is_empty());
     }
 }

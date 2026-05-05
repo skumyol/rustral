@@ -7,8 +7,17 @@ use serde::{Deserialize, Serialize};
 /// Configuration for an embedding table.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EmbeddingConfig {
+    /// Vocabulary size (number of embeddings).
+    pub vocab_size: usize,
     /// Number of features in each embedding vector.
     pub dim: usize,
+}
+
+impl EmbeddingConfig {
+    /// Create a new embedding configuration.
+    pub fn new(vocab_size: usize, dim: usize) -> Self {
+        Self { vocab_size, dim }
+    }
 }
 
 /// Embedding lookup backed by a rank-2 parameter table.
@@ -20,8 +29,20 @@ pub struct Embedding<B: Backend> {
 
 impl<B: Backend> Embedding<B> {
     /// Create an embedding module from explicit table and vocabulary values.
-    pub fn new(config: EmbeddingConfig, table: Parameter<B>, vocab: Arc<Vocabulary>) -> Self {
+    pub fn from_parts(config: EmbeddingConfig, table: Parameter<B>, vocab: Arc<Vocabulary>) -> Self {
         Self { config, table, vocab }
+    }
+
+    /// Create an embedding module with randomly initialized weights.
+    pub fn new(backend: &B, config: EmbeddingConfig, seed: u64) -> Result<Self> {
+        let table = backend.normal_parameter(
+            "embed",
+            &[config.vocab_size, config.dim],
+            seed,
+            0.02,
+        )?;
+        let vocab = Arc::new(Vocabulary::with_specials("<unk>"));
+        Ok(Self { config, table, vocab })
     }
 
     /// Borrow the vocabulary used by this embedding module.
@@ -71,8 +92,8 @@ mod tests {
         let table = CpuBackend::default().tensor_from_vec(values, &[vocab_size, dim]).unwrap();
         let table_param = Parameter::new("embed", table);
 
-        let config = EmbeddingConfig { dim };
-        let embedding = Embedding::new(config, table_param, vocab.clone());
+        let config = EmbeddingConfig { vocab_size, dim };
+        let embedding = Embedding::from_parts(config, table_param, vocab.clone());
         (embedding, vocab)
     }
 
@@ -103,6 +124,29 @@ mod tests {
     #[test]
     fn test_embedding_trainable() {
         let (embedding, _vocab) = create_mock_embedding(10, 8);
+        assert_eq!(embedding.parameters().len(), 1);
+    }
+
+    #[test]
+    fn test_embedding_vocab_accessor() {
+        let (embedding, vocab) = create_mock_embedding(10, 8);
+        assert_eq!(embedding.vocab().len(), vocab.len());
+    }
+
+    #[test]
+    fn test_embedding_config_accessor() {
+        let (embedding, _vocab) = create_mock_embedding(10, 8);
+        assert_eq!(embedding.config().vocab_size, 10);
+        assert_eq!(embedding.config().dim, 8);
+    }
+
+    #[test]
+    fn test_embedding_new() {
+        let backend = CpuBackend::default();
+        let config = EmbeddingConfig::new(100, 64);
+        let embedding = Embedding::new(&backend, config, 42).unwrap();
+        assert_eq!(embedding.config().vocab_size, 100);
+        assert_eq!(embedding.config().dim, 64);
         assert_eq!(embedding.parameters().len(), 1);
     }
 }

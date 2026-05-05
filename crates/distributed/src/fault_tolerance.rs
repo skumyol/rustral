@@ -316,7 +316,7 @@ impl CheckpointStore for DistributedCheckpointManager {
     }
 
     fn latest(&self) -> DistributedResult<Option<u64>> {
-        self.latest_checkpoint().map(|v| Some(v))
+        self.latest_checkpoint()
     }
 }
 
@@ -475,28 +475,132 @@ impl FaultStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mnr_core::CoreError;
 
     #[test]
     fn test_health_monitor() {
-        let mut monitor = HealthMonitor::new(0, 100); // 100ms timeout
+        let mut monitor = HealthMonitor::new(0, 100); // 100ms timeout, 200ms suspect timeout
         monitor.register_node(1, "node1".to_string());
         monitor.register_node(2, "node2".to_string());
 
-        // All healthy initially
-        assert_eq!(monitor.healthy_nodes().len(), 0); // Joining state
+        // All in Joining state initially
+        assert_eq!(monitor.healthy_nodes().len(), 0);
 
-        // Heartbeat from node 1
+        // Heartbeat from both nodes to transition to Healthy
         monitor.heartbeat(1);
-        assert_eq!(monitor.healthy_nodes(), vec![1]);
+        monitor.heartbeat(2);
+        let mut healthy = monitor.healthy_nodes();
+        healthy.sort();
+        assert_eq!(healthy, vec![1, 2]);
 
-        // Check health - node 2 should become suspected
+        // First check: no nodes have timed out yet
         let failed = monitor.check_health();
         assert!(failed.is_empty());
 
-        // After more time, node 2 should fail
-        thread::sleep(Duration::from_millis(250));
+        // After timeout (100ms), nodes become Suspected
+        thread::sleep(Duration::from_millis(150));
         let failed = monitor.check_health();
-        assert!(failed.contains(&2));
+        assert!(failed.is_empty(), "Nodes should be suspected, not failed yet");
+
+        // After suspect_timeout (200ms total), node 2 fails (no heartbeat)
+        thread::sleep(Duration::from_millis(150));
+        let failed = monitor.check_health();
+        assert!(failed.contains(&2), "Node 2 should be failed after no heartbeat");
+    }
+
+    #[test]
+    fn test_health_monitor_heartbeat_unknown() {
+        let mut monitor = HealthMonitor::new(0, 100);
+        // Heartbeat on unregistered node should be a no-op
+        monitor.heartbeat(99);
+        assert_eq!(monitor.healthy_nodes().len(), 0);
+    }
+
+    #[test]
+    fn test_health_monitor_checkpoint_version() {
+        let mut monitor = HealthMonitor::new(0, 100);
+        monitor.register_node(0, "node0".to_string());
+        assert_eq!(monitor.checkpoint_version(), 0);
+
+        monitor.checkpoint_completed(5);
+        assert_eq!(monitor.checkpoint_version(), 5);
+        let node = monitor.nodes.get(&0).unwrap();
+        assert_eq!(node.checkpoint_version, 5);
+    }
+
+    #[test]
+    fn test_elastic_process_group() {
+        let pg = ProcessGroup::new_threaded(4, 0).unwrap();
+        let mut elastic = ElasticProcessGroup::new(pg, 100);
+
+        assert!(elastic.is_active());
+        assert_eq!(elastic.effective_world_size(), 4);
+
+        elastic.heartbeat(1);
+        elastic.heartbeat(2);
+
+        // No failures yet
+        let change = elastic.check_membership();
+        assert!(change.is_none());
+    }
+
+    #[test]
+    fn test_elastic_trainer() {
+        let pg = ProcessGroup::new_single_process();
+        let ckpt = crate::DistributedCheckpointManager::new(pg, std::env::temp_dir().join("ft_test"), 3).unwrap();
+        let mut trainer = ElasticTrainer::new(ckpt)
+            .with_health_check_interval(Duration::from_secs(1))
+            .with_max_retries(2);
+
+        assert_eq!(trainer.max_retries, 2);
+
+        // Successful training
+        let result = trainer.train_loop(|| Ok(42));
+        assert_eq!(result.unwrap(), 42);
+    }
+
+    #[test]
+    fn test_elastic_trainer_recoverable() {
+        let pg = ProcessGroup::new_single_process();
+        let ckpt = crate::DistributedCheckpointManager::new(pg, std::env::temp_dir().join("ft_test2"), 3).unwrap();
+        let mut trainer = ElasticTrainer::new(ckpt)
+            .with_max_retries(1);
+
+        let mut calls = 0;
+        let result = trainer.train_loop(|| {
+            calls += 1;
+            if calls == 1 {
+                Err(DistributedError::Communication("test".to_string()))
+            } else {
+                Ok(42)
+            }
+        });
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(calls, 2);
+    }
+
+    #[test]
+    fn test_elastic_trainer_unrecoverable() {
+        let pg = ProcessGroup::new_single_process();
+        let ckpt = crate::DistributedCheckpointManager::new(pg, std::env::temp_dir().join("ft_test3"), 3).unwrap();
+        let mut trainer = ElasticTrainer::new(ckpt)
+            .with_max_retries(1);
+
+        let result: DistributedResult<i32> = trainer.train_loop(|| {
+            Err(DistributedError::Backend(CoreError::InvalidArgument("fatal".to_string())))
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_elastic_trainer_save_checkpoint() {
+        let pg = ProcessGroup::new_single_process();
+        let ckpt = crate::DistributedCheckpointManager::new(pg, std::env::temp_dir().join("ft_test4"), 3).unwrap();
+        let mut trainer = ElasticTrainer::new(ckpt);
+
+        trainer.save_checkpoint(1).unwrap();
+        assert_eq!(trainer.last_checkpoint, Some(1));
+        assert_eq!(trainer.retry_count, 0);
     }
 
     #[test]
@@ -509,6 +613,9 @@ mod tests {
         assert!(barrier.arrive(0)); // 4th arrival completes barrier
 
         assert!(barrier.is_complete());
+
+        barrier.reset();
+        assert!(!barrier.is_complete());
     }
 
     #[test]
@@ -524,8 +631,17 @@ mod tests {
 
         sync.add_node(3);
         assert!(sync.can_proceed()); // 4 nodes, minimum met
-
         assert!(!sync.is_complete()); // 4 of 8
+
+        sync.remove_node(3);
+        assert!(!sync.can_proceed()); // 3 nodes
+        assert_eq!(sync.active_count(), 3);
+
+        // Fill all nodes
+        for i in 0..8 {
+            sync.add_node(i);
+        }
+        assert!(sync.is_complete());
     }
 
     #[test]
@@ -557,5 +673,20 @@ mod tests {
         assert_eq!(config.max_restarts, 3);
         assert_eq!(config.restart_delay, Duration::from_secs(10));
         assert!(config.checkpoint_on_failure);
+    }
+
+    #[test]
+    fn test_membership_change_variants() {
+        let change = MembershipChange::NodesFailed(vec![1, 2]);
+        let _ = format!("{:?}", change);
+
+        let change = MembershipChange::NodesJoining(vec![3]);
+        let _ = format!("{:?}", change);
+
+        let change = MembershipChange::ReconfigurationComplete {
+            new_world_size: 4,
+            new_rank: 0,
+        };
+        let _ = format!("{:?}", change);
     }
 }

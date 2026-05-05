@@ -106,14 +106,17 @@ where
     /// - `gate_values`: [num_tokens, num_experts] softmax logits
     /// - `expert_indices`: [num_tokens, top_k] selected expert indices
     /// - `aux_loss`: Load balancing auxiliary loss
-    pub fn forward(&self, x: &B::Tensor, ctx: &mut ForwardCtx<B>) -> Result<GatingOutput<B>> {
+    pub fn forward(&self, x: &B::Tensor, ctx: &mut ForwardCtx<B>) -> Result<GatingOutput<B>>
+    where
+        B::Tensor: AsRef<[f32]>,
+    {
         let ops = ctx.backend().ops();
 
         // Compute gate logits: [num_tokens, num_experts]
         let gate_logits = self.gate_proj.forward(x.clone(), ctx)?;
 
         // Softmax over experts
-        let gate_probs = ops.softmax(&gate_logits, 1)?;
+        let gate_probs = ops.softmax(&gate_logits)?;
 
         // Top-k selection
         let (top_k_values, top_k_indices) = self.topk(&gate_probs, self.config.top_k, ops)?;
@@ -135,7 +138,10 @@ where
         probs: &B::Tensor,
         k: usize,
         _ops: &dyn TensorOps<B>,
-    ) -> Result<(B::Tensor, B::Tensor)> {
+    ) -> Result<(B::Tensor, B::Tensor)>
+    where
+        B::Tensor: AsRef<[f32]>,
+    {
         // In full implementation, would use proper top-k algorithm
         // For now, return the tensor as-is (simplified)
 
@@ -157,7 +163,10 @@ where
     /// Compute load balancing auxiliary loss.
     ///
     /// Encourages uniform expert utilization.
-    fn compute_aux_loss(&self, gate_probs: &B::Tensor, ops: &dyn TensorOps<B>) -> Result<f32> {
+    fn compute_aux_loss(&self, gate_probs: &B::Tensor, ops: &dyn TensorOps<B>) -> Result<f32>
+    where
+        B::Tensor: AsRef<[f32]>,
+    {
         let shape = ops.shape(gate_probs);
         let num_tokens = shape[0];
 
@@ -177,7 +186,7 @@ where
 }
 
 impl<B: Backend> Trainable<B> for TopKGating<B> {
-    fn parameters(&self) -> Vec<ParameterRef<B>> {
+    fn parameters(&self) -> Vec<ParameterRef> {
         self.gate_proj.parameters()
     }
 }
@@ -231,7 +240,7 @@ where
 }
 
 impl<B: Backend> Trainable<B> for Expert<B> {
-    fn parameters(&self) -> Vec<ParameterRef<B>> {
+    fn parameters(&self) -> Vec<ParameterRef> {
         let mut params = Vec::new();
         params.extend(self.fc1.parameters());
         params.extend(self.fc2.parameters());
@@ -270,7 +279,10 @@ where
     }
 
     /// Forward pass through MoE layer.
-    pub fn forward(&self, x: B::Tensor, ctx: &mut ForwardCtx<B>) -> Result<MoEOutput<B>> {
+    pub fn forward(&self, x: B::Tensor, ctx: &mut ForwardCtx<B>) -> Result<MoEOutput<B>>
+    where
+        B::Tensor: AsRef<[f32]>,
+    {
         let ops = ctx.backend().ops();
         let shape = ops.shape(&x);
         let num_tokens = shape[1]; // [seq_len, batch, d_model] -> batch dim
@@ -304,13 +316,16 @@ where
         x: &B::Tensor,
         gating: &GatingOutput<B>,
         ctx: &mut ForwardCtx<B>,
-    ) -> Result<B::Tensor> {
+    ) -> Result<B::Tensor>
+    where
+        B::Tensor: AsRef<[f32]>,
+    {
         let ops = ctx.backend().ops();
         let shape = ops.shape(x);
         let num_tokens = shape[0];
 
         // Initialize output tensor
-        let mut output = ops.zeros(shape)?;
+        let mut output = ops.zeros(&shape)?;
 
         // For each expert
         for (expert_id, expert) in self.experts.iter().enumerate() {
@@ -344,7 +359,10 @@ where
         expert_indices: &B::Tensor,
         expert_id: usize,
         ops: &dyn TensorOps<B>,
-    ) -> Result<B::Tensor> {
+    ) -> Result<B::Tensor>
+    where
+        B::Tensor: AsRef<[f32]>,
+    {
         let shape = ops.shape(expert_indices);
         let num_tokens = shape[0];
         let k = shape[1];
@@ -404,14 +422,17 @@ impl<B: Backend> Module<B> for ExpertLayer<B>
 where
     B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
 {
-    fn forward(&self, input: B::Tensor, ctx: &mut ForwardCtx<B>) -> Result<B::Tensor> {
+    type Input = B::Tensor;
+    type Output = B::Tensor;
+
+    fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
         let output = self.forward(input, ctx)?;
         Ok(output.output)
     }
 }
 
 impl<B: Backend> Trainable<B> for ExpertLayer<B> {
-    fn parameters(&self) -> Vec<ParameterRef<B>> {
+    fn parameters(&self) -> Vec<ParameterRef> {
         let mut params = Vec::new();
         params.extend(self.gating.parameters());
         for expert in &self.experts {
@@ -575,5 +596,48 @@ mod tests {
         assert_eq!(parallel.expert_device(0), Some(0));
         assert_eq!(parallel.expert_device(8), Some(0));
         assert_eq!(parallel.expert_device(7), Some(7));
+    }
+
+    #[test]
+    fn test_moe_config_builders() {
+        let config = MoEConfig::new(64, 4, 128, 2)
+            .with_capacity_factor(1.5)
+            .with_dropout(0.1);
+        assert_eq!(config.capacity_factor, 1.5);
+        assert_eq!(config.dropout, 0.1);
+    }
+
+    #[test]
+    fn test_expert_layer_forward() {
+        let backend = CpuBackend::default();
+        // Use d_model=2 and top_k=2 so expert_out shape [2,2] matches expert_weights [2,2]
+        let config = MoEConfig::new(2, 4, 8, 2);
+        let moe = ExpertLayer::new(&backend, config, 42).unwrap();
+
+        let x = backend.tensor_from_vec(vec![0.1f32; 1 * 2 * 2], &[1, 2, 2]).unwrap();
+        let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+
+        let output = moe.forward(x.clone(), &mut ctx).unwrap();
+        assert_eq!(backend.ops().shape(&output.output), &[1, 2, 2]);
+    }
+
+    #[test]
+    fn test_expert_layer_module_forward() {
+        let backend = CpuBackend::default();
+        let config = MoEConfig::new(2, 4, 8, 2);
+        let moe = ExpertLayer::new(&backend, config, 42).unwrap();
+
+        fn call_forward<B: Backend>(
+            m: &impl Module<B, Input = B::Tensor, Output = B::Tensor>,
+            input: B::Tensor,
+            ctx: &mut ForwardCtx<B>,
+        ) -> Result<B::Tensor> {
+            m.forward(input, ctx)
+        }
+
+        let x = backend.tensor_from_vec(vec![0.1f32; 1 * 2 * 2], &[1, 2, 2]).unwrap();
+        let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Inference);
+        let out = call_forward(&moe, x, &mut ctx).unwrap();
+        assert_eq!(backend.ops().shape(&out), &[1, 2, 2]);
     }
 }

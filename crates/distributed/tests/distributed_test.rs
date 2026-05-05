@@ -4,8 +4,9 @@
 
 use std::sync::Arc;
 use std::thread;
+use std::fs;
 
-use mnr_core::{Backend, ForwardCtx, Mode, Parameter};
+use mnr_core::{Backend, ForwardCtx, Mode, Parameter, TensorOps};
 use mnr_distributed::{
     DataParallelTrainer, ProcessGroup, ZeRoMemoryStats, ZeroOptimizer,
     DistributedCheckpointManager, ParallelStyle, TensorParallelLinear,
@@ -19,7 +20,7 @@ use mnr_optim::{Adam, Gradient, Optimizer};
 fn test_data_parallel_single_process() {
     let backend = CpuBackend::default();
     let pg = ProcessGroup::new_single_process();
-    let optimizer = Adam::new(0.001);
+    let optimizer = Adam::<CpuBackend>::new(0.001);
 
     let mut trainer = DataParallelTrainer::new(pg, optimizer);
 
@@ -28,8 +29,9 @@ fn test_data_parallel_single_process() {
     let mut params = vec![param.clone()];
 
     // Dummy loss function
+    let backend_ref = backend.clone();
     let mut loss_fn = |_sample: &&[f32], _ctx: &mut ForwardCtx<CpuBackend>| {
-        let grad_tensor = backend.zeros(&[10]).unwrap();
+        let grad_tensor = backend_ref.ops().zeros(&[10]).unwrap();
         let gradients = vec![Gradient {
             param_id: param.id(),
             tensor: grad_tensor,
@@ -56,18 +58,19 @@ fn test_data_parallel_threaded() {
     let handles: Vec<_> = (0..world_size)
         .map(|rank| {
             let pg = ProcessGroup::new_threaded(world_size, rank).unwrap();
-            let optimizer = Adam::new(0.001);
+            let optimizer = Adam::<CpuBackend>::new(0.001);
             let mut trainer = DataParallelTrainer::new(pg, optimizer);
+            let backend_thread = backend.clone();
 
             thread::spawn(move || {
-                let param = backend.normal_parameter(&format!("rank_{}", rank), &[10], rank, 0.1).unwrap();
+                let param = backend_thread.normal_parameter(&format!("rank_{}", rank), &[10], rank as u64, 0.1).unwrap();
                 let mut params = vec![param.clone()];
 
                 let samples: Vec<&[f32]> = vec![&[1.0; 10], &[2.0; 10]];
-                let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+                let mut ctx = ForwardCtx::new(&backend_thread, Mode::Train);
 
                 let mut loss_fn = |_sample: &&[f32], _ctx: &mut ForwardCtx<CpuBackend>| {
-                    let grad_tensor = backend.zeros(&[10]).unwrap();
+                    let grad_tensor = backend_thread.ops().zeros(&[10]).unwrap();
                     let gradients = vec![Gradient {
                         param_id: param.id(),
                         tensor: grad_tensor,
@@ -93,7 +96,7 @@ fn test_zero_memory_stats() {
 
     // Should show significant memory savings
     assert!(stats.memory_saved_percent > 30.0);
-    assert_eq!(stats.total_params_mb, (1_000_000_000 * 4) as f32 / (1024.0 * 1024.0));
+    assert_eq!(stats.total_params_mb, (1_000_000_000i64 * 4) as f32 / (1024.0 * 1024.0));
 
     // ZeRO-1: optimizer states are sharded 8 ways
     let expected_optimizer_mb = stats.total_params_mb * 2.0 / 8.0;
@@ -142,13 +145,13 @@ fn test_tensor_parallel_linear_creation() {
     let col_parallel = TensorParallelLinear::column_parallel(
         64, 128, &pg, &backend
     ).unwrap();
-    assert_eq!(col_parallel.parallel_style(), ParallelStyle::ColumnParallel);
+    assert!(matches!(col_parallel.parallel_style(), ParallelStyle::ColumnParallel));
 
     // Row parallel
     let row_parallel = TensorParallelLinear::row_parallel(
         128, 64, &pg, &backend
     ).unwrap();
-    assert_eq!(row_parallel.parallel_style(), ParallelStyle::RowParallel);
+    assert!(matches!(row_parallel.parallel_style(), ParallelStyle::RowParallel));
 
     // Invalid dimensions (not divisible by world_size)
     let pg_multi = ProcessGroup::new_threaded(8, 0).unwrap();
@@ -172,7 +175,7 @@ fn test_distributed_checkpoint_manager() {
 fn test_zero_optimizer_creation() {
     let backend = CpuBackend::default();
     let pg = ProcessGroup::new_single_process();
-    let adam = Adam::new(0.001);
+    let adam = Adam::<CpuBackend>::new(0.001);
 
     let zero = ZeroOptimizer::new(adam, pg, 100);
 
@@ -200,11 +203,11 @@ fn test_e2e_distributed_training() {
 
     // Create a simple model
     let param = backend.normal_parameter("weight", &[10], 42, 0.1).unwrap();
-    let bias = backend.zeros_parameter("bias", &[10]).unwrap();
+    let bias = backend.normal_parameter("bias", &[10], 0, 0.0).unwrap();
     let mut params = vec![param, bias];
 
     // Create optimizer and trainer
-    let optimizer = Adam::new(0.01);
+    let optimizer = Adam::<CpuBackend>::new(0.01);
     let mut trainer = DataParallelTrainer::new(pg, optimizer);
 
     // Training data
@@ -212,22 +215,22 @@ fn test_e2e_distributed_training() {
     let samples_refs: Vec<&[f32]> = samples.iter().map(|s| s.as_slice()).collect();
 
     // Training loop
-    for epoch in 0..3 {
+    let param0_id = params[0].id();
+    let param1_id = params[1].id();
+    for _epoch in 0..3 {
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
 
-        let mut loss_fn = |sample: &&[f32], ctx: &mut ForwardCtx<CpuBackend>| {
-            // Simple forward: compute MSE loss
-            let input_tensor = backend.tensor_from_vec(sample.to_vec(), &[10]).unwrap();
+        // Pre-compute parameter tensors for the closure
+        let weight_tensor = params[0].tensor().clone();
+        let bias_tensor = params[1].tensor().clone();
+        let backend_ref = backend.clone();
 
-            // Get parameter tensors
-            let weight = params[0].tensor();
-            let bias = params[1].tensor();
-
+        let mut loss_fn = |_sample: &&[f32], _ctx: &mut ForwardCtx<CpuBackend>| {
             // Forward: y = x * w + b (simplified)
-            let output = backend.ops().add(weight, bias).unwrap();
-            let target = backend.zeros(&[10]).unwrap();
-            let diff = backend.ops().sub(&output, &target).unwrap();
-            let squared = backend.ops().mul(&diff, &diff).unwrap();
+            let output = backend_ref.ops().add(&weight_tensor, &bias_tensor).unwrap();
+            let target = backend_ref.ops().zeros(&[10]).unwrap();
+            let diff = backend_ref.ops().sub(&output, &target).unwrap();
+            let squared = backend_ref.ops().mul(&diff, &diff).unwrap();
 
             // Compute mean
             let data: Vec<f32> = squared.as_ref().to_vec();
@@ -235,12 +238,12 @@ fn test_e2e_distributed_training() {
 
             // Simple gradients (just zeros for this test)
             let grad0 = Gradient {
-                param_id: params[0].id(),
-                tensor: backend.zeros(&[10]).unwrap(),
+                param_id: param0_id,
+                tensor: backend_ref.ops().zeros(&[10]).unwrap(),
             };
             let grad1 = Gradient {
-                param_id: params[1].id(),
-                tensor: backend.zeros(&[10]).unwrap(),
+                param_id: param1_id,
+                tensor: backend_ref.ops().zeros(&[10]).unwrap(),
             };
 
             Ok((loss, vec![grad0, grad1]))
@@ -263,7 +266,7 @@ fn test_gradient_accumulation() {
 
     // Create some dummy gradients
     let param_id = mnr_core::ParameterId::fresh();
-    let grad_tensor = backend.ones(&[10]).unwrap();
+    let grad_tensor = backend.ops().tensor_from_vec(vec![1.0f32; 10], &[10]).unwrap();
     let gradients = vec![Gradient {
         param_id,
         tensor: grad_tensor,

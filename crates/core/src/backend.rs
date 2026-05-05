@@ -134,6 +134,12 @@ pub trait TensorOps<B: Backend>: Send + Sync {
     /// Element-wise addition.
     fn add_scalar(&self, x: &B::Tensor, scalar: f32) -> Result<B::Tensor>;
 
+    /// Element-wise multiplication by a scalar.
+    fn mul_scalar(&self, x: &B::Tensor, scalar: f32) -> Result<B::Tensor>;
+
+    /// Broadcast a tensor to a new shape.
+    fn broadcast(&self, x: &B::Tensor, shape: &[usize]) -> Result<B::Tensor>;
+
     /// Element-wise negation.
     fn neg(&self, x: &B::Tensor) -> Result<B::Tensor>;
 

@@ -23,6 +23,15 @@ pub struct Linear<B: Backend> {
 }
 
 impl<B: Backend> Linear<B> {
+    /// Create a new Linear layer from config and backend.
+    ///
+    /// This is a convenience method equivalent to using LinearBuilder.
+    pub fn new(backend: &B, config: LinearConfig) -> Result<Self> {
+        LinearBuilder::new(config.in_dim, config.out_dim)
+            .with_bias(config.bias)
+            .build(backend)
+    }
+
     /// Build a linear layer from explicit parameters.
     ///
     /// This constructor intentionally avoids lazy initialization. The caller is
@@ -144,6 +153,36 @@ impl<B: Backend> Trainable<B> for Linear<B> {
     }
 }
 
+impl<B: Backend> Clone for Linear<B>
+where
+    B::Tensor: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            weight: self.weight.clone(),
+            bias: self.bias.clone(),
+        }
+    }
+}
+
+impl LinearConfig {
+    /// Create a new Linear configuration.
+    pub fn new(in_dim: usize, out_dim: usize) -> Self {
+        Self {
+            in_dim,
+            out_dim,
+            bias: false,
+        }
+    }
+
+    /// Set bias.
+    pub fn with_bias(mut self, bias: bool) -> Self {
+        self.bias = bias;
+        self
+    }
+}
+
 impl<B: Backend> Saveable<B> for Linear<B> {
     fn state_dict(&self) -> Vec<(String, ParameterRef)> {
         let mut out = vec![("weight".to_string(), ParameterRef { id: self.weight.id() })];
@@ -221,5 +260,80 @@ mod tests {
 
         let linear_with_bias = create_mock_linear(10, 5, true);
         assert_eq!(linear_with_bias.parameters().len(), 2);
+    }
+
+    #[test]
+    fn test_linear_accessors() {
+        let linear = create_mock_linear(10, 5, true);
+        assert_eq!(linear.config().in_dim, 10);
+        assert_eq!(linear.config().out_dim, 5);
+        assert!(linear.config().bias);
+        assert_eq!(linear.weight().id(), linear.weight().id());
+        assert!(linear.bias().is_some());
+
+        let linear_no_bias = create_mock_linear(10, 5, false);
+        assert!(linear_no_bias.bias().is_none());
+    }
+
+    #[test]
+    fn test_linear_from_parameters() {
+        let backend = CpuBackend::default();
+        let weight = backend.normal_parameter("w", &[5, 10], 1, 0.1).unwrap();
+        let bias = Some(backend.normal_parameter("b", &[5], 2, 0.1).unwrap());
+        let config = LinearConfig { in_dim: 10, out_dim: 5, bias: true };
+        let linear = Linear::from_parameters(config.clone(), weight.clone(), bias);
+        assert_eq!(linear.config().in_dim, 10);
+        assert_eq!(linear.weight().id(), weight.id());
+    }
+
+    #[test]
+    fn test_linear_from_builder() {
+        let backend = CpuBackend::default();
+        let builder = LinearBuilder::new(10, 5).with_bias(true);
+        let linear = Linear::from_builder(builder, &backend).unwrap();
+        assert_eq!(linear.config().in_dim, 10);
+        assert_eq!(linear.config().out_dim, 5);
+        assert!(linear.config().bias);
+    }
+
+    #[test]
+    fn test_linear_clone() {
+        let linear = create_mock_linear(10, 5, true);
+        let cloned = linear.clone();
+        assert_eq!(cloned.config().in_dim, 10);
+        assert_eq!(cloned.parameters().len(), 2);
+    }
+
+    #[test]
+    fn test_linear_state_dict() {
+        let linear = create_mock_linear(10, 5, true);
+        let state = linear.state_dict();
+        assert_eq!(state.len(), 2);
+        assert_eq!(state[0].0, "weight");
+        assert_eq!(state[1].0, "bias");
+    }
+
+    #[test]
+    fn test_linear_load_state_dict() {
+        let backend = CpuBackend::default();
+        let mut linear = LinearBuilder::new(10, 5)
+            .with_bias(true)
+            .build(&backend)
+            .unwrap();
+
+        let weight_data = vec![0.1f32; 50];
+        let bias_data = vec![0.2f32; 5];
+        let mut dict = std::collections::HashMap::new();
+        dict.insert("weight".to_string(), weight_data);
+        dict.insert("bias".to_string(), bias_data);
+
+        linear.load_state_dict(&dict, &backend).unwrap();
+        assert_eq!(linear.weight().tensor().shape(), &[5, 10]);
+    }
+
+    #[test]
+    fn test_linear_config_with_bias() {
+        let config = LinearConfig::new(10, 5).with_bias(true);
+        assert!(config.bias);
     }
 }
