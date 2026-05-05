@@ -1438,6 +1438,28 @@ impl TensorOps<WgpuBackend> for WgpuOps {
         GpuTensor::from_data(&self.device, &self.queue, &[sum], &[1])
     }
 
+    fn sum_dim0(&self, x: &GpuTensor) -> CoreResult<GpuTensor> {
+        if x.shape.len() != 2 {
+            return Err(CoreError::InvalidArgument(format!(
+                "sum_dim0 expects rank-2 tensor [batch, features], got shape {:?}",
+                x.shape
+            )));
+        }
+        // Correctness-first implementation: readback then reduce on host.
+        // This keeps the trait surface usable until a dedicated reduction shader is added.
+        let batch = x.shape[0];
+        let features = x.shape[1];
+        let data = x.to_vec(&self.device, &self.queue);
+        let mut out = vec![0.0f32; features];
+        for b in 0..batch {
+            let offset = b * features;
+            for j in 0..features {
+                out[j] += data[offset + j];
+            }
+        }
+        GpuTensor::from_data(&self.device, &self.queue, &out, &[features])
+    }
+
     fn tensor_to_vec(&self, x: &GpuTensor) -> CoreResult<Vec<f32>> {
         Ok(x.to_vec(&self.device, &self.queue))
     }

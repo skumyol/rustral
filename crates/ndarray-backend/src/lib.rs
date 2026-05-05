@@ -703,6 +703,25 @@ impl TensorOps<CpuBackend> for CpuOps {
         CpuTensor::new(vec![sum], &[1])
     }
 
+    fn sum_dim0(&self, x: &CpuTensor) -> Result<CpuTensor> {
+        if x.shape.len() != 2 {
+            return Err(CoreError::InvalidArgument(format!(
+                "sum_dim0 expects rank-2 tensor [batch, features], got shape {:?}",
+                x.shape
+            )));
+        }
+        let batch = x.shape[0];
+        let features = x.shape[1];
+        let mut out = vec![0.0f32; features];
+        for b in 0..batch {
+            let offset = b * features;
+            for j in 0..features {
+                out[j] += x.values[offset + j];
+            }
+        }
+        CpuTensor::new(out, &[features])
+    }
+
     /// Read all tensor values into a flat row-major vector.
     fn tensor_to_vec(&self, x: &CpuTensor) -> Result<Vec<f32>> {
         Ok(x.values.clone())

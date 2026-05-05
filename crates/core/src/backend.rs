@@ -156,6 +156,11 @@ pub trait TensorOps<B: Backend>: Send + Sync {
     /// Sum all elements of a tensor into a scalar.
     fn sum_all(&self, x: &B::Tensor) -> Result<B::Tensor>;
 
+    /// Sum a rank-2 tensor over dimension 0: `[batch, features] -> [features]`.
+    ///
+    /// This is the common reduction needed for bias gradients and batch statistics.
+    fn sum_dim0(&self, x: &B::Tensor) -> Result<B::Tensor>;
+
     /// Read all tensor values back into a flat row-major vector.
     ///
     /// This is the efficient counterpart to `tensor_element` for bulk access.

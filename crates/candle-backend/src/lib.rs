@@ -381,6 +381,18 @@ impl TensorOps<CandleBackend> for CandleOps {
         x.sum_all().map_err(|e| CoreError::Backend(e.to_string()))
     }
 
+    fn sum_dim0(&self, x: &Tensor) -> Result<Tensor> {
+        let dims = x.dims();
+        if dims.len() != 2 {
+            return Err(CoreError::InvalidArgument(format!(
+                "sum_dim0 expects rank-2 tensor [batch, features], got shape {:?}",
+                dims
+            )));
+        }
+        // candle: sum over dimension 0 => [features]
+        x.sum(0).map_err(|e| CoreError::Backend(e.to_string()))
+    }
+
     fn tensor_to_vec(&self, x: &Tensor) -> Result<Vec<f32>> {
         x.flatten_all()
             .map_err(|e| CoreError::Backend(e.to_string()))?

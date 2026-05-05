@@ -276,8 +276,8 @@ impl<B: Backend> Tape<B> {
                 a_shape, row_shape
             )));
         }
-        let batch = a_shape[0];
-        let features = a_shape[1];
+        let _batch = a_shape[0];
+        let _features = a_shape[1];
 
         let out = ops.add_row_vector(&a_val, &row_val)?;
         Ok(self.record(&[a, row], out, move |grad_out, _store, ops| {
@@ -285,18 +285,7 @@ impl<B: Backend> Tape<B> {
             let grad_a = grad_out.clone();
 
             // dL/drow = sum over batch dimension.
-            //
-            // NOTE: We do a correctness-first implementation by reading back grad_out and reducing on host.
-            // A future improvement should add a backend reduction op (sum along axis) to avoid host transfer.
-            let flat = ops.tensor_to_vec(grad_out)?;
-            let mut row_grad = vec![0.0f32; features];
-            for b in 0..batch {
-                let offset = b * features;
-                for j in 0..features {
-                    row_grad[j] += flat[offset + j];
-                }
-            }
-            let grad_row = ops.tensor_from_vec(row_grad, &[features])?;
+            let grad_row = ops.sum_dim0(grad_out)?;
 
             Ok(vec![grad_a, grad_row])
         }))

@@ -1,4 +1,4 @@
-//! Optimization algorithms for MNR.
+//! Optimization algorithms for Rustral.
 #![allow(dead_code)]
 //!
 //! Provides SGD, Adam, and AdamW optimizers that work with the core
@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, Result, TensorOps, TensorShape};
+use rustral_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, Result, TensorOps, TensorShape};
 use thiserror::Error;
 
 pub mod lr_scheduler;
@@ -441,8 +441,8 @@ fn create_scalar_tensor<B: Backend>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::Mode;
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::Mode;
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_sgd_update() {

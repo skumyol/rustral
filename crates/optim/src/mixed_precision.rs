@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 
-use mnr_core::{Backend, ForwardCtx, Parameter, ParameterId, Result, TensorOps, TensorShape};
+use rustral_core::{Backend, ForwardCtx, Parameter, ParameterId, Result, TensorOps, TensorShape};
 
 use crate::{Gradient, OptimError, Optimizer};
 
@@ -456,8 +456,8 @@ impl f16 {
 mod tests {
     use super::*;
     use crate::Adam;
-    use mnr_core::{ForwardCtx, Mode, Parameter};
-    use mnr_ndarray_backend::CpuBackend;
+    use rustral_core::{ForwardCtx, Mode, Parameter};
+    use rustral_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_dtype_sizes() {
