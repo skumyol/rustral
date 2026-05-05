@@ -2,15 +2,13 @@
 //!
 //! Tests data parallelism, tensor parallelism, ZeRO, and checkpointing.
 
-use std::sync::Arc;
-use std::thread;
 use std::fs;
+use std::thread;
 
-use mnr_core::{Backend, ForwardCtx, Mode, Parameter, TensorOps};
+use mnr_core::{Backend, ForwardCtx, Mode, TensorOps};
 use mnr_distributed::{
-    DataParallelTrainer, ProcessGroup, ZeRoMemoryStats, ZeroOptimizer,
-    DistributedCheckpointManager, ParallelStyle, TensorParallelLinear,
-    GradientAccumulator, AsyncCheckpointWriter,
+    DataParallelTrainer, DistributedCheckpointManager, ParallelStyle, ProcessGroup, TensorParallelLinear,
+    ZeRoMemoryStats, ZeroOptimizer,
 };
 use mnr_ndarray_backend::CpuBackend;
 use mnr_optim::{Adam, Gradient, Optimizer};
@@ -32,10 +30,7 @@ fn test_data_parallel_single_process() {
     let backend_ref = backend.clone();
     let mut loss_fn = |_sample: &&[f32], _ctx: &mut ForwardCtx<CpuBackend>| {
         let grad_tensor = backend_ref.ops().zeros(&[10]).unwrap();
-        let gradients = vec![Gradient {
-            param_id: param.id(),
-            tensor: grad_tensor,
-        }];
+        let gradients = vec![Gradient { param_id: param.id(), tensor: grad_tensor }];
         Ok((1.0f32, gradients))
     };
 
@@ -63,7 +58,9 @@ fn test_data_parallel_threaded() {
             let backend_thread = backend.clone();
 
             thread::spawn(move || {
-                let param = backend_thread.normal_parameter(&format!("rank_{}", rank), &[10], rank as u64, 0.1).unwrap();
+                let param = backend_thread
+                    .normal_parameter(&format!("rank_{}", rank), &[10], rank as u64, 0.1)
+                    .unwrap();
                 let mut params = vec![param.clone()];
 
                 let samples: Vec<&[f32]> = vec![&[1.0; 10], &[2.0; 10]];
@@ -71,10 +68,7 @@ fn test_data_parallel_threaded() {
 
                 let mut loss_fn = |_sample: &&[f32], _ctx: &mut ForwardCtx<CpuBackend>| {
                     let grad_tensor = backend_thread.ops().zeros(&[10]).unwrap();
-                    let gradients = vec![Gradient {
-                        param_id: param.id(),
-                        tensor: grad_tensor,
-                    }];
+                    let gradients = vec![Gradient { param_id: param.id(), tensor: grad_tensor }];
                     Ok((1.0f32, gradients))
                 };
 
@@ -142,15 +136,11 @@ fn test_tensor_parallel_linear_creation() {
     let pg = ProcessGroup::new_single_process();
 
     // Column parallel
-    let col_parallel = TensorParallelLinear::column_parallel(
-        64, 128, &pg, &backend
-    ).unwrap();
+    let col_parallel = TensorParallelLinear::column_parallel(64, 128, &pg, &backend).unwrap();
     assert!(matches!(col_parallel.parallel_style(), ParallelStyle::ColumnParallel));
 
     // Row parallel
-    let row_parallel = TensorParallelLinear::row_parallel(
-        128, 64, &pg, &backend
-    ).unwrap();
+    let row_parallel = TensorParallelLinear::row_parallel(128, 64, &pg, &backend).unwrap();
     assert!(matches!(row_parallel.parallel_style(), ParallelStyle::RowParallel));
 
     // Invalid dimensions (not divisible by world_size)
@@ -164,7 +154,7 @@ fn test_distributed_checkpoint_manager() {
     let temp_dir = tempfile::tempdir().unwrap();
     let pg = ProcessGroup::new_single_process();
 
-    let manager = DistributedCheckpointManager::new(pg, temp_dir.path(), 3).unwrap();
+    let _manager = DistributedCheckpointManager::new(pg, temp_dir.path(), 3).unwrap();
 
     // Check directory was created
     assert!(temp_dir.path().exists());
@@ -173,7 +163,7 @@ fn test_distributed_checkpoint_manager() {
 /// Test ZeRO optimizer wrapping.
 #[test]
 fn test_zero_optimizer_creation() {
-    let backend = CpuBackend::default();
+    let _backend = CpuBackend::default();
     let pg = ProcessGroup::new_single_process();
     let adam = Adam::<CpuBackend>::new(0.001);
 
@@ -237,14 +227,8 @@ fn test_e2e_distributed_training() {
             let loss: f32 = data.iter().sum::<f32>() / data.len() as f32;
 
             // Simple gradients (just zeros for this test)
-            let grad0 = Gradient {
-                param_id: param0_id,
-                tensor: backend_ref.ops().zeros(&[10]).unwrap(),
-            };
-            let grad1 = Gradient {
-                param_id: param1_id,
-                tensor: backend_ref.ops().zeros(&[10]).unwrap(),
-            };
+            let grad0 = Gradient { param_id: param0_id, tensor: backend_ref.ops().zeros(&[10]).unwrap() };
+            let grad1 = Gradient { param_id: param1_id, tensor: backend_ref.ops().zeros(&[10]).unwrap() };
 
             Ok((loss, vec![grad0, grad1]))
         };
@@ -267,10 +251,7 @@ fn test_gradient_accumulation() {
     // Create some dummy gradients
     let param_id = mnr_core::ParameterId::fresh();
     let grad_tensor = backend.ops().tensor_from_vec(vec![1.0f32; 10], &[10]).unwrap();
-    let gradients = vec![Gradient {
-        param_id,
-        tensor: grad_tensor,
-    }];
+    let gradients = vec![Gradient { param_id, tensor: grad_tensor }];
 
     // Accumulate gradients twice
     acc.accumulate(&gradients, backend.ops()).unwrap();
@@ -282,8 +263,6 @@ fn test_gradient_accumulation() {
 /// Test checkpoint saving and loading.
 #[test]
 fn test_checkpoint_save_load() {
-    use std::fs;
-
     let temp_dir = tempfile::tempdir().unwrap();
     let backend = CpuBackend::default();
     let pg = ProcessGroup::new_single_process();
@@ -317,7 +296,7 @@ fn test_list_checkpoints() {
     let temp_dir = tempfile::tempdir().unwrap();
     let pg = ProcessGroup::new_single_process();
 
-    let mut manager = DistributedCheckpointManager::new(pg, temp_dir.path(), 5).unwrap();
+    let manager = DistributedCheckpointManager::new(pg, temp_dir.path(), 5).unwrap();
 
     // Create fake checkpoint directories
     fs::create_dir(temp_dir.path().join("epoch_0")).unwrap();
@@ -335,8 +314,6 @@ fn test_list_checkpoints() {
 #[test]
 fn test_async_checkpoint_writer() {
     use mnr_distributed::AsyncCheckpointWriter;
-    use std::fs;
-    use std::path::PathBuf;
 
     let temp_dir = tempfile::tempdir().unwrap();
     let writer = AsyncCheckpointWriter::new();
@@ -370,8 +347,10 @@ fn test_memory_savings_comparison() {
     let zero2 = ZeRoMemoryStats::zero2(params, bytes_per_param, 8);
 
     // Verify memory savings increase with more aggressive sharding
-    assert!(zero2.memory_saved_percent > zero1.memory_saved_percent,
-        "ZeRO-2 should save more memory than ZeRO-1");
+    assert!(
+        zero2.memory_saved_percent > zero1.memory_saved_percent,
+        "ZeRO-2 should save more memory than ZeRO-1"
+    );
 
     // Verify we actually save memory
     assert!(zero1.memory_saved_percent > 0.0, "ZeRO should save memory");

@@ -15,10 +15,7 @@ pub struct LayerNormConfig {
 impl LayerNormConfig {
     /// Create a new LayerNorm configuration.
     pub fn new(normalized_shape: impl Into<Vec<usize>>) -> Self {
-        Self {
-            normalized_shape: normalized_shape.into(),
-            eps: 1e-5,
-        }
+        Self { normalized_shape: normalized_shape.into(), eps: 1e-5 }
     }
 
     /// Set epsilon value.
@@ -48,18 +45,8 @@ impl<B: Backend> LayerNorm<B> {
     /// Create a LayerNorm layer with randomly initialized weights.
     pub fn new(backend: &B, config: LayerNormConfig, seed: u64) -> Result<Self> {
         let norm_elem_count: usize = config.normalized_shape.iter().product();
-        let weight = backend.normal_parameter(
-            "weight",
-            &[norm_elem_count],
-            seed,
-            1.0,
-        )?;
-        let bias = backend.normal_parameter(
-            "bias",
-            &[norm_elem_count],
-            seed.wrapping_add(1),
-            0.0,
-        )?;
+        let weight = backend.normal_parameter("weight", &[norm_elem_count], seed, 1.0)?;
+        let bias = backend.normal_parameter("bias", &[norm_elem_count], seed.wrapping_add(1), 0.0)?;
         Ok(Self::from_parameters(config, weight, bias))
     }
 
@@ -99,21 +86,18 @@ impl<B: Backend> Module<B> for LayerNorm<B> {
         let num_groups = total_elems / norm_elem_count;
 
         // Extract input values
-        let input_values: Vec<f32> = (0..total_elems)
-            .filter_map(|i| ops.tensor_element(&input, i).ok())
-            .collect();
+        let input_values: Vec<f32> =
+            (0..total_elems).filter_map(|i| ops.tensor_element(&input, i).ok()).collect();
 
         if input_values.len() != total_elems {
             return Ok(input);
         }
 
         // Get gamma and beta parameters
-        let gamma_values: Vec<f32> = (0..norm_elem_count)
-            .filter_map(|i| ops.tensor_element(self.weight.tensor(), i).ok())
-            .collect();
-        let beta_values: Vec<f32> = (0..norm_elem_count)
-            .filter_map(|i| ops.tensor_element(self.bias.tensor(), i).ok())
-            .collect();
+        let gamma_values: Vec<f32> =
+            (0..norm_elem_count).filter_map(|i| ops.tensor_element(self.weight.tensor(), i).ok()).collect();
+        let beta_values: Vec<f32> =
+            (0..norm_elem_count).filter_map(|i| ops.tensor_element(self.bias.tensor(), i).ok()).collect();
 
         let mut output_values = vec![0.0f32; total_elems];
         let eps = self.config.eps;
@@ -149,10 +133,7 @@ impl<B: Backend> Module<B> for LayerNorm<B> {
 
 impl<B: Backend> Trainable<B> for LayerNorm<B> {
     fn parameters(&self) -> Vec<ParameterRef> {
-        vec![
-            ParameterRef { id: self.weight.id() },
-            ParameterRef { id: self.bias.id() },
-        ]
+        vec![ParameterRef { id: self.weight.id() }, ParameterRef { id: self.bias.id() }]
     }
 }
 
@@ -170,11 +151,7 @@ pub struct BatchNormConfig {
 impl BatchNormConfig {
     /// Create a new BatchNorm configuration.
     pub fn new(num_features: usize) -> Self {
-        Self {
-            num_features,
-            eps: 1e-5,
-            momentum: 0.1,
-        }
+        Self { num_features, eps: 1e-5, momentum: 0.1 }
     }
 }
 
@@ -234,21 +211,18 @@ impl<B: Backend> Module<B> for BatchNorm<B> {
         let elems_per_channel = batch * spatial;
 
         // Extract input values
-        let input_values: Vec<f32> = (0..total_elems)
-            .filter_map(|i| ops.tensor_element(&input, i).ok())
-            .collect();
+        let input_values: Vec<f32> =
+            (0..total_elems).filter_map(|i| ops.tensor_element(&input, i).ok()).collect();
 
         if input_values.len() != total_elems {
             return Ok(input);
         }
 
         // Get gamma and beta parameters
-        let gamma_values: Vec<f32> = (0..num_features)
-            .filter_map(|i| ops.tensor_element(self.weight.tensor(), i).ok())
-            .collect();
-        let beta_values: Vec<f32> = (0..num_features)
-            .filter_map(|i| ops.tensor_element(self.bias.tensor(), i).ok())
-            .collect();
+        let gamma_values: Vec<f32> =
+            (0..num_features).filter_map(|i| ops.tensor_element(self.weight.tensor(), i).ok()).collect();
+        let beta_values: Vec<f32> =
+            (0..num_features).filter_map(|i| ops.tensor_element(self.bias.tensor(), i).ok()).collect();
 
         let mut output_values = vec![0.0f32; total_elems];
         let eps = self.config.eps;
@@ -308,10 +282,7 @@ impl<B: Backend> Module<B> for BatchNorm<B> {
 
 impl<B: Backend> Trainable<B> for BatchNorm<B> {
     fn parameters(&self) -> Vec<ParameterRef> {
-        vec![
-            ParameterRef { id: self.weight.id() },
-            ParameterRef { id: self.bias.id() },
-        ]
+        vec![ParameterRef { id: self.weight.id() }, ParameterRef { id: self.bias.id() }]
     }
 }
 
@@ -331,8 +302,10 @@ mod tests {
     #[test]
     fn test_layer_norm_parameters() {
         let backend = CpuBackend::default();
-        let weight: Parameter<CpuBackend> = Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 64], &[64]).unwrap());
-        let bias: Parameter<CpuBackend> = Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 64], &[64]).unwrap());
+        let weight: Parameter<CpuBackend> =
+            Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 64], &[64]).unwrap());
+        let bias: Parameter<CpuBackend> =
+            Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 64], &[64]).unwrap());
 
         let config = LayerNormConfig::new(vec![64]);
         let ln = LayerNorm::from_parameters(config, weight, bias);
@@ -351,8 +324,10 @@ mod tests {
     #[test]
     fn test_batch_norm_parameters() {
         let backend = CpuBackend::default();
-        let weight: Parameter<CpuBackend> = Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 32], &[32]).unwrap());
-        let bias: Parameter<CpuBackend> = Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 32], &[32]).unwrap());
+        let weight: Parameter<CpuBackend> =
+            Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 32], &[32]).unwrap());
+        let bias: Parameter<CpuBackend> =
+            Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 32], &[32]).unwrap());
 
         let config = BatchNormConfig::new(32);
         let bn = BatchNorm::from_parameters(config, weight, bias);
@@ -365,8 +340,10 @@ mod tests {
         let backend = CpuBackend::default();
         let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
 
-        let weight: Parameter<CpuBackend> = Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 4], &[4]).unwrap());
-        let bias: Parameter<CpuBackend> = Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 4], &[4]).unwrap());
+        let weight: Parameter<CpuBackend> =
+            Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 4], &[4]).unwrap());
+        let bias: Parameter<CpuBackend> =
+            Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 4], &[4]).unwrap());
 
         let config = LayerNormConfig::new(vec![4]);
         let ln = LayerNorm::from_parameters(config, weight, bias);
@@ -380,9 +357,7 @@ mod tests {
 
         // With gamma=1, beta=0, mean of first group is 2.5, second group is 5.0
         // Values should be roughly centered around 0 for each group
-        let values: Vec<f32> = (0..8)
-            .filter_map(|i| backend.ops().tensor_element(&output, i).ok())
-            .collect();
+        let values: Vec<f32> = (0..8).filter_map(|i| backend.ops().tensor_element(&output, i).ok()).collect();
 
         // First group: [-1.34, -0.45, 0.45, 1.34] approx
         assert!(values[0] < values[1]);
@@ -400,8 +375,10 @@ mod tests {
         let backend = CpuBackend::default();
         let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
 
-        let weight: Parameter<CpuBackend> = Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 2], &[2]).unwrap());
-        let bias: Parameter<CpuBackend> = Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 2], &[2]).unwrap());
+        let weight: Parameter<CpuBackend> =
+            Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 2], &[2]).unwrap());
+        let bias: Parameter<CpuBackend> =
+            Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 2], &[2]).unwrap());
 
         let config = BatchNormConfig::new(2);
         let bn = BatchNorm::from_parameters(config, weight, bias);
@@ -414,17 +391,17 @@ mod tests {
         assert_eq!(shape, &[2, 2]);
 
         // Both output values per channel should be present
-        let values: Vec<f32> = (0..4)
-            .filter_map(|i| backend.ops().tensor_element(&output, i).ok())
-            .collect();
+        let values: Vec<f32> = (0..4).filter_map(|i| backend.ops().tensor_element(&output, i).ok()).collect();
         assert_eq!(values.len(), 4);
     }
 
     #[test]
     fn test_layer_norm_config_accessor() {
         let backend = CpuBackend::default();
-        let weight: Parameter<CpuBackend> = Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 4], &[4]).unwrap());
-        let bias: Parameter<CpuBackend> = Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 4], &[4]).unwrap());
+        let weight: Parameter<CpuBackend> =
+            Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 4], &[4]).unwrap());
+        let bias: Parameter<CpuBackend> =
+            Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 4], &[4]).unwrap());
         let config = LayerNormConfig::new(vec![4]);
         let ln = LayerNorm::from_parameters(config, weight, bias);
         assert_eq!(ln.config().normalized_shape, vec![4]);
@@ -434,8 +411,10 @@ mod tests {
     fn test_layer_norm_forward_invalid_rank() {
         let backend = CpuBackend::default();
         let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
-        let weight: Parameter<CpuBackend> = Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 4], &[4]).unwrap());
-        let bias: Parameter<CpuBackend> = Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 4], &[4]).unwrap());
+        let weight: Parameter<CpuBackend> =
+            Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 4], &[4]).unwrap());
+        let bias: Parameter<CpuBackend> =
+            Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 4], &[4]).unwrap());
         let config = LayerNormConfig::new(vec![4, 4]);
         let ln = LayerNorm::from_parameters(config, weight, bias);
 
@@ -448,8 +427,10 @@ mod tests {
     fn test_layer_norm_forward_empty_norm_shape() {
         let backend = CpuBackend::default();
         let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
-        let weight: Parameter<CpuBackend> = Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 1], &[1]).unwrap());
-        let bias: Parameter<CpuBackend> = Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 1], &[1]).unwrap());
+        let weight: Parameter<CpuBackend> =
+            Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 1], &[1]).unwrap());
+        let bias: Parameter<CpuBackend> =
+            Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 1], &[1]).unwrap());
         let config = LayerNormConfig::new(vec![]);
         let ln = LayerNorm::from_parameters(config, weight, bias);
 
@@ -463,8 +444,10 @@ mod tests {
     #[test]
     fn test_batch_norm_config_accessor() {
         let backend = CpuBackend::default();
-        let weight: Parameter<CpuBackend> = Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 2], &[2]).unwrap());
-        let bias: Parameter<CpuBackend> = Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 2], &[2]).unwrap());
+        let weight: Parameter<CpuBackend> =
+            Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 2], &[2]).unwrap());
+        let bias: Parameter<CpuBackend> =
+            Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 2], &[2]).unwrap());
         let config = BatchNormConfig::new(2);
         let bn = BatchNorm::from_parameters(config, weight, bias);
         assert_eq!(bn.config().num_features, 2);
@@ -474,8 +457,10 @@ mod tests {
     fn test_batch_norm_forward_invalid_shape() {
         let backend = CpuBackend::default();
         let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
-        let weight: Parameter<CpuBackend> = Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 2], &[2]).unwrap());
-        let bias: Parameter<CpuBackend> = Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 2], &[2]).unwrap());
+        let weight: Parameter<CpuBackend> =
+            Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 2], &[2]).unwrap());
+        let bias: Parameter<CpuBackend> =
+            Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 2], &[2]).unwrap());
         let config = BatchNormConfig::new(2);
         let bn = BatchNorm::from_parameters(config, weight, bias);
 
@@ -488,13 +473,16 @@ mod tests {
     fn test_batch_norm_forward_4d() {
         let backend = CpuBackend::default();
         let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
-        let weight: Parameter<CpuBackend> = Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 2], &[2]).unwrap());
-        let bias: Parameter<CpuBackend> = Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 2], &[2]).unwrap());
+        let weight: Parameter<CpuBackend> =
+            Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 2], &[2]).unwrap());
+        let bias: Parameter<CpuBackend> =
+            Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 2], &[2]).unwrap());
         let config = BatchNormConfig::new(2);
         let bn = BatchNorm::from_parameters(config, weight, bias);
 
         // Input: [N=1, C=2, H=2, W=2]
-        let input = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[1, 2, 2, 2]).unwrap();
+        let input =
+            backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], &[1, 2, 2, 2]).unwrap();
         let output = bn.forward(input, &mut ctx).unwrap();
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, &[1, 2, 2, 2]);
@@ -504,8 +492,10 @@ mod tests {
     fn test_batch_norm_channel_mismatch() {
         let backend = CpuBackend::default();
         let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
-        let weight: Parameter<CpuBackend> = Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 2], &[2]).unwrap());
-        let bias: Parameter<CpuBackend> = Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 2], &[2]).unwrap());
+        let weight: Parameter<CpuBackend> =
+            Parameter::new("gamma", backend.tensor_from_vec(vec![1.0; 2], &[2]).unwrap());
+        let bias: Parameter<CpuBackend> =
+            Parameter::new("beta", backend.tensor_from_vec(vec![0.0; 2], &[2]).unwrap());
         let config = BatchNormConfig::new(2);
         let bn = BatchNorm::from_parameters(config, weight, bias);
 

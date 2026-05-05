@@ -1,6 +1,6 @@
 use mnr_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, Saveable, Trainable};
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Configuration for a dense affine projection.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -27,9 +27,7 @@ impl<B: Backend> Linear<B> {
     ///
     /// This is a convenience method equivalent to using LinearBuilder.
     pub fn new(backend: &B, config: LinearConfig) -> Result<Self> {
-        LinearBuilder::new(config.in_dim, config.out_dim)
-            .with_bias(config.bias)
-            .build(backend)
+        LinearBuilder::new(config.in_dim, config.out_dim).with_bias(config.bias).build(backend)
     }
 
     /// Build a linear layer from explicit parameters.
@@ -78,13 +76,7 @@ pub struct LinearBuilder {
 impl LinearBuilder {
     /// Start building a linear layer with the given input and output dimensions.
     pub fn new(in_dim: usize, out_dim: usize) -> Self {
-        Self {
-            in_dim,
-            out_dim,
-            bias: false,
-            seed: 42,
-            scale: 0.1,
-        }
+        Self { in_dim, out_dim, bias: false, seed: 42, scale: 0.1 }
     }
 
     /// Enable or disable the bias vector (default: disabled).
@@ -107,27 +99,14 @@ impl LinearBuilder {
 
     /// Build the [`Linear`] layer using the given backend.
     pub fn build<B: Backend>(self, backend: &B) -> Result<Linear<B>> {
-        let weight = backend.normal_parameter(
-            "weight",
-            &[self.out_dim, self.in_dim],
-            self.seed,
-            self.scale,
-        )?;
+        let weight =
+            backend.normal_parameter("weight", &[self.out_dim, self.in_dim], self.seed, self.scale)?;
         let bias = if self.bias {
-            Some(backend.normal_parameter(
-                "bias",
-                &[self.out_dim],
-                self.seed.wrapping_add(1),
-                self.scale,
-            )?)
+            Some(backend.normal_parameter("bias", &[self.out_dim], self.seed.wrapping_add(1), self.scale)?)
         } else {
             None
         };
-        let config = LinearConfig {
-            in_dim: self.in_dim,
-            out_dim: self.out_dim,
-            bias: self.bias,
-        };
+        let config = LinearConfig { in_dim: self.in_dim, out_dim: self.out_dim, bias: self.bias };
         Ok(Linear::from_parameters(config, weight, bias))
     }
 }
@@ -158,22 +137,14 @@ where
     B::Tensor: Clone,
 {
     fn clone(&self) -> Self {
-        Self {
-            config: self.config.clone(),
-            weight: self.weight.clone(),
-            bias: self.bias.clone(),
-        }
+        Self { config: self.config.clone(), weight: self.weight.clone(), bias: self.bias.clone() }
     }
 }
 
 impl LinearConfig {
     /// Create a new Linear configuration.
     pub fn new(in_dim: usize, out_dim: usize) -> Self {
-        Self {
-            in_dim,
-            out_dim,
-            bias: false,
-        }
+        Self { in_dim, out_dim, bias: false }
     }
 
     /// Set bias.
@@ -194,7 +165,8 @@ impl<B: Backend> Saveable<B> for Linear<B> {
 
     fn load_state_dict(&mut self, dict: &HashMap<String, Vec<f32>>, backend: &B) -> Result<()> {
         // Load weight
-        let weight_data = dict.get("weight")
+        let weight_data = dict
+            .get("weight")
             .ok_or_else(|| mnr_core::CoreError::InvalidArgument("Missing 'weight' in state_dict".into()))?;
         let weight_shape = &[self.config.out_dim, self.config.in_dim];
         let new_weight = backend.parameter_from_vec("weight", weight_data.clone(), weight_shape)?;
@@ -202,7 +174,8 @@ impl<B: Backend> Saveable<B> for Linear<B> {
 
         // Load bias if present
         if self.config.bias {
-            let bias_data = dict.get("bias")
+            let bias_data = dict
+                .get("bias")
                 .ok_or_else(|| mnr_core::CoreError::InvalidArgument("Missing 'bias' in state_dict".into()))?;
             let bias_shape = &[self.config.out_dim];
             let new_bias = backend.parameter_from_vec("bias", bias_data.clone(), bias_shape)?;
@@ -221,11 +194,7 @@ mod tests {
 
     fn create_mock_linear(in_dim: usize, out_dim: usize, bias: bool) -> Linear<CpuBackend> {
         let backend = CpuBackend::default();
-        LinearBuilder::new(in_dim, out_dim)
-            .with_bias(bias)
-            .seed(42)
-            .build(&backend)
-            .unwrap()
+        LinearBuilder::new(in_dim, out_dim).with_bias(bias).seed(42).build(&backend).unwrap()
     }
 
     #[test]
@@ -316,10 +285,7 @@ mod tests {
     #[test]
     fn test_linear_load_state_dict() {
         let backend = CpuBackend::default();
-        let mut linear = LinearBuilder::new(10, 5)
-            .with_bias(true)
-            .build(&backend)
-            .unwrap();
+        let mut linear = LinearBuilder::new(10, 5).with_bias(true).build(&backend).unwrap();
 
         let weight_data = vec![0.1f32; 50];
         let bias_data = vec![0.2f32; 5];

@@ -52,5 +52,9 @@ pub trait Saveable<B: Backend> {
     ///
     /// # Errors
     /// Returns an error if a required key is missing or shapes don't match.
-    fn load_state_dict(&mut self, dict: &std::collections::HashMap<String, Vec<f32>>, backend: &B) -> Result<()>;
+    fn load_state_dict(
+        &mut self,
+        dict: &std::collections::HashMap<String, Vec<f32>>,
+        backend: &B,
+    ) -> Result<()>;
 }

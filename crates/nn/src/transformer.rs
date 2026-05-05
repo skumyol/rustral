@@ -30,12 +30,12 @@
 //! let cls_output = encoder.forward(input, &mut ctx)?; // [batch, d_model]
 //! ```
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Module, Parameter, ParameterRef, Result, TensorOps, Trainable};
+use mnr_core::{Backend, CoreError, ForwardCtx, Module, ParameterRef, Result, TensorOps, Trainable};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    causal_mask, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig,
-    SelfAttention, SelfAttentionConfig,
+    Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig, SelfAttention,
+    SelfAttentionConfig,
 };
 
 // =============================================================================
@@ -69,22 +69,13 @@ where
         for pos in 0..max_len {
             for i in 0..d_model {
                 let angle = pos as f32 / f32::powf(10000.0, (2 * (i / 2)) as f32 / d_model as f32);
-                encoding_data[pos * d_model + i] = if i % 2 == 0 {
-                    angle.sin()
-                } else {
-                    angle.cos()
-                };
+                encoding_data[pos * d_model + i] = if i % 2 == 0 { angle.sin() } else { angle.cos() };
             }
         }
 
         let encoding = backend.ops().tensor_from_vec(encoding_data, &[max_len, d_model])?;
 
-        Ok(Self {
-            encoding,
-            max_len,
-            d_model,
-            dropout: 0.1,
-        })
+        Ok(Self { encoding, max_len, d_model, dropout: 0.1 })
     }
 
     /// Set dropout.
@@ -137,10 +128,7 @@ where
             let broadcasted = ops.broadcast(&reshaped, &[batch_size, seq_len, d_model])?;
             ops.add(&input, &broadcasted)
         } else {
-            Err(CoreError::Shape(format!(
-                "PositionalEncoding expects 2D or 3D input, got {:?}",
-                shape
-            )))
+            Err(CoreError::Shape(format!("PositionalEncoding expects 2D or 3D input, got {:?}", shape)))
         }
     }
 }
@@ -178,20 +166,8 @@ pub struct TransformerEncoderConfig {
 impl TransformerEncoderConfig {
     /// Create encoder config.
     pub fn new(d_model: usize, num_heads: usize, num_layers: usize, ff_dim: usize) -> Self {
-        assert_eq!(
-            d_model % num_heads,
-            0,
-            "d_model must be divisible by num_heads"
-        );
-        Self {
-            d_model,
-            num_heads,
-            num_layers,
-            ff_dim,
-            dropout: 0.1,
-            max_seq_len: 512,
-            pre_norm: true,
-        }
+        assert_eq!(d_model % num_heads, 0, "d_model must be divisible by num_heads");
+        Self { d_model, num_heads, num_layers, ff_dim, dropout: 0.1, max_seq_len: 512, pre_norm: true }
     }
 
     pub fn with_dropout(mut self, dropout: f32) -> Self {
@@ -235,34 +211,22 @@ where
 {
     /// Create encoder layer.
     pub fn new(backend: &B, config: &TransformerEncoderConfig, seed: u64) -> Result<Self> {
-        let attn_config = SelfAttentionConfig::new(config.d_model, config.num_heads)
-            .with_dropout(config.dropout);
+        let attn_config =
+            SelfAttentionConfig::new(config.d_model, config.num_heads).with_dropout(config.dropout);
 
         let self_attn = SelfAttention::new(backend, attn_config, seed)?;
 
-        let ff_linear1 = Linear::new(
-            backend,
-            LinearConfig::new(config.d_model, config.ff_dim).with_bias(true),
-        )?;
+        let ff_linear1 =
+            Linear::new(backend, LinearConfig::new(config.d_model, config.ff_dim).with_bias(true))?;
 
-        let ff_linear2 = Linear::new(
-            backend,
-            LinearConfig::new(config.ff_dim, config.d_model).with_bias(true),
-        )?;
+        let ff_linear2 =
+            Linear::new(backend, LinearConfig::new(config.ff_dim, config.d_model).with_bias(true))?;
 
-        let norm1 = LayerNorm::new(
-            backend,
-            LayerNormConfig::new(vec![config.d_model])
-                .with_eps(1e-5),
-            seed + 1,
-        )?;
+        let norm1 =
+            LayerNorm::new(backend, LayerNormConfig::new(vec![config.d_model]).with_eps(1e-5), seed + 1)?;
 
-        let norm2 = LayerNorm::new(
-            backend,
-            LayerNormConfig::new(vec![config.d_model])
-                .with_eps(1e-5),
-            seed + 2,
-        )?;
+        let norm2 =
+            LayerNorm::new(backend, LayerNormConfig::new(vec![config.d_model]).with_eps(1e-5), seed + 2)?;
 
         Ok(Self {
             self_attn,
@@ -328,7 +292,7 @@ where
     type Input = B::Tensor;
     type Output = B::Tensor;
 
-    fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
+    fn forward(&self, input: Self::Input, _ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
         // Note: This calls the inherent forward method - need to distinguish
         // For now, just return input (would need refactoring)
         Ok(input)
@@ -370,11 +334,8 @@ where
     /// Create transformer encoder.
     pub fn new(backend: &B, config: TransformerEncoderConfig, vocab_size: usize, seed: u64) -> Result<Self> {
         // Token embedding
-        let token_embedding = Embedding::new(
-            backend,
-            EmbeddingConfig::new(vocab_size, config.d_model),
-            seed,
-        )?;
+        let token_embedding =
+            Embedding::new(backend, EmbeddingConfig::new(vocab_size, config.d_model), seed)?;
 
         // Positional encoding
         let pos_encoding = PositionalEncoding::new(backend, config.d_model, config.max_seq_len)?;
@@ -396,13 +357,7 @@ where
             None
         };
 
-        Ok(Self {
-            token_embedding,
-            pos_encoding,
-            layers,
-            final_norm,
-            config,
-        })
+        Ok(Self { token_embedding, pos_encoding, layers, final_norm, config })
     }
 
     /// Forward pass.
@@ -462,10 +417,7 @@ where
         let d_model = shape[2];
 
         // In real impl, would use gather/slice
-        let data: Vec<f32> = encoded.as_ref().iter()
-            .take(batch_size * d_model)
-            .copied()
-            .collect();
+        let data: Vec<f32> = encoded.as_ref().iter().take(batch_size * d_model).copied().collect();
 
         ops.tensor_from_vec(data, &[batch_size, d_model])
     }
@@ -528,15 +480,7 @@ pub struct TransformerDecoderConfig {
 
 impl TransformerDecoderConfig {
     pub fn new(d_model: usize, num_heads: usize, num_layers: usize, ff_dim: usize) -> Self {
-        Self {
-            d_model,
-            num_heads,
-            num_layers,
-            ff_dim,
-            dropout: 0.1,
-            max_seq_len: 512,
-            pre_norm: true,
-        }
+        Self { d_model, num_heads, num_layers, ff_dim, dropout: 0.1, max_seq_len: 512, pre_norm: true }
     }
 
     pub fn with_max_seq_len(mut self, max_seq_len: usize) -> Self {
@@ -567,51 +511,32 @@ where
     B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
 {
     pub fn new(backend: &B, config: &TransformerDecoderConfig, seed: u64) -> Result<Self> {
-        let attn_config = SelfAttentionConfig::new(config.d_model, config.num_heads)
-            .with_dropout(config.dropout);
+        let attn_config =
+            SelfAttentionConfig::new(config.d_model, config.num_heads).with_dropout(config.dropout);
 
         let self_attn = SelfAttention::new(backend, attn_config, seed)?;
 
-        let ff_linear1 = Linear::new(
-            backend,
-            LinearConfig::new(config.d_model, config.ff_dim).with_bias(true),
-        )?;
+        let ff_linear1 =
+            Linear::new(backend, LinearConfig::new(config.d_model, config.ff_dim).with_bias(true))?;
 
-        let ff_linear2 = Linear::new(
-            backend,
-            LinearConfig::new(config.ff_dim, config.d_model).with_bias(true),
-        )?;
+        let ff_linear2 =
+            Linear::new(backend, LinearConfig::new(config.ff_dim, config.d_model).with_bias(true))?;
 
-        let norm1 = LayerNorm::new(
-            backend,
-            LayerNormConfig::new(vec![config.d_model]).with_eps(1e-5),
-            seed + 1,
-        )?;
+        let norm1 =
+            LayerNorm::new(backend, LayerNormConfig::new(vec![config.d_model]).with_eps(1e-5), seed + 1)?;
 
-        let norm2 = LayerNorm::new(
-            backend,
-            LayerNormConfig::new(vec![config.d_model]).with_eps(1e-5),
-            seed + 2,
-        )?;
+        let norm2 =
+            LayerNorm::new(backend, LayerNormConfig::new(vec![config.d_model]).with_eps(1e-5), seed + 2)?;
 
         // Create causal mask
         let mask_data: Vec<f32> = (0..config.max_seq_len)
-            .flat_map(|i| {
-                (0..config.max_seq_len)
-                    .map(move |j| if j <= i { 0.0 } else { f32::NEG_INFINITY })
-            })
+            .flat_map(|i| (0..config.max_seq_len).map(move |j| if j <= i { 0.0 } else { f32::NEG_INFINITY }))
             .collect();
 
-        let causal_mask = backend.ops().tensor_from_vec(mask_data, &[config.max_seq_len, config.max_seq_len])?;
+        let causal_mask =
+            backend.ops().tensor_from_vec(mask_data, &[config.max_seq_len, config.max_seq_len])?;
 
-        Ok(Self {
-            self_attn,
-            ff_linear1,
-            ff_linear2,
-            norm1,
-            norm2,
-            causal_mask,
-        })
+        Ok(Self { self_attn, ff_linear1, ff_linear2, norm1, norm2, causal_mask })
     }
 
     pub fn forward(&self, input: B::Tensor, ctx: &mut ForwardCtx<B>) -> Result<B::Tensor> {
@@ -681,17 +606,9 @@ impl<B: Backend> TransformerDecoder<B>
 where
     B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
 {
-    pub fn new(
-        backend: &B,
-        config: TransformerDecoderConfig,
-        vocab_size: usize,
-        seed: u64,
-    ) -> Result<Self> {
-        let token_embedding = Embedding::new(
-            backend,
-            EmbeddingConfig::new(vocab_size, config.d_model),
-            seed,
-        )?;
+    pub fn new(backend: &B, config: TransformerDecoderConfig, vocab_size: usize, seed: u64) -> Result<Self> {
+        let token_embedding =
+            Embedding::new(backend, EmbeddingConfig::new(vocab_size, config.d_model), seed)?;
 
         let pos_encoding = PositionalEncoding::new(backend, config.d_model, config.max_seq_len)?;
 
@@ -710,20 +627,9 @@ where
             None
         };
 
-        let lm_head = Linear::new(
-            backend,
-            LinearConfig::new(config.d_model, vocab_size).with_bias(false),
-        )?;
+        let lm_head = Linear::new(backend, LinearConfig::new(config.d_model, vocab_size).with_bias(false))?;
 
-        Ok(Self {
-            token_embedding,
-            pos_encoding,
-            layers,
-            final_norm,
-            lm_head,
-            config,
-            vocab_size,
-        })
+        Ok(Self { token_embedding, pos_encoding, layers, final_norm, lm_head, config, vocab_size })
     }
 
     /// Forward pass for training.
@@ -778,7 +684,8 @@ where
         let vocab_size = shape[2];
 
         // Get logits for last position
-        let last_logits: Vec<f32> = logits.as_ref()
+        let last_logits: Vec<f32> = logits
+            .as_ref()
             .iter()
             .skip((shape[0] - 1) * shape[1] * vocab_size)
             .take(vocab_size)
@@ -786,7 +693,8 @@ where
             .collect();
 
         // Greedy decode
-        let (idx, _) = last_logits.iter()
+        let (idx, _) = last_logits
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .unwrap_or((0, &0.0));
@@ -843,11 +751,7 @@ impl EncoderDecoderConfig {
     pub fn symmetric(d_model: usize, num_heads: usize, num_layers: usize, ff_dim: usize) -> Self {
         let encoder = TransformerEncoderConfig::new(d_model, num_heads, num_layers, ff_dim);
         let decoder = TransformerDecoderConfig::new(d_model, num_heads, num_layers, ff_dim);
-        Self {
-            encoder,
-            decoder,
-            shared_embeddings: true,
-        }
+        Self { encoder, decoder, shared_embeddings: true }
     }
 
     pub fn with_shared_embeddings(mut self, shared: bool) -> Self {
@@ -885,11 +789,7 @@ where
 
         let decoder = TransformerDecoder::new(backend, config.decoder.clone(), tgt_vocab_size, seed + 1000)?;
 
-        Ok(Self {
-            encoder,
-            decoder,
-            config,
-        })
+        Ok(Self { encoder, decoder, config })
     }
 
     /// Forward pass for training.
@@ -900,14 +800,9 @@ where
     ///
     /// # Returns
     /// Logits [batch, tgt_len, vocab_size]
-    pub fn forward(
-        &self,
-        src: Vec<usize>,
-        tgt: Vec<usize>,
-        ctx: &mut ForwardCtx<B>,
-    ) -> Result<B::Tensor> {
+    pub fn forward(&self, src: Vec<usize>, tgt: Vec<usize>, ctx: &mut ForwardCtx<B>) -> Result<B::Tensor> {
         // Encode source
-        let memory = self.encoder.forward(src, ctx)?;
+        let _memory = self.encoder.forward(src, ctx)?;
 
         // Decode target with cross-attention to memory
         // Simplified - full impl would pass memory to decoder
@@ -937,7 +832,8 @@ where
             let vocab_size = shape[2];
 
             // Get last token logits
-            let last_logits: Vec<f32> = logits.as_ref()
+            let last_logits: Vec<f32> = logits
+                .as_ref()
                 .iter()
                 .skip((tokens.len() - 1) * vocab_size)
                 .take(vocab_size)
@@ -945,7 +841,8 @@ where
                 .collect();
 
             // Greedy decode
-            let next_token = last_logits.iter()
+            let next_token = last_logits
+                .iter()
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
                 .map(|(idx, _)| idx as u32)
@@ -1005,8 +902,7 @@ mod tests {
     #[test]
     fn test_transformer_encoder() {
         let backend = CpuBackend::default();
-        let config = TransformerEncoderConfig::new(64, 4, 2, 256)
-            .with_max_seq_len(128);
+        let config = TransformerEncoderConfig::new(64, 4, 2, 256).with_max_seq_len(128);
 
         let encoder = TransformerEncoder::new(&backend, config, 1000, 42).unwrap();
 
@@ -1024,8 +920,7 @@ mod tests {
     #[test]
     fn test_transformer_decoder() {
         let backend = CpuBackend::default();
-        let config = TransformerDecoderConfig::new(64, 4, 2, 256)
-            .with_max_seq_len(128);
+        let config = TransformerDecoderConfig::new(64, 4, 2, 256).with_max_seq_len(128);
 
         let decoder = TransformerDecoder::new(&backend, config, 1000, 42).unwrap();
 
@@ -1054,8 +949,7 @@ mod tests {
     #[test]
     fn test_transformer_encoder_decoder() {
         let backend = CpuBackend::default();
-        let config = EncoderDecoderConfig::symmetric(64, 4, 2, 256)
-            .with_shared_embeddings(true);
+        let config = EncoderDecoderConfig::symmetric(64, 4, 2, 256).with_shared_embeddings(true);
 
         let model = TransformerEncoderDecoder::new(&backend, config, 1000, 1000, 42).unwrap();
 
@@ -1073,8 +967,7 @@ mod tests {
     #[test]
     fn test_generation() {
         let backend = CpuBackend::default();
-        let config = TransformerDecoderConfig::new(64, 4, 2, 256)
-            .with_max_seq_len(128);
+        let config = TransformerDecoderConfig::new(64, 4, 2, 256).with_max_seq_len(128);
 
         let decoder = TransformerDecoder::new(&backend, config, 100, 42).unwrap();
 
@@ -1114,9 +1007,7 @@ mod tests {
 
     #[test]
     fn test_transformer_encoder_config_builders() {
-        let config = TransformerEncoderConfig::new(64, 4, 2, 256)
-            .with_dropout(0.2)
-            .with_pre_norm(false);
+        let config = TransformerEncoderConfig::new(64, 4, 2, 256).with_dropout(0.2).with_pre_norm(false);
         assert_eq!(config.dropout, 0.2);
         assert!(!config.pre_norm);
     }
@@ -1124,9 +1015,7 @@ mod tests {
     #[test]
     fn test_transformer_encoder_no_final_norm() {
         let backend = CpuBackend::default();
-        let config = TransformerEncoderConfig::new(64, 4, 2, 256)
-            .with_pre_norm(false)
-            .with_max_seq_len(128);
+        let config = TransformerEncoderConfig::new(64, 4, 2, 256).with_pre_norm(false).with_max_seq_len(128);
 
         let encoder = TransformerEncoder::new(&backend, config, 1000, 42).unwrap();
         let input = vec![1usize, 2, 3, 4, 5];
@@ -1139,8 +1028,7 @@ mod tests {
     #[test]
     fn test_transformer_encoder_cls_token() {
         let backend = CpuBackend::default();
-        let config = TransformerEncoderConfig::new(64, 4, 2, 256)
-            .with_max_seq_len(128);
+        let config = TransformerEncoderConfig::new(64, 4, 2, 256).with_max_seq_len(128);
 
         let encoder = TransformerEncoder::new(&backend, config, 1000, 42).unwrap();
         let input = vec![1usize, 2, 3, 4, 5];
@@ -1163,8 +1051,7 @@ mod tests {
     #[test]
     fn test_transformer_encoder_module_forward() {
         let backend = CpuBackend::default();
-        let config = TransformerEncoderConfig::new(64, 4, 2, 256)
-            .with_max_seq_len(128);
+        let config = TransformerEncoderConfig::new(64, 4, 2, 256).with_max_seq_len(128);
         let encoder = TransformerEncoder::new(&backend, config, 1000, 42).unwrap();
 
         fn call_forward<B: Backend>(
@@ -1184,8 +1071,7 @@ mod tests {
     #[test]
     fn test_transformer_encoder_layer_forward_post_norm() {
         let backend = CpuBackend::default();
-        let config = TransformerEncoderConfig::new(16, 4, 1, 64)
-            .with_pre_norm(false);
+        let config = TransformerEncoderConfig::new(16, 4, 1, 64).with_pre_norm(false);
         let layer = TransformerEncoderLayer::new(&backend, &config, 42).unwrap();
 
         let input = backend.tensor_from_vec(vec![0.1f32; 32], &[2, 1, 16]).unwrap();
@@ -1198,8 +1084,7 @@ mod tests {
     #[test]
     fn test_transformer_decoder_layer_module_forward() {
         let backend = CpuBackend::default();
-        let config = TransformerDecoderConfig::new(16, 4, 1, 64)
-            .with_max_seq_len(128);
+        let config = TransformerDecoderConfig::new(16, 4, 1, 64).with_max_seq_len(128);
         let layer = TransformerDecoderLayer::new(&backend, &config, 42).unwrap();
 
         fn call_forward<B: Backend>(
@@ -1220,8 +1105,7 @@ mod tests {
     #[test]
     fn test_transformer_decoder_layer_parameters() {
         let backend = CpuBackend::default();
-        let config = TransformerDecoderConfig::new(16, 4, 1, 64)
-            .with_max_seq_len(128);
+        let config = TransformerDecoderConfig::new(16, 4, 1, 64).with_max_seq_len(128);
         let layer = TransformerDecoderLayer::new(&backend, &config, 42).unwrap();
         let params = layer.parameters();
         // self_attn (4) + ff1 (2) + ff2 (2) + norm1 (2) + norm2 (2) = 12
@@ -1246,8 +1130,7 @@ mod tests {
     #[test]
     fn test_transformer_decoder_multi_batch() {
         let backend = CpuBackend::default();
-        let config = TransformerDecoderConfig::new(64, 4, 1, 256)
-            .with_max_seq_len(4);
+        let config = TransformerDecoderConfig::new(64, 4, 1, 256).with_max_seq_len(4);
 
         let decoder = TransformerDecoder::new(&backend, config, 100, 42).unwrap();
         // total_tokens = 8 > max_seq_len = 4, so batch_size = 2
@@ -1273,8 +1156,7 @@ mod tests {
     #[test]
     fn test_transformer_decoder_module_forward() {
         let backend = CpuBackend::default();
-        let config = TransformerDecoderConfig::new(64, 4, 1, 256)
-            .with_max_seq_len(128);
+        let config = TransformerDecoderConfig::new(64, 4, 1, 256).with_max_seq_len(128);
         let decoder = TransformerDecoder::new(&backend, config, 100, 42).unwrap();
 
         fn call_forward<B: Backend>(
@@ -1294,8 +1176,7 @@ mod tests {
     #[test]
     fn test_transformer_encoder_decoder_generate() {
         let backend = CpuBackend::default();
-        let config = EncoderDecoderConfig::symmetric(64, 4, 1, 256)
-            .with_shared_embeddings(true);
+        let config = EncoderDecoderConfig::symmetric(64, 4, 1, 256).with_shared_embeddings(true);
 
         let model = TransformerEncoderDecoder::new(&backend, config, 100, 100, 42).unwrap();
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);

@@ -35,10 +35,11 @@
 //! ```
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Mode, Module, Parameter, ParameterId, Result, TensorOps, TensorShape, Trainable};
-use mnr_optim::{Adam, AdamCheckpoint, Gradient, OptimError, Optimizer};
+use mnr_core::{
+    Backend, CoreError, ForwardCtx, Module, Parameter, ParameterId, Result, TensorOps, TensorShape, Trainable,
+};
+use mnr_optim::{AdamCheckpoint, Gradient, OptimError, Optimizer};
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
 
@@ -145,7 +146,8 @@ pub struct FSDP<B: Backend, M: Module<B>, O: Optimizer<B>> {
     cpu_offload_buffer: Option<Vec<f32>>,
 }
 
-impl<B: Backend, M: Module<B, Input = B::Tensor, Output = B::Tensor> + Trainable<B>, O: Optimizer<B>> FSDP<B, M, O>
+impl<B: Backend, M: Module<B, Input = B::Tensor, Output = B::Tensor> + Trainable<B>, O: Optimizer<B>>
+    FSDP<B, M, O>
 where
     B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
 {
@@ -161,7 +163,7 @@ where
 
         // Create sharded parameters from explicit parameter list
         // Note: caller should pass parameters extracted from the model
-        let mut sharded_params = HashMap::new();
+        let sharded_params = HashMap::new();
         let all_params = Vec::new();
 
         Ok(Self {
@@ -179,7 +181,11 @@ where
 
     /// Initialize sharded parameters from explicit parameter list.
     /// Call this after construction with model parameters.
-    pub fn shard_parameters(&mut self, params: Vec<Parameter<B>>, _ops: &dyn TensorOps<B>) -> DistributedResult<()> {
+    pub fn shard_parameters(
+        &mut self,
+        params: Vec<Parameter<B>>,
+        _ops: &dyn TensorOps<B>,
+    ) -> DistributedResult<()> {
         let world_size = self.process_group.world_size();
         let rank = self.process_group.rank();
 
@@ -198,11 +204,7 @@ where
                 remainder * (base_shard_size + 1) + (rank - remainder) * base_shard_size
             };
 
-            let local_shard_size = if rank < remainder {
-                base_shard_size + 1
-            } else {
-                base_shard_size
-            };
+            let local_shard_size = if rank < remainder { base_shard_size + 1 } else { base_shard_size };
             let end = start + local_shard_size;
 
             // Extract shard
@@ -326,10 +328,7 @@ where
             // 3. Take only the shard for this rank
 
             if let Some(ref grad_shard) = sharded.grad_shard {
-                gradients.push(Gradient {
-                    param_id: *param_id,
-                    tensor: grad_shard.clone(),
-                });
+                gradients.push(Gradient { param_id: *param_id, tensor: grad_shard.clone() });
             }
         }
 
@@ -337,12 +336,14 @@ where
     }
 
     /// Optimizer step (update sharded parameters)
-    pub fn step(&mut self, gradients: &[Gradient<B>], ctx: &mut ForwardCtx<B>) -> std::result::Result<(), OptimError> {
+    pub fn step(
+        &mut self,
+        gradients: &[Gradient<B>],
+        ctx: &mut ForwardCtx<B>,
+    ) -> std::result::Result<(), OptimError> {
         // Convert sharded_params to format optimizer expects
-        let mut params: Vec<Parameter<B>> = self.sharded_params
-            .values()
-            .map(|s| Parameter::new(s.name.as_str(), s.shard.clone()))
-            .collect();
+        let mut params: Vec<Parameter<B>> =
+            self.sharded_params.values().map(|s| Parameter::new(s.name.as_str(), s.shard.clone())).collect();
 
         // Run optimizer step
         self.optimizer.step(&mut params, gradients, ctx)?;
@@ -377,9 +378,7 @@ where
         let gradients = self.backward(&loss, ctx)?;
 
         // Optimizer step
-        self.step(&gradients, ctx).map_err(|e| {
-            CoreError::Other(format!("Optimizer error: {:?}", e))
-        })?;
+        self.step(&gradients, ctx).map_err(|e| CoreError::Other(format!("Optimizer error: {:?}", e)))?;
 
         Ok(loss_value)
     }
@@ -388,13 +387,9 @@ where
     pub fn memory_stats(&self) -> FSDPMemoryStats {
         let world_size = self.process_group.world_size();
 
-        let total_params: usize = self.sharded_params.values()
-            .map(|s| s.numel)
-            .sum();
+        let total_params: usize = self.sharded_params.values().map(|s| s.numel).sum();
 
-        let local_params: usize = self.sharded_params.values()
-            .map(|s| s.end - s.start)
-            .sum();
+        let local_params: usize = self.sharded_params.values().map(|s| s.end - s.start).sum();
 
         FSDPMemoryStats {
             world_size,
@@ -446,10 +441,7 @@ impl FSDPCheckpoint {
         O: Optimizer<B>,
         B::Tensor: AsRef<[f32]>,
     {
-        let shards = fsdp.sharded_params
-            .values()
-            .map(|s| (s.param_id, s.shard.as_ref().to_vec()))
-            .collect();
+        let shards = fsdp.sharded_params.values().map(|s| (s.param_id, s.shard.as_ref().to_vec())).collect();
 
         Self {
             shards,
@@ -467,10 +459,11 @@ impl FSDPCheckpoint {
     {
         // Verify compatibility
         if self.world_size != fsdp.process_group.world_size() {
-            return Err(DistributedError::Communication(
-                format!("Checkpoint world size {} doesn't match current {}",
-                    self.world_size, fsdp.process_group.world_size())
-            ));
+            return Err(DistributedError::Communication(format!(
+                "Checkpoint world size {} doesn't match current {}",
+                self.world_size,
+                fsdp.process_group.world_size()
+            )));
         }
 
         // Load shards
@@ -514,10 +507,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mnr_core::{ForwardCtx, Mode};
     use mnr_ndarray_backend::CpuBackend;
     use mnr_nn::{Linear, LinearConfig};
     use mnr_optim::Adam;
-    use mnr_core::{ForwardCtx, Mode};
 
     #[test]
     fn test_fsdp_config() {
@@ -652,7 +645,8 @@ mod tests {
             target,
             |a, b| {
                 let diff = backend.ops().sub(a, b).map_err(|e| CoreError::Other(format!("{:?}", e)))?;
-                let squared = backend.ops().mul(&diff, &diff).map_err(|e| CoreError::Other(format!("{:?}", e)))?;
+                let squared =
+                    backend.ops().mul(&diff, &diff).map_err(|e| CoreError::Other(format!("{:?}", e)))?;
                 Ok(squared)
             },
             &mut ctx,
@@ -692,12 +686,8 @@ mod tests {
         let mut fsdp = FSDP::new(linear, optimizer, pg_small, FSDPConfig::new()).unwrap();
 
         // Create a checkpoint from a larger world size
-        let checkpoint = FSDPCheckpoint {
-            shards: HashMap::new(),
-            optimizer_state: None,
-            rank: 0,
-            world_size: 8,
-        };
+        let checkpoint =
+            FSDPCheckpoint { shards: HashMap::new(), optimizer_state: None, rank: 0, world_size: 8 };
 
         assert!(checkpoint.load(&mut fsdp).is_err());
     }

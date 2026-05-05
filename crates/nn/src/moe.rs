@@ -23,7 +23,7 @@
 
 use std::collections::HashMap;
 
-use mnr_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, TensorOps, Trainable};
+use mnr_core::{Backend, ForwardCtx, Module, ParameterRef, Result, TensorOps, Trainable};
 
 use crate::{Linear, LinearConfig};
 
@@ -47,14 +47,7 @@ pub struct MoEConfig {
 impl MoEConfig {
     /// Create new MoE configuration.
     pub fn new(d_model: usize, num_experts: usize, expert_dim: usize, top_k: usize) -> Self {
-        Self {
-            d_model,
-            num_experts,
-            expert_dim,
-            top_k,
-            capacity_factor: 1.0,
-            dropout: 0.0,
-        }
+        Self { d_model, num_experts, expert_dim, top_k, capacity_factor: 1.0, dropout: 0.0 }
     }
 
     /// Set capacity factor.
@@ -92,10 +85,8 @@ where
 {
     /// Create new top-k gating network.
     pub fn new(backend: &B, config: MoEConfig, _seed: u64) -> Result<Self> {
-        let gate_proj = Linear::new(
-            backend,
-            LinearConfig::new(config.d_model, config.num_experts).with_bias(false),
-        )?;
+        let gate_proj =
+            Linear::new(backend, LinearConfig::new(config.d_model, config.num_experts).with_bias(false))?;
 
         Ok(Self { gate_proj, config })
     }
@@ -124,21 +115,11 @@ where
         // Compute load balancing auxiliary loss
         let aux_loss = self.compute_aux_loss(&gate_probs, ops)?;
 
-        Ok(GatingOutput {
-            gate_probs,
-            expert_indices: top_k_indices,
-            expert_weights: top_k_values,
-            aux_loss,
-        })
+        Ok(GatingOutput { gate_probs, expert_indices: top_k_indices, expert_weights: top_k_values, aux_loss })
     }
 
     /// Top-k selection on gate probabilities.
-    fn topk(
-        &self,
-        probs: &B::Tensor,
-        k: usize,
-        _ops: &dyn TensorOps<B>,
-    ) -> Result<(B::Tensor, B::Tensor)>
+    fn topk(&self, probs: &B::Tensor, k: usize, _ops: &dyn TensorOps<B>) -> Result<(B::Tensor, B::Tensor)>
     where
         B::Tensor: AsRef<[f32]>,
     {
@@ -148,9 +129,8 @@ where
         // Create dummy indices tensor
         let shape = _ops.shape(probs);
         let num_tokens = shape[0];
-        let indices_data: Vec<f32> = (0..num_tokens * k)
-            .map(|i| (i % self.config.num_experts) as f32)
-            .collect();
+        let indices_data: Vec<f32> =
+            (0..num_tokens * k).map(|i| (i % self.config.num_experts) as f32).collect();
         let indices = _ops.tensor_from_vec(indices_data, &[num_tokens, k])?;
 
         // Extract top-k values (simplified - just first k columns)
@@ -171,15 +151,15 @@ where
         let num_tokens = shape[0];
 
         // Mean probability per expert
-        let expert_usage: Vec<f32> = gate_probs.as_ref().chunks(self.config.num_experts)
+        let expert_usage: Vec<f32> = gate_probs
+            .as_ref()
+            .chunks(self.config.num_experts)
             .map(|chunk| chunk.iter().sum::<f32>() / num_tokens as f32)
             .collect();
 
         // Coefficient of variation squared (target: uniform = 1/num_experts)
         let target = 1.0 / self.config.num_experts as f32;
-        let aux_loss: f32 = expert_usage.iter()
-            .map(|&u| (u - target).powi(2))
-            .sum();
+        let aux_loss: f32 = expert_usage.iter().map(|&u| (u - target).powi(2)).sum();
 
         Ok(aux_loss * self.config.num_experts as f32)
     }
@@ -217,15 +197,9 @@ where
 {
     /// Create new expert.
     pub fn new(backend: &B, d_model: usize, expert_dim: usize, _expert_id: usize) -> Result<Self> {
-        let fc1 = Linear::new(
-            backend,
-            LinearConfig::new(d_model, expert_dim).with_bias(true),
-        )?;
+        let fc1 = Linear::new(backend, LinearConfig::new(d_model, expert_dim).with_bias(true))?;
 
-        let fc2 = Linear::new(
-            backend,
-            LinearConfig::new(expert_dim, d_model).with_bias(true),
-        )?;
+        let fc2 = Linear::new(backend, LinearConfig::new(expert_dim, d_model).with_bias(true))?;
 
         Ok(Self { fc1, fc2 })
     }
@@ -271,11 +245,7 @@ where
             experts.push(Expert::new(backend, config.d_model, config.expert_dim, i)?);
         }
 
-        Ok(Self {
-            gating,
-            experts,
-            config,
-        })
+        Ok(Self { gating, experts, config })
     }
 
     /// Forward pass through MoE layer.
@@ -295,19 +265,12 @@ where
         let gating_out = self.gating.forward(&x_flat, ctx)?;
 
         // Dispatch tokens to experts
-        let expert_outputs = self.dispatch_and_combine(
-            &x_flat,
-            &gating_out,
-            ctx,
-        )?;
+        let expert_outputs = self.dispatch_and_combine(&x_flat, &gating_out, ctx)?;
 
         // Reshape back
         let output = ops.reshape(&expert_outputs, &shape)?;
 
-        Ok(MoEOutput {
-            output,
-            aux_loss: gating_out.aux_loss,
-        })
+        Ok(MoEOutput { output, aux_loss: gating_out.aux_loss })
     }
 
     /// Dispatch tokens to experts and combine outputs.
@@ -322,7 +285,7 @@ where
     {
         let ops = ctx.backend().ops();
         let shape = ops.shape(x);
-        let num_tokens = shape[0];
+        let _num_tokens = shape[0];
 
         // Initialize output tensor
         let mut output = ops.zeros(&shape)?;
@@ -371,25 +334,14 @@ where
         let indices_data: &[f32] = expert_indices.as_ref();
         let mask_data: Vec<f32> = indices_data
             .chunks(k)
-            .map(|chunk| {
-                if chunk.contains(&(expert_id as f32)) {
-                    1.0
-                } else {
-                    0.0
-                }
-            })
+            .map(|chunk| if chunk.contains(&(expert_id as f32)) { 1.0 } else { 0.0 })
             .collect();
 
         ops.tensor_from_vec(mask_data, &[num_tokens, 1])
     }
 
     /// Select tokens based on mask.
-    fn select_tokens(
-        &self,
-        x: &B::Tensor,
-        mask: &B::Tensor,
-        _ops: &dyn TensorOps<B>,
-    ) -> Result<B::Tensor> {
+    fn select_tokens(&self, x: &B::Tensor, _mask: &B::Tensor, _ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
         // Simplified: return all tokens
         // Full implementation would gather based on mask
         Ok(x.clone())
@@ -463,7 +415,7 @@ pub struct ExpertParallel<B: Backend> {
 impl<B: Backend> ExpertParallel<B> {
     /// Create expert parallel configuration.
     pub fn new(num_experts: usize, world_size: usize) -> Self {
-        let mut local_experts = HashMap::new();
+        let local_experts = HashMap::new();
         let mut expert_to_device = HashMap::new();
 
         for expert_id in 0..num_experts {
@@ -471,10 +423,7 @@ impl<B: Backend> ExpertParallel<B> {
             expert_to_device.insert(expert_id, device_id);
         }
 
-        Self {
-            local_experts,
-            expert_to_device,
-        }
+        Self { local_experts, expert_to_device }
     }
 
     /// Get device for an expert.
@@ -504,8 +453,10 @@ impl MoEStats {
     /// Calculate stats for a configuration.
     pub fn calculate(config: &MoEConfig) -> Self {
         // Expert parameters: 2 linear layers
-        let expert_params = config.d_model * config.expert_dim + config.expert_dim * config.d_model
-            + config.d_model + config.expert_dim; // biases
+        let expert_params = config.d_model * config.expert_dim
+            + config.expert_dim * config.d_model
+            + config.d_model
+            + config.expert_dim; // biases
 
         let total_params = expert_params * config.num_experts;
         let active_params = expert_params * config.top_k;
@@ -600,9 +551,7 @@ mod tests {
 
     #[test]
     fn test_moe_config_builders() {
-        let config = MoEConfig::new(64, 4, 128, 2)
-            .with_capacity_factor(1.5)
-            .with_dropout(0.1);
+        let config = MoEConfig::new(64, 4, 128, 2).with_capacity_factor(1.5).with_dropout(0.1);
         assert_eq!(config.capacity_factor, 1.5);
         assert_eq!(config.dropout, 0.1);
     }

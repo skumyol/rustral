@@ -20,10 +20,7 @@
 //! ```
 
 use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_nn::{
-    Linear, LinearConfig, Embedding, EmbeddingConfig,
-    LayerNorm, LayerNormConfig,
-};
+use mnr_nn::{Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig};
 
 fn main() {
     use mnr_ndarray_backend::CpuBackend;
@@ -99,10 +96,7 @@ fn main() {
     println!("CLS token shape: {:?}", cls_shape);
 
     let num_classes = 3;
-    let classifier = Linear::new(
-        &backend,
-        LinearConfig::new(d_model, num_classes).with_bias(true),
-    ).unwrap();
+    let classifier = Linear::new(&backend, LinearConfig::new(d_model, num_classes).with_bias(true)).unwrap();
 
     let logits = classifier.forward(cls, &mut ctx).unwrap();
     let logits_shape = ops.shape(&logits);
@@ -121,10 +115,7 @@ fn main() {
     ];
 
     for (name, d_m, heads, layers, ff) in sizes {
-        println!(
-            "  {:8}: d_model={:4}, heads={:2}, layers={:2}, ff_dim={}",
-            name, d_m, heads, layers, ff
-        );
+        println!("  {:8}: d_model={:4}, heads={:2}, layers={:2}, ff_dim={}", name, d_m, heads, layers, ff);
     }
 
     println!("\nKey concepts:");

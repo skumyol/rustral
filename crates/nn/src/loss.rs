@@ -227,7 +227,7 @@ impl Default for BCEWithLogitsLoss {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{Mode, ForwardCtx};
+    use mnr_core::{ForwardCtx, Mode};
     use mnr_ndarray_backend::CpuBackend;
 
     #[test]
@@ -260,8 +260,7 @@ mod tests {
         let loss_val: Vec<f32> = loss.values().to_vec();
 
         let expected = (1.0 + 4.0 + 9.0) / 3.0;
-        assert!((loss_val[0] - expected).abs() < 1e-5,
-            "MSE expected {}, got {}", expected, loss_val[0]);
+        assert!((loss_val[0] - expected).abs() < 1e-5, "MSE expected {}, got {}", expected, loss_val[0]);
     }
 
     #[test]
@@ -288,16 +287,18 @@ mod tests {
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
 
         // logits for 2 samples, 3 classes
-        let logits = backend.tensor_from_vec(
-            vec![2.0, 1.0, 0.0,  // Sample 0: class 0 is highest
-                 0.0, 2.0, 1.0], // Sample 1: class 1 is highest
-            &[2, 3]
-        ).unwrap();
+        let logits = backend
+            .tensor_from_vec(
+                vec![
+                    2.0, 1.0, 0.0, // Sample 0: class 0 is highest
+                    0.0, 2.0, 1.0,
+                ], // Sample 1: class 1 is highest
+                &[2, 3],
+            )
+            .unwrap();
 
         // Target: sample 0 -> class 1, sample 1 -> class 1
-        let loss = CrossEntropyLoss::new()
-            .forward_indices(&logits, &[1, 1], &mut ctx)
-            .unwrap();
+        let loss = CrossEntropyLoss::new().forward_indices(&logits, &[1, 1], &mut ctx).unwrap();
         let loss_val: Vec<f32> = loss.values().to_vec();
 
         assert!(loss_val[0] > 0.0, "Cross-entropy loss should be positive");

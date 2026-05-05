@@ -36,10 +36,10 @@
 //! });
 //! ```
 
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
-use rand::{Rng, SeedableRng};
-use rand::rngs::StdRng;
 
 /// Types of failures that can be injected.
 #[derive(Debug, Clone, PartialEq)]
@@ -202,48 +202,45 @@ impl ChaosMonkey {
     pub fn add_common_faults(&mut self, world_size: usize) {
         // Random single rank failures
         for rank in 0..world_size {
-            self.add_injection(FaultInjection::new(
-                FaultType::GpuOutOfMemory { rank },
-                0.01, // 1% chance per check
-            ).with_duration(Duration::from_secs(5)));
+            self.add_injection(
+                FaultInjection::new(
+                    FaultType::GpuOutOfMemory { rank },
+                    0.01, // 1% chance per check
+                )
+                .with_duration(Duration::from_secs(5)),
+            );
 
-            self.add_injection(FaultInjection::new(
-                FaultType::SlowWorker { rank, delay_ms: 500 },
-                0.05,
-            ).with_duration(Duration::from_secs(10)));
+            self.add_injection(
+                FaultInjection::new(FaultType::SlowWorker { rank, delay_ms: 500 }, 0.05)
+                    .with_duration(Duration::from_secs(10)),
+            );
         }
 
         // Network partition (rare but critical)
         if world_size >= 4 {
             let half = world_size / 2;
-            self.add_injection(FaultInjection::new(
-                FaultType::NetworkPartition {
-                    target_ranks: (0..half).collect(),
-                },
-                0.001,
-            ).with_duration(Duration::from_secs(3)));
+            self.add_injection(
+                FaultInjection::new(FaultType::NetworkPartition { target_ranks: (0..half).collect() }, 0.001)
+                    .with_duration(Duration::from_secs(3)),
+            );
         }
 
         // Packet loss
-        self.add_injection(FaultInjection::new(
-            FaultType::PacketLoss { loss_rate: 0.1 },
-            0.02,
-        ).with_duration(Duration::from_secs(2)));
+        self.add_injection(
+            FaultInjection::new(FaultType::PacketLoss { loss_rate: 0.1 }, 0.02)
+                .with_duration(Duration::from_secs(2)),
+        );
 
         // Memory leak
-        self.add_injection(FaultInjection::new(
-            FaultType::MemoryLeak {
-                rank: world_size - 1,
-                leak_rate_mb: 100.0,
-            },
-            0.005,
-        ).with_max_triggers(1));
+        self.add_injection(
+            FaultInjection::new(FaultType::MemoryLeak { rank: world_size - 1, leak_rate_mb: 100.0 }, 0.005)
+                .with_max_triggers(1),
+        );
 
         // Process crash (test elastic recovery)
-        self.add_injection(FaultInjection::new(
-            FaultType::ProcessCrash { rank: 0 },
-            0.003,
-        ).with_max_triggers(1));
+        self.add_injection(
+            FaultInjection::new(FaultType::ProcessCrash { rank: 0 }, 0.003).with_max_triggers(1),
+        );
     }
 
     /// Check and trigger any due faults.
@@ -285,10 +282,7 @@ impl ChaosMonkey {
         for injection in &mut self.injections {
             if injection.should_trigger(&mut self.rng, elapsed) {
                 // Clone the needed data
-                triggered_faults.push((
-                    injection.fault.clone(),
-                    injection.duration,
-                ));
+                triggered_faults.push((injection.fault.clone(), injection.duration));
             }
         }
 
@@ -431,7 +425,8 @@ impl ChaosMonkey {
             println!("\nInjected Faults:");
             for (i, result) in self.results.iter().enumerate() {
                 let status = if result.recovered { "RECOVERED" } else { "ACTIVE" };
-                println!("  {}: {:?} [{}, affected: {:?}]",
+                println!(
+                    "  {}: {:?} [{}, affected: {:?}]",
                     i + 1,
                     result.fault_type,
                     status,
@@ -446,12 +441,9 @@ impl ChaosMonkey {
         if !self.active_faults.is_empty() {
             println!("\nCurrently Active:");
             for (i, active) in self.active_faults.iter().enumerate() {
-                let duration = active.duration.map(|d| format!("{:?}", d)).unwrap_or_else(|| "permanent".to_string());
-                println!("  {}: {:?} (duration: {})",
-                    i + 1,
-                    active.fault,
-                    duration
-                );
+                let duration =
+                    active.duration.map(|d| format!("{:?}", d)).unwrap_or_else(|| "permanent".to_string());
+                println!("  {}: {:?} (duration: {})", i + 1, active.fault, duration);
             }
         }
 
@@ -535,10 +527,13 @@ impl ChaosScenarios {
     /// Scenario: Single slow worker in large cluster.
     pub fn slow_worker(world_size: usize) -> ChaosMonkey {
         let mut chaos = ChaosMonkey::new(42);
-        chaos.add_injection(FaultInjection::new(
-            FaultType::SlowWorker { rank: world_size / 2, delay_ms: 2000 },
-            1.0, // Always trigger
-        ).with_duration(Duration::from_secs(30)));
+        chaos.add_injection(
+            FaultInjection::new(
+                FaultType::SlowWorker { rank: world_size / 2, delay_ms: 2000 },
+                1.0, // Always trigger
+            )
+            .with_duration(Duration::from_secs(30)),
+        );
         chaos
     }
 
@@ -546,12 +541,10 @@ impl ChaosScenarios {
     pub fn network_partition(world_size: usize) -> ChaosMonkey {
         let mut chaos = ChaosMonkey::new(42);
         let half = world_size / 2;
-        chaos.add_injection(FaultInjection::new(
-            FaultType::NetworkPartition {
-                target_ranks: (0..half).collect(),
-            },
-            1.0,
-        ).with_duration(Duration::from_secs(10)));
+        chaos.add_injection(
+            FaultInjection::new(FaultType::NetworkPartition { target_ranks: (0..half).collect() }, 1.0)
+                .with_duration(Duration::from_secs(10)),
+        );
         chaos
     }
 
@@ -560,24 +553,22 @@ impl ChaosScenarios {
         let mut chaos = ChaosMonkey::new(42);
 
         // Start with slow worker
-        chaos.add_injection(FaultInjection::new(
-            FaultType::SlowWorker { rank: 0, delay_ms: 5000 },
-            1.0,
-        ).with_delay(Duration::from_secs(5)));
+        chaos.add_injection(
+            FaultInjection::new(FaultType::SlowWorker { rank: 0, delay_ms: 5000 }, 1.0)
+                .with_delay(Duration::from_secs(5)),
+        );
 
         // Then OOM on another rank
-        chaos.add_injection(FaultInjection::new(
-            FaultType::GpuOutOfMemory { rank: 1 },
-            1.0,
-        ).with_delay(Duration::from_secs(15)));
+        chaos.add_injection(
+            FaultInjection::new(FaultType::GpuOutOfMemory { rank: 1 }, 1.0)
+                .with_delay(Duration::from_secs(15)),
+        );
 
         // Finally network partition
-        chaos.add_injection(FaultInjection::new(
-            FaultType::NetworkPartition {
-                target_ranks: (2..world_size).collect(),
-            },
-            1.0,
-        ).with_delay(Duration::from_secs(30)));
+        chaos.add_injection(
+            FaultInjection::new(FaultType::NetworkPartition { target_ranks: (2..world_size).collect() }, 1.0)
+                .with_delay(Duration::from_secs(30)),
+        );
 
         chaos
     }
@@ -600,7 +591,8 @@ mod tests {
         let injection = FaultInjection::new(
             FaultType::GpuOutOfMemory { rank: 0 },
             1.0, // Always trigger
-        ).with_duration(Duration::from_secs(5));
+        )
+        .with_duration(Duration::from_secs(5));
 
         assert_eq!(injection.fault, FaultType::GpuOutOfMemory { rank: 0 });
         assert_eq!(injection.trigger_probability, 1.0);
@@ -608,12 +600,9 @@ mod tests {
 
     #[test]
     fn test_fault_injection_builder() {
-        let mut injection = FaultInjection::new(
-            FaultType::SlowWorker { rank: 1, delay_ms: 500 },
-            1.0,
-        )
-        .with_delay(Duration::from_secs(1))
-        .with_max_triggers(3);
+        let mut injection = FaultInjection::new(FaultType::SlowWorker { rank: 1, delay_ms: 500 }, 1.0)
+            .with_delay(Duration::from_secs(1))
+            .with_max_triggers(3);
 
         assert_eq!(injection.trigger_delay, Duration::from_secs(1));
         assert_eq!(injection.max_triggers, 3);
@@ -689,10 +678,10 @@ mod tests {
         let mut chaos = ChaosMonkey::new(42);
         assert_eq!(chaos.get_delay_ms(0), 0);
 
-        chaos.add_injection(FaultInjection::new(
-            FaultType::SlowWorker { rank: 0, delay_ms: 250 },
-            1.0,
-        ).with_duration(Duration::from_secs(5)));
+        chaos.add_injection(
+            FaultInjection::new(FaultType::SlowWorker { rank: 0, delay_ms: 250 }, 1.0)
+                .with_duration(Duration::from_secs(5)),
+        );
         chaos.tick();
 
         assert_eq!(chaos.get_delay_ms(0), 250);
@@ -705,10 +694,10 @@ mod tests {
         // No active packet loss
         assert!(!chaos.packet_lost(0));
 
-        chaos.add_injection(FaultInjection::new(
-            FaultType::PacketLoss { loss_rate: 1.0 },
-            1.0,
-        ).with_duration(Duration::from_secs(5)));
+        chaos.add_injection(
+            FaultInjection::new(FaultType::PacketLoss { loss_rate: 1.0 }, 1.0)
+                .with_duration(Duration::from_secs(5)),
+        );
         chaos.tick();
 
         // With loss_rate=1.0, all packets should be lost
@@ -725,10 +714,10 @@ mod tests {
     #[test]
     fn test_fault_tick() {
         let mut chaos = ChaosMonkey::new(42);
-        chaos.add_injection(FaultInjection::new(
-            FaultType::SlowWorker { rank: 0, delay_ms: 100 },
-            1.0,
-        ).with_duration(Duration::from_secs(1)));
+        chaos.add_injection(
+            FaultInjection::new(FaultType::SlowWorker { rank: 0, delay_ms: 100 }, 1.0)
+                .with_duration(Duration::from_secs(1)),
+        );
 
         // Trigger the fault
         let results = chaos.tick();
@@ -745,10 +734,10 @@ mod tests {
     #[test]
     fn test_fault_recovery() {
         let mut chaos = ChaosMonkey::new(42);
-        chaos.add_injection(FaultInjection::new(
-            FaultType::GpuOutOfMemory { rank: 0 },
-            1.0,
-        ).with_duration(Duration::from_millis(50)));
+        chaos.add_injection(
+            FaultInjection::new(FaultType::GpuOutOfMemory { rank: 0 }, 1.0)
+                .with_duration(Duration::from_millis(50)),
+        );
 
         // Trigger fault
         chaos.tick();
@@ -769,10 +758,10 @@ mod tests {
     #[test]
     fn test_print_summary() {
         let mut chaos = ChaosMonkey::new(42);
-        chaos.add_injection(FaultInjection::new(
-            FaultType::GpuOutOfMemory { rank: 0 },
-            1.0,
-        ).with_duration(Duration::from_secs(1)));
+        chaos.add_injection(
+            FaultInjection::new(FaultType::GpuOutOfMemory { rank: 0 }, 1.0)
+                .with_duration(Duration::from_secs(1)),
+        );
         chaos.tick();
         chaos.print_summary();
     }
@@ -780,10 +769,10 @@ mod tests {
     #[test]
     fn test_reset() {
         let mut chaos = ChaosMonkey::new(42);
-        chaos.add_injection(FaultInjection::new(
-            FaultType::GpuOutOfMemory { rank: 0 },
-            1.0,
-        ).with_duration(Duration::from_secs(1)));
+        chaos.add_injection(
+            FaultInjection::new(FaultType::GpuOutOfMemory { rank: 0 }, 1.0)
+                .with_duration(Duration::from_secs(1)),
+        );
         chaos.tick();
 
         assert!(!chaos.results.is_empty());

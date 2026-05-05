@@ -104,7 +104,8 @@ impl ParallelTrainer {
                 learner.apply_update(merged)?;
             }
 
-            let mean_loss = if losses.is_empty() { 0.0 } else { losses.iter().sum::<f32>() / losses.len() as f32 };
+            let mean_loss =
+                if losses.is_empty() { 0.0 } else { losses.iter().sum::<f32>() / losses.len() as f32 };
             stats.push(EpochStats { epoch, examples: data.len(), mean_loss, elapsed: start.elapsed() });
         }
         Ok(stats)

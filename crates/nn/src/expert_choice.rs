@@ -88,10 +88,10 @@ impl ExpertChoiceConfig {
         let total_capacity = self.total_tokens_processed();
 
         if num_tokens > total_capacity {
-            return Err(CoreError::InvalidArgument(
-                format!("Batch size {} exceeds total capacity {} (experts: {}, tokens_per_expert: {})",
-                    num_tokens, total_capacity, self.num_experts, self.tokens_per_expert)
-            ));
+            return Err(CoreError::InvalidArgument(format!(
+                "Batch size {} exceeds total capacity {} (experts: {}, tokens_per_expert: {})",
+                num_tokens, total_capacity, self.num_experts, self.tokens_per_expert
+            )));
         }
 
         Ok(())
@@ -106,11 +106,9 @@ pub struct ExpertChoiceRouter<B: Backend> {
 }
 
 impl<B: Backend> ExpertChoiceRouter<B> {
-    pub fn new(backend: &B, config: ExpertChoiceConfig, seed: u64) -> Result<Self> {
-        let router = Linear::new(
-            backend,
-            LinearConfig::new(config.d_model, config.num_experts).with_bias(false),
-        )?;
+    pub fn new(backend: &B, config: ExpertChoiceConfig, _seed: u64) -> Result<Self> {
+        let router =
+            Linear::new(backend, LinearConfig::new(config.d_model, config.num_experts).with_bias(false))?;
 
         Ok(Self { config, router })
     }
@@ -132,7 +130,7 @@ impl<B: Backend> ExpertChoiceRouter<B> {
 
         if shape.len() < 2 {
             return Err(CoreError::Shape(
-                "Input must have at least 2 dimensions [batch*seq, d_model]".to_string()
+                "Input must have at least 2 dimensions [batch*seq, d_model]".to_string(),
             ));
         }
 
@@ -140,9 +138,10 @@ impl<B: Backend> ExpertChoiceRouter<B> {
         let d_model = shape[shape.len() - 1];
 
         if d_model != self.config.d_model {
-            return Err(CoreError::InvalidArgument(
-                format!("Input d_model {} doesn't match config {}", d_model, self.config.d_model)
-            ));
+            return Err(CoreError::InvalidArgument(format!(
+                "Input d_model {} doesn't match config {}",
+                d_model, self.config.d_model
+            )));
         }
 
         self.config.validate_for_batch(num_tokens)?;
@@ -158,12 +157,7 @@ impl<B: Backend> ExpertChoiceRouter<B> {
         let assignments = self.expert_selection(&router_probs, ops)?;
 
         // Gather tokens to experts and process
-        let expert_outputs = self.process_with_experts(
-            &flat_input,
-            &assignments,
-            expert_fn,
-            ops,
-        )?;
+        let expert_outputs = self.process_with_experts(&flat_input, &assignments, expert_fn, ops)?;
 
         // Scatter results back with weighting
         let output = self.scatter_results(&expert_outputs, &assignments, &router_probs, ops)?;
@@ -186,7 +180,7 @@ impl<B: Backend> ExpertChoiceRouter<B> {
     }
 
     /// Softmax over experts dimension.
-    fn softmax(&self, logits: &B::Tensor, ops: &dyn TensorOps<B>) -> Result<Vec<f32>>
+    fn softmax(&self, logits: &B::Tensor, _ops: &dyn TensorOps<B>) -> Result<Vec<f32>>
     where
         B::Tensor: AsRef<[f32]>,
     {
@@ -248,11 +242,7 @@ impl<B: Backend> ExpertChoiceRouter<B> {
             let selected: Vec<TokenAssignment> = tokens
                 .into_iter()
                 .take(capacity)
-                .map(|(token_idx, weight)| TokenAssignment {
-                    token_idx,
-                    expert_idx,
-                    weight,
-                })
+                .map(|(token_idx, weight)| TokenAssignment { token_idx, expert_idx, weight })
                 .collect();
 
             assignments.push(selected);
@@ -291,10 +281,8 @@ impl<B: Backend> ExpertChoiceRouter<B> {
             }
 
             // Create tensor and process
-            let expert_input_tensor = ops.tensor_from_vec(
-                expert_input,
-                &[expert_assignments.len(), d_model]
-            )?;
+            let expert_input_tensor =
+                ops.tensor_from_vec(expert_input, &[expert_assignments.len(), d_model])?;
 
             let output_tensor = expert_fn(&expert_input_tensor)?;
             let output_data: Vec<f32> = output_tensor.as_ref().to_vec();
@@ -436,16 +424,12 @@ impl RoutingComparison {
         let top_k_imbalance = max_count as f64 / avg.max(1.0);
 
         // Expert choice: perfectly balanced by design
-        let tokens_per_expert = (num_tokens * top_k) / num_experts;
+        let _tokens_per_expert = (num_tokens * top_k) / num_experts;
         let expert_choice_imbalance = 1.0;
 
         let improvement = (top_k_imbalance - expert_choice_imbalance) / top_k_imbalance * 100.0;
 
-        Self {
-            top_k_imbalance,
-            expert_choice_imbalance,
-            improvement,
-        }
+        Self { top_k_imbalance, expert_choice_imbalance, improvement }
     }
 
     pub fn print(&self) {
@@ -463,9 +447,8 @@ mod tests {
 
     #[test]
     fn test_expert_choice_config() {
-        let config = ExpertChoiceConfig::new(512, 64, 2048)
-            .with_tokens_per_expert(16)
-            .with_capacity_factor(1.2);
+        let config =
+            ExpertChoiceConfig::new(512, 64, 2048).with_tokens_per_expert(16).with_capacity_factor(1.2);
 
         assert_eq!(config.total_tokens_processed(), 64 * 16);
         assert_eq!(config.capacity_factor, 1.2);
@@ -480,8 +463,7 @@ mod tests {
     #[test]
     fn test_expert_selection() {
         let backend = CpuBackend::default();
-        let config = ExpertChoiceConfig::new(64, 8, 128)
-            .with_tokens_per_expert(4);
+        let config = ExpertChoiceConfig::new(64, 8, 128).with_tokens_per_expert(4);
 
         let router = ExpertChoiceRouter::new(&backend, config, 42).unwrap();
 
@@ -531,16 +513,14 @@ mod tests {
 
     #[test]
     fn test_expert_choice_config_with_all_to_all() {
-        let config = ExpertChoiceConfig::new(64, 8, 128)
-            .with_all_to_all(false);
+        let config = ExpertChoiceConfig::new(64, 8, 128).with_all_to_all(false);
         assert!(!config.all_to_all);
     }
 
     #[test]
     fn test_expert_choice_router_forward_errors() {
         let backend = CpuBackend::default();
-        let config = ExpertChoiceConfig::new(4, 4, 8)
-            .with_tokens_per_expert(2);
+        let config = ExpertChoiceConfig::new(4, 4, 8).with_tokens_per_expert(2);
         let router = ExpertChoiceRouter::new(&backend, config, 42).unwrap();
 
         let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Inference);
@@ -564,8 +544,7 @@ mod tests {
     #[test]
     fn test_expert_choice_router_forward_success() {
         let backend = CpuBackend::default();
-        let config = ExpertChoiceConfig::new(4, 4, 8)
-            .with_tokens_per_expert(4);
+        let config = ExpertChoiceConfig::new(4, 4, 8).with_tokens_per_expert(4);
         let router = ExpertChoiceRouter::new(&backend, config, 42).unwrap();
 
         let input = backend.tensor_from_vec(vec![0.1f32; 8], &[2, 4]).unwrap();

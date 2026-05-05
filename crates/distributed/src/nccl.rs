@@ -183,32 +183,20 @@ impl NcclCommunicator {
     /// Initialize NCCL communicator
     pub fn init(world_size: usize, rank: usize, unique_id: NcclUniqueId) -> DistributedResult<Self> {
         if rank >= world_size {
-            return Err(DistributedError::RankMismatch {
-                expected: world_size,
-                actual: rank,
-            });
+            return Err(DistributedError::RankMismatch { expected: world_size, actual: rank });
         }
 
         let mut comm: *mut NcclComm = null_mut();
 
         unsafe {
-            let result = ncclCommInitRank(
-                &mut comm,
-                world_size as c_int,
-                unique_id,
-                rank as c_int,
-            );
+            let result = ncclCommInitRank(&mut comm, world_size as c_int, unique_id, rank as c_int);
 
             if result != NCCL_SUCCESS {
                 return Err(Self::error_to_string(result));
             }
         }
 
-        Ok(Self {
-            comm,
-            world_size,
-            rank,
-        })
+        Ok(Self { comm, world_size, rank })
     }
 
     /// Initialize from MPI communicator (requires MPI feature)
@@ -234,11 +222,7 @@ impl NcclCommunicator {
     /// Perform all-reduce operation
     ///
     /// Sums (or other op) data across all ranks and distributes result to all
-    pub fn all_reduce(
-        &self,
-        data: &mut [f32],
-        op: AllReduceOp,
-    ) -> DistributedResult<()> {
+    pub fn all_reduce(&self, data: &mut [f32], op: AllReduceOp) -> DistributedResult<()> {
         self.all_reduce_typed(data, NcclDataType::f32(), op)
     }
 
@@ -281,11 +265,7 @@ impl NcclCommunicator {
     }
 
     /// All-gather: Each rank contributes data, all ranks receive all data
-    pub fn all_gather(
-        &self,
-        send_data: &[f32],
-        recv_data: &mut [f32],
-    ) -> DistributedResult<()> {
+    pub fn all_gather(&self, send_data: &[f32], recv_data: &mut [f32]) -> DistributedResult<()> {
         if send_data.is_empty() {
             return Ok(());
         }
@@ -398,9 +378,7 @@ impl NcclCommunicator {
     fn error_to_string(result: NcclResult) -> DistributedError {
         unsafe {
             let c_str = ncclGetErrorString(result);
-            let error_msg = CStr::from_ptr(c_str)
-                .to_string_lossy()
-                .into_owned();
+            let error_msg = CStr::from_ptr(c_str).to_string_lossy().into_owned();
             DistributedError::Communication(format!("NCCL error {}: {}", result, error_msg))
         }
     }
@@ -465,28 +443,16 @@ pub enum CompressionType {
 impl NcclCompressedCommunicator {
     /// Create compressed communicator
     pub fn new(communicator: NcclCommunicator, compression: CompressionType) -> Self {
-        Self {
-            inner: communicator,
-            compression,
-        }
+        Self { inner: communicator, compression }
     }
 
     /// All-reduce with compression
-    pub fn all_reduce_compressed(
-        &self,
-        data: &mut [f32],
-        op: AllReduceOp,
-    ) -> DistributedResult<()> {
+    pub fn all_reduce_compressed(&self, data: &mut [f32], op: AllReduceOp) -> DistributedResult<()> {
         match self.compression {
-            CompressionType::None => {
-                self.inner.all_reduce(data, op)
-            }
+            CompressionType::None => self.inner.all_reduce(data, op),
             CompressionType::Fp16 => {
                 // Compress to FP16
-                let compressed: Vec<u16> = data
-                    .iter()
-                    .map(|&v| f32_to_f16(v))
-                    .collect();
+                let compressed: Vec<u16> = data.iter().map(|&v| f32_to_f16(v)).collect();
 
                 // All-reduce in FP16
                 let mut compressed_mut = compressed;

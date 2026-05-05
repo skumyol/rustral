@@ -55,9 +55,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::LinearBuilder;
     use mnr_core::{ForwardCtx, Mode};
     use mnr_ndarray_backend::CpuBackend;
-    use crate::LinearBuilder;
 
     #[test]
     fn test_sequential2_composition() {
@@ -83,11 +83,7 @@ mod tests {
     fn test_sequential2_parameters() {
         let backend = CpuBackend::default();
 
-        let linear1 = LinearBuilder::new(10, 5)
-            .with_bias(true)
-            .seed(42)
-            .build(&backend)
-            .unwrap();
+        let linear1 = LinearBuilder::new(10, 5).with_bias(true).seed(42).build(&backend).unwrap();
         let linear2 = LinearBuilder::new(5, 3).seed(43).build(&backend).unwrap();
 
         let seq = chain(linear1, linear2);

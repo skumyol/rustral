@@ -35,12 +35,7 @@ impl GridSearch {
     /// Create a new grid search over a configuration space.
     pub fn new(space: &ConfigSpace) -> Self {
         let configs = enumerate_configs(space);
-        Self {
-            configs,
-            current: 0,
-            best: None,
-            best_time: f64::MAX,
-        }
+        Self { configs, current: 0, best: None, best_time: f64::MAX }
     }
 
     /// Get all configurations that will be tried.
@@ -118,16 +113,16 @@ impl RandomSearch {
 
     /// Sample a random configuration from the space.
     fn sample_config(&mut self) -> KernelConfig {
-        let wg = *self.space.workgroup_sizes.choose(&mut self.rng)
-            .unwrap_or(&WorkgroupConfig::default());
+        let wg = *self.space.workgroup_sizes.choose(&mut self.rng).unwrap_or(&WorkgroupConfig::default());
 
-        let alg = self.space.algorithms.choose(&mut self.rng)
+        let alg = self
+            .space
+            .algorithms
+            .choose(&mut self.rng)
             .cloned()
             .unwrap_or_else(|| crate::kernel_config::AlgorithmConfig::Elementwise);
 
-        let mem = self.space.memory_configs.choose(&mut self.rng)
-            .cloned()
-            .unwrap_or_default();
+        let mem = self.space.memory_configs.choose(&mut self.rng).cloned().unwrap_or_default();
 
         let mut params = HashMap::new();
         for (key, values) in &self.space.param_ranges {
@@ -136,12 +131,7 @@ impl RandomSearch {
             }
         }
 
-        KernelConfig {
-            workgroup: wg,
-            algorithm: alg,
-            memory: mem,
-            params,
-        }
+        KernelConfig { workgroup: wg, algorithm: alg, memory: mem, params }
     }
 }
 
@@ -180,8 +170,7 @@ impl SearchStrategy for RandomSearch {
     }
 
     fn is_complete(&self) -> bool {
-        self.current >= self.max_iterations ||
-        self.no_improvement_count >= self.max_no_improvement
+        self.current >= self.max_iterations || self.no_improvement_count >= self.max_no_improvement
     }
 
     fn best_config(&self) -> Option<&KernelConfig> {
@@ -451,16 +440,15 @@ fn generate_param_combos(ranges: &HashMap<String, Vec<i32>>) -> Vec<HashMap<Stri
 
 /// Sample a random configuration from the space.
 fn sample_random<R: Rng>(space: &ConfigSpace, rng: &mut R) -> KernelConfig {
-    let wg = *space.workgroup_sizes.choose(rng)
-        .unwrap_or(&WorkgroupConfig::default());
+    let wg = *space.workgroup_sizes.choose(rng).unwrap_or(&WorkgroupConfig::default());
 
-    let alg = space.algorithms.choose(rng)
+    let alg = space
+        .algorithms
+        .choose(rng)
         .cloned()
         .unwrap_or_else(|| crate::kernel_config::AlgorithmConfig::Elementwise);
 
-    let mem = space.memory_configs.choose(rng)
-        .cloned()
-        .unwrap_or_default();
+    let mem = space.memory_configs.choose(rng).cloned().unwrap_or_default();
 
     let mut params = HashMap::new();
     for (key, values) in &space.param_ranges {
@@ -469,18 +457,12 @@ fn sample_random<R: Rng>(space: &ConfigSpace, rng: &mut R) -> KernelConfig {
         }
     }
 
-    KernelConfig {
-        workgroup: wg,
-        algorithm: alg,
-        memory: mem,
-        params,
-    }
+    KernelConfig { workgroup: wg, algorithm: alg, memory: mem, params }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel_config::{AlgorithmConfig, MatmulAlgorithm};
 
     #[test]
     fn test_grid_search() {
@@ -535,8 +517,7 @@ mod tests {
     #[test]
     fn test_random_search_with_early_stop() {
         let space = ConfigSpace::matmul_reduced();
-        let mut search = RandomSearch::new(space, 100, 42)
-            .with_early_stop(0.99, 5);
+        let mut search = RandomSearch::new(space, 100, 42).with_early_stop(0.99, 5);
 
         assert_eq!(search.max_iterations, 100);
 

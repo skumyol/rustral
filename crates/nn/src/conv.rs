@@ -1,6 +1,8 @@
 //! Convolutional layers for neural networks.
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Module, Parameter, ParameterRef, Result, ShapeExt, Trainable};
+use mnr_core::{
+    Backend, CoreError, ForwardCtx, Module, Parameter, ParameterRef, Result, ShapeExt, Trainable,
+};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for a 2D convolutional layer.
@@ -25,15 +27,7 @@ pub struct Conv2dConfig {
 impl Conv2dConfig {
     /// Create a new Conv2D configuration.
     pub fn new(out_channels: usize, kernel_h: usize, kernel_w: usize) -> Self {
-        Self {
-            out_channels,
-            kernel_h,
-            kernel_w,
-            stride_h: 1,
-            stride_w: 1,
-            bias: false,
-            no_padding: true,
-        }
+        Self { out_channels, kernel_h, kernel_w, stride_h: 1, stride_w: 1, bias: false, no_padding: true }
     }
 
     /// Set stride.
@@ -116,10 +110,12 @@ impl<B: Backend> Module<B> for Conv2d<B> {
         let (batch, in_channels, in_h, in_w) = match input_shape.len() {
             3 => (1, input_shape[0], input_shape[1], input_shape[2]),
             4 => (input_shape[0], input_shape[1], input_shape[2], input_shape[3]),
-            _ => return Err(CoreError::InvalidShape {
-                shape: input_shape,
-                reason: "Conv2d expects 3D [C,H,W] or 4D [N,C,H,W] input".into(),
-            }),
+            _ => {
+                return Err(CoreError::InvalidShape {
+                    shape: input_shape,
+                    reason: "Conv2d expects 3D [C,H,W] or 4D [N,C,H,W] input".into(),
+                })
+            }
         };
 
         let (out_h, out_w) = self.output_size(in_h, in_w);
@@ -144,14 +140,12 @@ impl<B: Backend> Module<B> for Conv2d<B> {
 
         // Extract input values - this is O(n) scalar extraction
         // For production use, backends should implement Conv2d via specialized kernels
-        let input_values: Vec<f32> = (0..input_shape.elem_count())
-            .filter_map(|i| ops.tensor_element(&input, i).ok())
-            .collect();
+        let input_values: Vec<f32> =
+            (0..input_shape.elem_count()).filter_map(|i| ops.tensor_element(&input, i).ok()).collect();
 
         // Extract filter values
-        let filter_values: Vec<f32> = (0..filter_shape.elem_count())
-            .filter_map(|i| ops.tensor_element(filter, i).ok())
-            .collect();
+        let filter_values: Vec<f32> =
+            (0..filter_shape.elem_count()).filter_map(|i| ops.tensor_element(filter, i).ok()).collect();
 
         // Perform convolution
         let mut output_values = vec![0.0f32; batch * out_channels * out_h * out_w];
@@ -175,17 +169,16 @@ impl<B: Backend> Module<B> for Conv2d<B> {
 
                                     if ih < in_h && iw < in_w {
                                         // Input index
-                                        let input_idx = n * in_channels * in_h * in_w
-                                            + ic * in_h * in_w
-                                            + ih * in_w
-                                            + iw;
+                                        let input_idx =
+                                            n * in_channels * in_h * in_w + ic * in_h * in_w + ih * in_w + iw;
                                         // Filter index
                                         let filter_idx = oc * in_channels * kernel_h * kernel_w
                                             + ic * kernel_h * kernel_w
                                             + kh * kernel_w
                                             + kw;
 
-                                        if input_idx < input_values.len() && filter_idx < filter_values.len() {
+                                        if input_idx < input_values.len() && filter_idx < filter_values.len()
+                                        {
                                             sum += input_values[input_idx] * filter_values[filter_idx];
                                         }
                                     }
@@ -198,10 +191,8 @@ impl<B: Backend> Module<B> for Conv2d<B> {
                             sum += ops.tensor_element(bias.tensor(), oc).unwrap_or(0.0);
                         }
 
-                        let output_idx = n * out_channels * out_h * out_w
-                            + oc * out_h * out_w
-                            + oh * out_w
-                            + ow;
+                        let output_idx =
+                            n * out_channels * out_h * out_w + oc * out_h * out_w + oh * out_w + ow;
                         output_values[output_idx] = sum;
                     }
                 }
@@ -244,28 +235,21 @@ pub fn max_pool2d<B: Backend>(
     let (batch, channels, in_h, in_w) = match input_shape.len() {
         3 => (1, input_shape[0], input_shape[1], input_shape[2]),
         4 => (input_shape[0], input_shape[1], input_shape[2], input_shape[3]),
-        _ => return Err(CoreError::InvalidShape {
-            shape: input_shape.clone(),
-            reason: "max_pool2d expects 3D [C,H,W] or 4D [N,C,H,W] input".into(),
-        }),
+        _ => {
+            return Err(CoreError::InvalidShape {
+                shape: input_shape.clone(),
+                reason: "max_pool2d expects 3D [C,H,W] or 4D [N,C,H,W] input".into(),
+            })
+        }
     };
 
     // Calculate output dimensions
-    let out_h = if no_padding {
-        (in_h - window_h) / stride_h + 1
-    } else {
-        (in_h + stride_h - 1) / stride_h
-    };
-    let out_w = if no_padding {
-        (in_w - window_w) / stride_w + 1
-    } else {
-        (in_w + stride_w - 1) / stride_w
-    };
+    let out_h = if no_padding { (in_h - window_h) / stride_h + 1 } else { (in_h + stride_h - 1) / stride_h };
+    let out_w = if no_padding { (in_w - window_w) / stride_w + 1 } else { (in_w + stride_w - 1) / stride_w };
 
     // Extract input values
-    let input_values: Vec<f32> = (0..input_shape.elem_count())
-        .filter_map(|i| ops.tensor_element(input, i).ok())
-        .collect();
+    let input_values: Vec<f32> =
+        (0..input_shape.elem_count()).filter_map(|i| ops.tensor_element(input, i).ok()).collect();
 
     let mut output_values = vec![f32::NEG_INFINITY; batch * channels * out_h * out_w];
 
@@ -282,17 +266,13 @@ pub fn max_pool2d<B: Backend>(
                             let iw = w_start + kw;
 
                             if ih < in_h && iw < in_w {
-                                let input_idx = n * channels * in_h * in_w
-                                    + c * in_h * in_w
-                                    + ih * in_w
-                                    + iw;
-                                let output_idx = n * channels * out_h * out_w
-                                    + c * out_h * out_w
-                                    + oh * out_w
-                                    + ow;
+                                let input_idx = n * channels * in_h * in_w + c * in_h * in_w + ih * in_w + iw;
+                                let output_idx =
+                                    n * channels * out_h * out_w + c * out_h * out_w + oh * out_w + ow;
 
                                 if input_idx < input_values.len() && output_idx < output_values.len() {
-                                    output_values[output_idx] = output_values[output_idx].max(input_values[input_idx]);
+                                    output_values[output_idx] =
+                                        output_values[output_idx].max(input_values[input_idx]);
                                 }
                             }
                         }
@@ -302,17 +282,17 @@ pub fn max_pool2d<B: Backend>(
         }
     }
 
-    let output_shape = if batch == 1 {
-        vec![channels, out_h, out_w]
-    } else {
-        vec![batch, channels, out_h, out_w]
-    };
+    let output_shape =
+        if batch == 1 { vec![channels, out_h, out_w] } else { vec![batch, channels, out_h, out_w] };
 
     ops.tensor_from_vec(output_values, &output_shape)
 }
 
 /// Global max pooling over spatial dimensions.
-pub fn global_max_pool2d<B: Backend>(input: &B::Tensor, ops: &dyn mnr_core::TensorOps<B>) -> Result<B::Tensor> {
+pub fn global_max_pool2d<B: Backend>(
+    input: &B::Tensor,
+    ops: &dyn mnr_core::TensorOps<B>,
+) -> Result<B::Tensor> {
     let shape = ops.shape(input);
     if shape.len() != 3 && shape.len() != 4 {
         return Err(CoreError::InvalidShape {
@@ -321,11 +301,7 @@ pub fn global_max_pool2d<B: Backend>(input: &B::Tensor, ops: &dyn mnr_core::Tens
         });
     }
 
-    let (h, w) = if shape.len() == 3 {
-        (shape[1], shape[2])
-    } else {
-        (shape[2], shape[3])
-    };
+    let (h, w) = if shape.len() == 3 { (shape[1], shape[2]) } else { (shape[2], shape[3]) };
 
     max_pool2d(input, h, w, 1, 1, true, ops)
 }
@@ -336,10 +312,7 @@ mod tests {
 
     #[test]
     fn test_conv2d_config() {
-        let config = Conv2dConfig::new(64, 3, 3)
-            .with_stride(2, 2)
-            .with_bias()
-            .with_padding();
+        let config = Conv2dConfig::new(64, 3, 3).with_stride(2, 2).with_bias().with_padding();
 
         assert_eq!(config.out_channels, 64);
         assert_eq!(config.kernel_h, 3);
@@ -358,7 +331,7 @@ mod tests {
         let conv = Conv2d::from_parameters(config.clone(), filter, None);
 
         let (h, w) = conv.output_size(28, 28);
-        assert_eq!(h, 26);  // (28 - 3) / 1 + 1
+        assert_eq!(h, 26); // (28 - 3) / 1 + 1
         assert_eq!(w, 26);
     }
 
@@ -370,7 +343,7 @@ mod tests {
         let conv = Conv2d::from_parameters(config.clone(), filter, None);
 
         let (h, w) = conv.output_size(28, 28);
-        assert_eq!(h, 13);  // (28 - 3) / 2 + 1
+        assert_eq!(h, 13); // (28 - 3) / 2 + 1
         assert_eq!(w, 13);
     }
 
@@ -381,22 +354,22 @@ mod tests {
 
         let config = Conv2dConfig::new(2, 2, 2).with_stride(1, 1);
         // 2 output channels, 1 input channel, 2x2 kernel
-        let filter = backend.tensor_from_vec(
-            vec![1.0, 0.0, 0.0, 1.0,  // output channel 0 (identity-like)
-                 0.0, 1.0, 1.0, 0.0], // output channel 1 (swapped)
-            &[2, 1, 2, 2]
-        ).unwrap();
+        let filter = backend
+            .tensor_from_vec(
+                vec![
+                    1.0, 0.0, 0.0, 1.0, // output channel 0 (identity-like)
+                    0.0, 1.0, 1.0, 0.0,
+                ], // output channel 1 (swapped)
+                &[2, 1, 2, 2],
+            )
+            .unwrap();
         let filter_param = mnr_core::Parameter::new("W", filter);
 
         let conv = Conv2d::from_parameters(config, filter_param, None);
 
         // Input: 1 channel, 3x3 image
-        let input = backend.tensor_from_vec(
-            vec![1.0, 2.0, 3.0,
-                 4.0, 5.0, 6.0,
-                 7.0, 8.0, 9.0],
-            &[1, 3, 3]
-        ).unwrap();
+        let input =
+            backend.tensor_from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], &[1, 3, 3]).unwrap();
 
         let output = conv.forward(input, &mut ctx).unwrap();
         let shape = backend.ops().shape(&output);
@@ -408,21 +381,18 @@ mod tests {
         let backend = mnr_ndarray_backend::CpuBackend::default();
 
         // Input: 1 channel, 4x4
-        let input = backend.tensor_from_vec(
-            vec![1.0, 2.0, 3.0, 4.0,
-                 5.0, 6.0, 7.0, 8.0,
-                 9.0, 10.0, 11.0, 12.0,
-                 13.0, 14.0, 15.0, 16.0],
-            &[1, 4, 4]
-        ).unwrap();
+        let input = backend
+            .tensor_from_vec(
+                vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0],
+                &[1, 4, 4],
+            )
+            .unwrap();
 
         let output = max_pool2d(&input, 2, 2, 2, 2, true, backend.ops()).unwrap();
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, &[1, 2, 2]);
 
-        let values: Vec<f32> = (0..4)
-            .filter_map(|i| backend.ops().tensor_element(&output, i).ok())
-            .collect();
+        let values: Vec<f32> = (0..4).filter_map(|i| backend.ops().tensor_element(&output, i).ok()).collect();
         assert_eq!(values, vec![6.0, 8.0, 14.0, 16.0]);
     }
 
@@ -431,21 +401,14 @@ mod tests {
         let backend = mnr_ndarray_backend::CpuBackend::default();
 
         // Input: 2 channels, 2x2
-        let input = backend.tensor_from_vec(
-            vec![1.0, 3.0,
-                 2.0, 4.0,
-                 5.0, 7.0,
-                 6.0, 8.0],
-            &[2, 2, 2]
-        ).unwrap();
+        let input =
+            backend.tensor_from_vec(vec![1.0, 3.0, 2.0, 4.0, 5.0, 7.0, 6.0, 8.0], &[2, 2, 2]).unwrap();
 
         let output = global_max_pool2d(&input, backend.ops()).unwrap();
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, &[2, 1, 1]);
 
-        let values: Vec<f32> = (0..2)
-            .filter_map(|i| backend.ops().tensor_element(&output, i).ok())
-            .collect();
+        let values: Vec<f32> = (0..2).filter_map(|i| backend.ops().tensor_element(&output, i).ok()).collect();
         assert_eq!(values, vec![4.0, 8.0]);
     }
 
@@ -462,7 +425,11 @@ mod tests {
         let backend = mnr_ndarray_backend::CpuBackend::default();
         let config = Conv2dConfig::new(4, 3, 3);
         let weight = backend.tensor_from_vec(vec![0.0; 36], &[4, 1, 3, 3]).unwrap();
-        let conv = Conv2d::<mnr_ndarray_backend::CpuBackend>::from_parameters(config.clone(), mnr_core::Parameter::new("w", weight), None);
+        let conv = Conv2d::<mnr_ndarray_backend::CpuBackend>::from_parameters(
+            config.clone(),
+            mnr_core::Parameter::new("w", weight),
+            None,
+        );
         assert_eq!(conv.config().out_channels, 4);
     }
 
@@ -472,24 +439,20 @@ mod tests {
         let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Inference);
 
         let config = Conv2dConfig::new(2, 2, 2).with_stride(1, 1);
-        let filter = backend.tensor_from_vec(
-            vec![1.0, 0.0, 0.0, 1.0,
-                 0.0, 1.0, 1.0, 0.0],
-            &[2, 1, 2, 2]
-        ).unwrap();
+        let filter =
+            backend.tensor_from_vec(vec![1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0], &[2, 1, 2, 2]).unwrap();
         let filter_param = mnr_core::Parameter::new("W", filter);
         let conv = Conv2d::from_parameters(config, filter_param, None);
 
         // Input: [batch=2, channels=1, 3x3]
-        let input = backend.tensor_from_vec(
-            vec![1.0, 2.0, 3.0,
-                 4.0, 5.0, 6.0,
-                 7.0, 8.0, 9.0,
-                 1.0, 1.0, 1.0,
-                 1.0, 1.0, 1.0,
-                 1.0, 1.0, 1.0],
-            &[2, 1, 3, 3]
-        ).unwrap();
+        let input = backend
+            .tensor_from_vec(
+                vec![
+                    1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                ],
+                &[2, 1, 3, 3],
+            )
+            .unwrap();
 
         let output = conv.forward(input, &mut ctx).unwrap();
         let shape = backend.ops().shape(&output);
@@ -510,10 +473,7 @@ mod tests {
     #[test]
     fn test_max_pool2d_with_padding() {
         let backend = mnr_ndarray_backend::CpuBackend::default();
-        let input = backend.tensor_from_vec(
-            vec![1.0, 2.0, 3.0, 4.0],
-            &[1, 2, 2]
-        ).unwrap();
+        let input = backend.tensor_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[1, 2, 2]).unwrap();
         let output = max_pool2d(&input, 2, 2, 2, 2, false, backend.ops()).unwrap();
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, &[1, 1, 1]);

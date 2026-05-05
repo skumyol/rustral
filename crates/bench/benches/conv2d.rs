@@ -19,31 +19,22 @@ fn bench_conv2d(c: &mut Criterion) {
     ];
 
     for &(name, ref input_shape, ref filter_shape) in &configs {
-        let input = backend
-            .tensor_from_vec(vec![1.0f32; input_shape.iter().product()], &input_shape)
-            .unwrap();
+        let input =
+            backend.tensor_from_vec(vec![1.0f32; input_shape.iter().product()], &input_shape).unwrap();
 
         let out_channels = filter_shape[0];
         let kernel_h = filter_shape[2];
         let kernel_w = filter_shape[3];
 
-        let conv = Conv2d::new(
-            &backend,
-            Conv2dConfig::new(out_channels, kernel_h, kernel_w),
-        )
-        .unwrap();
+        let conv = Conv2d::new(&backend, Conv2dConfig::new(out_channels, kernel_h, kernel_w)).unwrap();
 
-        group.bench_with_input(
-            BenchmarkId::new("forward", name),
-            &name,
-            |bencher, _| {
-                bencher.iter(|| {
-                    let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-                    let result = conv.forward(black_box(input.clone()), &mut ctx).unwrap();
-                    black_box(result);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("forward", name), &name, |bencher, _| {
+            bencher.iter(|| {
+                let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
+                let result = conv.forward(black_box(input.clone()), &mut ctx).unwrap();
+                black_box(result);
+            });
+        });
     }
 
     group.finish();

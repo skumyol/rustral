@@ -73,11 +73,7 @@ pub struct ConsoleLogger {
 
 impl ConsoleLogger {
     pub fn new() -> Self {
-        Self {
-            enabled: true,
-            scalar_buffer: Vec::with_capacity(100),
-            flush_interval: 10,
-        }
+        Self { enabled: true, scalar_buffer: Vec::with_capacity(100), flush_interval: 10 }
     }
 
     pub fn with_flush_interval(mut self, interval: usize) -> Self {
@@ -128,10 +124,8 @@ impl MetricsBackend for ConsoleLogger {
 
         for step in steps {
             let metrics = by_step.get(&step).unwrap();
-            let mut parts: Vec<String> = metrics
-                .iter()
-                .map(|m| format!("{}={:.6}", m.name, m.value))
-                .collect();
+            let mut parts: Vec<String> =
+                metrics.iter().map(|m| format!("{}={:.6}", m.name, m.value)).collect();
             parts.sort();
 
             println!("[step {}] {}", step, parts.join(", "));
@@ -160,10 +154,13 @@ impl TensorBoardWriter {
 
         Self {
             log_dir,
-            run_name: format!("run_{}", std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()),
+            run_name: format!(
+                "run_{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            ),
             scalars: Vec::new(),
             histograms: Vec::new(),
         }
@@ -191,11 +188,7 @@ impl MetricsBackend for TensorBoardWriter {
 
         // Write scalars as simple JSON lines for compatibility
         let filename = format!("{}/{}.jsonl", self.log_dir, self.run_name);
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&filename)
-        {
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&filename) {
             for metric in &self.scalars {
                 let line = serde_json::json!({
                     "type": "scalar",
@@ -225,10 +218,7 @@ pub struct MetricsLogger {
 
 impl MetricsLogger {
     pub fn new() -> Self {
-        Self {
-            backends: Vec::new(),
-            current_step: 0,
-        }
+        Self { backends: Vec::new(), current_step: 0 }
     }
 
     /// Add a backend.
@@ -310,13 +300,7 @@ impl MetricsLogger {
     }
 
     /// Training summary at end of epoch/batch.
-    pub fn log_training_summary(
-        &mut self,
-        epoch: u64,
-        loss: f64,
-        accuracy: Option<f64>,
-        lr: Option<f64>,
-    ) {
+    pub fn log_training_summary(&mut self, epoch: u64, loss: f64, accuracy: Option<f64>, lr: Option<f64>) {
         self.set_step(epoch);
         self.log_scalar("epoch", epoch as f64);
         self.log_scalar("loss/train", loss);
@@ -358,9 +342,7 @@ fn compute_histogram(values: &[f64], num_bins: usize) -> (Vec<f64>, Vec<u64>) {
         counts[bin] += 1;
     }
 
-    let bins: Vec<f64> = (0..=num_bins)
-        .map(|i| min + i as f64 * bin_width)
-        .collect();
+    let bins: Vec<f64> = (0..=num_bins).map(|i| min + i as f64 * bin_width).collect();
 
     (bins, counts)
 }
@@ -374,11 +356,7 @@ pub struct ProgressBar {
 
 impl ProgressBar {
     pub fn new(total: u64) -> Self {
-        Self {
-            total,
-            current: 0,
-            width: 40,
-        }
+        Self { total, current: 0, width: 40 }
     }
 
     pub fn update(&mut self, current: u64) {
@@ -398,11 +376,7 @@ impl ProgressBar {
     }
 
     fn draw(&self) {
-        let pct = if self.total > 0 {
-            self.current as f64 / self.total as f64
-        } else {
-            0.0
-        };
+        let pct = if self.total > 0 { self.current as f64 / self.total as f64 } else { 0.0 };
         let filled = (pct * self.width as f64) as usize;
         let empty = self.width - filled;
 
@@ -437,12 +411,7 @@ mod tests {
     #[test]
     fn test_console_logger() {
         let mut logger = ConsoleLogger::new().with_flush_interval(2);
-        let metric = ScalarMetric {
-            name: "loss".to_string(),
-            value: 0.5,
-            step: 0,
-            timestamp: 0,
-        };
+        let metric = ScalarMetric { name: "loss".to_string(), value: 0.5, step: 0, timestamp: 0 };
         logger.log_scalar(&metric);
         logger.flush();
     }
@@ -450,12 +419,7 @@ mod tests {
     #[test]
     fn test_tensorboard_writer() {
         let mut logger = TensorBoardWriter::new("/tmp/test_runs");
-        let metric = ScalarMetric {
-            name: "accuracy".to_string(),
-            value: 0.95,
-            step: 10,
-            timestamp: 0,
-        };
+        let metric = ScalarMetric { name: "accuracy".to_string(), value: 0.95, step: 10, timestamp: 0 };
         logger.log_scalar(&metric);
         logger.flush();
     }
@@ -497,12 +461,7 @@ mod tests {
     #[test]
     fn test_console_logger_default() {
         let mut logger = ConsoleLogger::new();
-        let metric = ScalarMetric {
-            name: "loss".to_string(),
-            value: 0.5,
-            step: 0,
-            timestamp: 0,
-        };
+        let metric = ScalarMetric { name: "loss".to_string(), value: 0.5, step: 0, timestamp: 0 };
         logger.log_scalar(&metric);
         logger.log_histogram(&HistogramMetric {
             name: "h".to_string(),
@@ -517,12 +476,7 @@ mod tests {
     #[test]
     fn test_console_logger_disable() {
         let mut logger = ConsoleLogger::new().disable();
-        logger.log_scalar(&ScalarMetric {
-            name: "loss".to_string(),
-            value: 0.5,
-            step: 0,
-            timestamp: 0,
-        });
+        logger.log_scalar(&ScalarMetric { name: "loss".to_string(), value: 0.5, step: 0, timestamp: 0 });
         logger.flush();
     }
 

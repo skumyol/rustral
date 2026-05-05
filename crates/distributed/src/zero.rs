@@ -10,13 +10,12 @@
 /// - **ZeRO-3**: Shard optimizer states + gradients + parameters (max reduction)
 ///
 /// This implementation provides ZeRO-1 as the foundation.
-
 use std::collections::HashMap;
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, Result, TensorOps};
+use mnr_core::{Backend, ForwardCtx, Parameter, ParameterId, TensorOps};
 use mnr_optim::{Adam, AdamCheckpoint, Gradient, OptimError, Optimizer};
 
-use crate::{DistributedError, DistributedResult, ProcessGroup};
+use crate::ProcessGroup;
 
 /// ZeRO-1 optimizer wrapper.
 ///
@@ -47,11 +46,7 @@ where
     /// * `inner` - The base optimizer to wrap (e.g., Adam::new(0.001))
     /// * `process_group` - Process group for communication
     /// * `total_params` - Total number of parameters across all shards
-    pub fn new(
-        inner: Adam<B>,
-        process_group: ProcessGroup,
-        total_params: usize,
-    ) -> Self {
+    pub fn new(inner: Adam<B>, process_group: ProcessGroup, total_params: usize) -> Self {
         let world_size = process_group.world_size();
         let rank = process_group.rank();
 
@@ -68,12 +63,7 @@ where
             }
         }
 
-        Self {
-            inner,
-            process_group,
-            parameter_shard,
-            total_params,
-        }
+        Self { inner, process_group, parameter_shard, total_params }
     }
 
     /// Map global parameters to local shards.
@@ -85,7 +75,7 @@ where
 
         let local_count = (self.total_params + world_size - 1) / world_size;
         let start_idx = rank * local_count;
-        let end_idx = ((start_idx + local_count).min(self.total_params));
+        let end_idx = (start_idx + local_count).min(self.total_params);
 
         self.parameter_shard.clear();
 
@@ -104,11 +94,8 @@ where
         ctx: &mut ForwardCtx<B>,
     ) -> std::result::Result<(), OptimError> {
         // Filter gradients to only those in our shard
-        let local_gradients: Vec<_> = gradients
-            .iter()
-            .filter(|g| self.parameter_shard.contains_key(&g.param_id))
-            .cloned()
-            .collect();
+        let local_gradients: Vec<_> =
+            gradients.iter().filter(|g| self.parameter_shard.contains_key(&g.param_id)).cloned().collect();
 
         // Local optimizer step
         self.inner.step(params, &local_gradients, ctx)?;
@@ -187,10 +174,11 @@ where
     ) -> std::result::Result<(), OptimError> {
         // Load only this rank's shard
         if checkpoint.rank != self.process_group.rank() {
-            return Err(OptimError::Gradient(
-                format!("Checkpoint rank {} doesn't match current rank {}",
-                    checkpoint.rank, self.process_group.rank())
-            ));
+            return Err(OptimError::Gradient(format!(
+                "Checkpoint rank {} doesn't match current rank {}",
+                checkpoint.rank,
+                self.process_group.rank()
+            )));
         }
 
         self.inner.load_checkpoint(&checkpoint.inner, params, ops)?;
@@ -224,7 +212,7 @@ pub struct ZeroCheckpoint {
     /// Rank that saved this checkpoint.
     pub rank: usize,
 
- /// Total world size.
+    /// Total world size.
     pub world_size: usize,
 
     /// Inner optimizer checkpoint.
@@ -250,11 +238,7 @@ where
     B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
 {
     /// Create a new ZeRO-2 optimizer.
-    pub fn new(
-        inner: Adam<B>,
-        process_group: ProcessGroup,
-        total_params: usize,
-    ) -> Self {
+    pub fn new(inner: Adam<B>, process_group: ProcessGroup, total_params: usize) -> Self {
         Self {
             zero1: ZeroOptimizer::new(inner, process_group, total_params),
             bucket_size_mb: 25, // Default 25MB buckets
@@ -321,11 +305,7 @@ pub struct ZeRoMemoryStats {
 
 impl ZeRoMemoryStats {
     /// Calculate memory stats for ZeRO-1.
-    pub fn zero1(
-        total_params: usize,
-        param_size_bytes: usize,
-        world_size: usize,
-    ) -> Self {
+    pub fn zero1(total_params: usize, param_size_bytes: usize, world_size: usize) -> Self {
         let param_size_mb = (total_params * param_size_bytes) as f32 / (1024.0 * 1024.0);
         let optimizer_state_multiplier = 2.0; // Adam: m and v
 
@@ -346,11 +326,7 @@ impl ZeRoMemoryStats {
     }
 
     /// Calculate memory stats for ZeRO-2.
-    pub fn zero2(
-        total_params: usize,
-        param_size_bytes: usize,
-        world_size: usize,
-    ) -> Self {
+    pub fn zero2(total_params: usize, param_size_bytes: usize, world_size: usize) -> Self {
         let param_size_mb = (total_params * param_size_bytes) as f32 / (1024.0 * 1024.0);
         let optimizer_state_multiplier = 2.0;
 
@@ -374,8 +350,8 @@ impl ZeRoMemoryStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
     use mnr_core::{ForwardCtx, Mode};
+    use mnr_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_zero_optimizer_creation() {
@@ -422,10 +398,7 @@ mod tests {
         zero.build_shard_mapping(&params);
 
         let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
-        let gradients = vec![Gradient {
-            param_id: params[0].id(),
-            tensor: grad_tensor,
-        }];
+        let gradients = vec![Gradient { param_id: params[0].id(), tensor: grad_tensor }];
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
         zero.step(&mut params, &gradients, &mut ctx).unwrap();
@@ -450,9 +423,7 @@ mod tests {
         let adam = Adam::<CpuBackend>::new(0.001);
         let mut zero = ZeroOptimizer::new(adam, pg, 2);
 
-        let params = vec![
-            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()),
-        ];
+        let params = vec![Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
 
         let checkpoint = zero.save_checkpoint(&params);
         assert_eq!(checkpoint.rank, 0);
@@ -469,17 +440,11 @@ mod tests {
         let adam = Adam::<CpuBackend>::new(0.001);
         let mut zero = ZeroOptimizer::new(adam, pg, 2);
 
-        let params = vec![
-            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()),
-        ];
+        let params = vec![Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
 
         let inner_ckpt = zero.inner().save_checkpoint();
-        let checkpoint = ZeroCheckpoint {
-            rank: 1,
-            world_size: 1,
-            inner: inner_ckpt,
-            shard_state: HashMap::new(),
-        };
+        let checkpoint =
+            ZeroCheckpoint { rank: 1, world_size: 1, inner: inner_ckpt, shard_state: HashMap::new() };
 
         assert!(zero.load_checkpoint(&checkpoint, &params, backend.ops()).is_err());
     }
@@ -510,10 +475,7 @@ mod tests {
         zero2.zero1.build_shard_mapping(&params);
 
         let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
-        let gradients = vec![Gradient {
-            param_id: params[0].id(),
-            tensor: grad_tensor,
-        }];
+        let gradients = vec![Gradient { param_id: params[0].id(), tensor: grad_tensor }];
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
         zero2.step(&mut params, &gradients, &mut ctx).unwrap();
@@ -535,11 +497,7 @@ mod tests {
 
     #[test]
     fn test_memory_stats_zero2() {
-        let stats = ZeRoMemoryStats::zero2(
-            1_000_000_000,
-            4,
-            8,
-        );
+        let stats = ZeRoMemoryStats::zero2(1_000_000_000, 4, 8);
 
         assert!(stats.local_gradients_mb < stats.total_params_mb);
         assert!(stats.memory_saved_percent > 50.0);

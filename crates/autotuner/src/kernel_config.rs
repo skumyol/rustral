@@ -32,11 +32,7 @@ impl KernelConfig {
     /// Default matmul configuration.
     pub fn default_matmul() -> Self {
         Self {
-            workgroup: WorkgroupConfig {
-                x: 16,
-                y: 16,
-                z: 1,
-            },
+            workgroup: WorkgroupConfig { x: 16, y: 16, z: 1 },
             algorithm: AlgorithmConfig::Matmul(MatmulAlgorithm::Tiled),
             memory: MemoryConfig {
                 use_shared: true,
@@ -44,24 +40,16 @@ impl KernelConfig {
                 vector_width: 4,
                 cache_config: CacheConfig::PreferL1,
             },
-            params: [
-                ("tile_m".to_string(), 128),
-                ("tile_n".to_string(), 128),
-                ("tile_k".to_string(), 8),
-            ]
-            .into_iter()
-            .collect(),
+            params: [("tile_m".to_string(), 128), ("tile_n".to_string(), 128), ("tile_k".to_string(), 8)]
+                .into_iter()
+                .collect(),
         }
     }
 
     /// Default conv2d configuration.
     pub fn default_conv2d() -> Self {
         Self {
-            workgroup: WorkgroupConfig {
-                x: 8,
-                y: 8,
-                z: 4,
-            },
+            workgroup: WorkgroupConfig { x: 8, y: 8, z: 4 },
             algorithm: AlgorithmConfig::Conv(ConvAlgorithm::ImplicitGemm),
             memory: MemoryConfig {
                 use_shared: true,
@@ -69,24 +57,16 @@ impl KernelConfig {
                 vector_width: 4,
                 cache_config: CacheConfig::PreferShared,
             },
-            params: [
-                ("tile_h".to_string(), 4),
-                ("tile_w".to_string(), 4),
-                ("tile_c".to_string(), 32),
-            ]
-            .into_iter()
-            .collect(),
+            params: [("tile_h".to_string(), 4), ("tile_w".to_string(), 4), ("tile_c".to_string(), 32)]
+                .into_iter()
+                .collect(),
         }
     }
 
     /// Default reduction configuration.
     pub fn default_reduce() -> Self {
         Self {
-            workgroup: WorkgroupConfig {
-                x: 256,
-                y: 1,
-                z: 1,
-            },
+            workgroup: WorkgroupConfig { x: 256, y: 1, z: 1 },
             algorithm: AlgorithmConfig::Reduce(ReduceAlgorithm::Tree),
             memory: MemoryConfig {
                 use_shared: true,
@@ -94,23 +74,14 @@ impl KernelConfig {
                 vector_width: 4,
                 cache_config: CacheConfig::Default,
             },
-            params: [
-                ("items_per_thread".to_string(), 8),
-                ("unroll".to_string(), 1),
-            ]
-            .into_iter()
-            .collect(),
+            params: [("items_per_thread".to_string(), 8), ("unroll".to_string(), 1)].into_iter().collect(),
         }
     }
 
     /// Default element-wise configuration.
     pub fn default_elementwise() -> Self {
         Self {
-            workgroup: WorkgroupConfig {
-                x: 256,
-                y: 1,
-                z: 1,
-            },
+            workgroup: WorkgroupConfig { x: 256, y: 1, z: 1 },
             algorithm: AlgorithmConfig::Elementwise,
             memory: MemoryConfig {
                 use_shared: false,
@@ -118,40 +89,24 @@ impl KernelConfig {
                 vector_width: 4,
                 cache_config: CacheConfig::Default,
             },
-            params: [
-                ("items_per_thread".to_string(), 4),
-                ("vectorize".to_string(), 1),
-            ]
-            .into_iter()
-            .collect(),
+            params: [("items_per_thread".to_string(), 4), ("vectorize".to_string(), 1)].into_iter().collect(),
         }
     }
 
     /// Default attention configuration.
     pub fn default_attention() -> Self {
         Self {
-            workgroup: WorkgroupConfig {
-                x: 64,
-                y: 2,
-                z: 1,
-            },
-            algorithm: AlgorithmConfig::Attention {
-                use_flash: true,
-                block_size_m: 64,
-                block_size_n: 64,
-            },
+            workgroup: WorkgroupConfig { x: 64, y: 2, z: 1 },
+            algorithm: AlgorithmConfig::Attention { use_flash: true, block_size_m: 64, block_size_n: 64 },
             memory: MemoryConfig {
                 use_shared: true,
                 shared_size_bytes: 49152, // 48KB for SRAM
                 vector_width: 4,
                 cache_config: CacheConfig::PreferShared,
             },
-            params: [
-                ("softmax_scale".to_string(), 1),
-                ("use_causal_mask".to_string(), 1),
-            ]
-            .into_iter()
-            .collect(),
+            params: [("softmax_scale".to_string(), 1), ("use_causal_mask".to_string(), 1)]
+                .into_iter()
+                .collect(),
         }
     }
 }
@@ -205,17 +160,12 @@ pub struct BlockSize {
 impl BlockSize {
     /// Create a square block.
     pub fn square(size: usize) -> Self {
-        Self {
-            m: size,
-            n: size,
-            k: size,
-        }
+        Self { m: size, n: size, k: size }
     }
 
     /// Check if block dimensions are valid.
     pub fn is_valid(&self) -> bool {
-        self.m > 0 && self.n > 0 && self.k > 0 &&
-        self.m <= 256 && self.n <= 256 && self.k <= 64
+        self.m > 0 && self.n > 0 && self.k > 0 && self.m <= 256 && self.n <= 256 && self.k <= 64
     }
 }
 
@@ -231,11 +181,7 @@ pub enum AlgorithmConfig {
     /// Element-wise.
     Elementwise,
     /// Attention.
-    Attention {
-        use_flash: bool,
-        block_size_m: usize,
-        block_size_n: usize,
-    },
+    Attention { use_flash: bool, block_size_m: usize, block_size_n: usize },
     /// Custom algorithm.
     Custom(String),
 }
@@ -359,11 +305,7 @@ impl ConfigSpace {
         let mut workgroup_sizes = Vec::new();
         for x in [8, 16, 32].iter() {
             for y in [8, 16, 32].iter() {
-                let wg = WorkgroupConfig {
-                    x: *x,
-                    y: *y,
-                    z: 1,
-                };
+                let wg = WorkgroupConfig { x: *x, y: *y, z: 1 };
                 if wg.is_valid() {
                     workgroup_sizes.push(wg);
                 }
@@ -380,43 +322,27 @@ impl ConfigSpace {
         param_ranges.insert("tile_n".to_string(), vec![64, 128, 256]);
         param_ranges.insert("tile_k".to_string(), vec![8, 16, 32]);
 
-        Self {
-            workgroup_sizes,
-            algorithms,
-            memory_configs: vec![MemoryConfig::default()],
-            param_ranges,
-        }
+        Self { workgroup_sizes, algorithms, memory_configs: vec![MemoryConfig::default()], param_ranges }
     }
 
     /// Create a reduced search space for faster tuning.
     pub fn matmul_reduced() -> Self {
-        let workgroup_sizes = vec![
-            WorkgroupConfig { x: 16, y: 16, z: 1 },
-            WorkgroupConfig { x: 32, y: 8, z: 1 },
-        ];
+        let workgroup_sizes =
+            vec![WorkgroupConfig { x: 16, y: 16, z: 1 }, WorkgroupConfig { x: 32, y: 8, z: 1 }];
 
-        let algorithms = vec![
-            AlgorithmConfig::Matmul(MatmulAlgorithm::Tiled),
-        ];
+        let algorithms = vec![AlgorithmConfig::Matmul(MatmulAlgorithm::Tiled)];
 
         let mut param_ranges = HashMap::new();
         param_ranges.insert("tile_m".to_string(), vec![128, 256]);
         param_ranges.insert("tile_n".to_string(), vec![128, 256]);
         param_ranges.insert("tile_k".to_string(), vec![16, 32]);
 
-        Self {
-            workgroup_sizes,
-            algorithms,
-            memory_configs: vec![MemoryConfig::default()],
-            param_ranges,
-        }
+        Self { workgroup_sizes, algorithms, memory_configs: vec![MemoryConfig::default()], param_ranges }
     }
 
     /// Get total number of configurations.
     pub fn size(&self) -> usize {
-        let mut total = self.workgroup_sizes.len()
-            * self.algorithms.len()
-            * self.memory_configs.len();
+        let mut total = self.workgroup_sizes.len() * self.algorithms.len() * self.memory_configs.len();
 
         for values in self.param_ranges.values() {
             total *= values.len();
@@ -545,7 +471,10 @@ mod tests {
         ] {
             let tile = alg.recommended_tile();
             assert!(tile.is_valid(), "{:?} tile invalid", alg);
-            assert!(alg.uses_tensor_cores() == matches!(alg, MatmulAlgorithm::TensorCoreWmma | MatmulAlgorithm::TensorCoreMma));
+            assert!(
+                alg.uses_tensor_cores()
+                    == matches!(alg, MatmulAlgorithm::TensorCoreWmma | MatmulAlgorithm::TensorCoreMma)
+            );
         }
     }
 

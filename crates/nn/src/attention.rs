@@ -6,7 +6,6 @@
 use crate::{Linear, LinearConfig};
 use mnr_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, TensorOps, Trainable};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Configuration for self-attention.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -34,12 +33,7 @@ impl SelfAttentionConfig {
             d_model,
             num_heads
         );
-        Self {
-            d_model,
-            num_heads,
-            head_dim: d_model / num_heads,
-            dropout: 0.0,
-        }
+        Self { d_model, num_heads, head_dim: d_model / num_heads, dropout: 0.0 }
     }
 
     /// Set dropout probability.
@@ -71,43 +65,19 @@ impl<B: Backend> SelfAttention<B> {
         out_proj: Parameter<B>,
     ) -> Self {
         let scale = 1.0 / (config.head_dim as f32).sqrt();
-        Self {
-            config,
-            q_proj,
-            k_proj,
-            v_proj,
-            out_proj,
-            scale,
-        }
+        Self { config, q_proj, k_proj, v_proj, out_proj, scale }
     }
 
     /// Create a SelfAttention layer with randomly initialized weights.
     pub fn new(backend: &B, config: SelfAttentionConfig, seed: u64) -> Result<Self> {
         let d_k = config.head_dim;
-        let q_proj = backend.normal_parameter(
-            "q_proj",
-            &[config.d_model, d_k],
-            seed,
-            0.02,
-        )?;
-        let k_proj = backend.normal_parameter(
-            "k_proj",
-            &[config.d_model, d_k],
-            seed.wrapping_add(1),
-            0.02,
-        )?;
-        let v_proj = backend.normal_parameter(
-            "v_proj",
-            &[config.d_model, d_k],
-            seed.wrapping_add(2),
-            0.02,
-        )?;
-        let out_proj = backend.normal_parameter(
-            "out_proj",
-            &[d_k, config.d_model],
-            seed.wrapping_add(3),
-            0.02,
-        )?;
+        let q_proj = backend.normal_parameter("q_proj", &[config.d_model, d_k], seed, 0.02)?;
+        let k_proj =
+            backend.normal_parameter("k_proj", &[config.d_model, d_k], seed.wrapping_add(1), 0.02)?;
+        let v_proj =
+            backend.normal_parameter("v_proj", &[config.d_model, d_k], seed.wrapping_add(2), 0.02)?;
+        let out_proj =
+            backend.normal_parameter("out_proj", &[d_k, config.d_model], seed.wrapping_add(3), 0.02)?;
         Ok(Self::from_parameters(config, q_proj, k_proj, v_proj, out_proj))
     }
 
@@ -269,7 +239,8 @@ impl<B: Backend> MultiHeadAttention<B> {
         let q_proj = backend.normal_parameter("q_proj", &[d_model, head_dim], seed, 0.02)?;
         let k_proj = backend.normal_parameter("k_proj", &[d_model, head_dim], seed.wrapping_add(1), 0.02)?;
         let v_proj = backend.normal_parameter("v_proj", &[d_model, head_dim], seed.wrapping_add(2), 0.02)?;
-        let out_proj = backend.normal_parameter("out_proj", &[head_dim, d_model], seed.wrapping_add(3), 0.02)?;
+        let out_proj =
+            backend.normal_parameter("out_proj", &[head_dim, d_model], seed.wrapping_add(3), 0.02)?;
 
         let attention = SelfAttention::from_parameters(config.clone(), q_proj, k_proj, v_proj, out_proj);
         Ok(Self { config, attention })
@@ -322,13 +293,7 @@ impl<B: Backend> TransformerEncoderBlock<B> {
         ff2: crate::Linear<B>,
         norm2: crate::normalization::LayerNorm<B>,
     ) -> Self {
-        Self {
-            self_attn,
-            norm1,
-            ff1,
-            ff2,
-            norm2,
-        }
+        Self { self_attn, norm1, ff1, ff2, norm2 }
     }
 }
 
@@ -420,14 +385,12 @@ mod tests {
         let backend = CpuBackend::default();
         let mask = causal_mask(&backend, 4).unwrap();
 
-        let values: Vec<f32> = (0..16)
-            .filter_map(|i| backend.ops().tensor_element(&mask, i).ok())
-            .collect();
+        let values: Vec<f32> = (0..16).filter_map(|i| backend.ops().tensor_element(&mask, i).ok()).collect();
 
         // Lower triangle (including diagonal) should be 0
-        assert!(values[0].is_finite());  // (0,0)
-        assert!(values[4].is_finite());  // (1,0)
-        assert!(values[5].is_finite());  // (1,1)
+        assert!(values[0].is_finite()); // (0,0)
+        assert!(values[4].is_finite()); // (1,0)
+        assert!(values[5].is_finite()); // (1,1)
 
         // Upper triangle should be -inf
         assert_eq!(values[1], f32::NEG_INFINITY); // (0,1)
@@ -449,15 +412,9 @@ mod tests {
             mnr_core::Parameter::new("norm1_b", backend.tensor_from_vec(vec![0.0; 16], &[16]).unwrap()),
         );
 
-        let ff1 = crate::LinearBuilder::new(16, 64)
-            .with_bias(true)
-            .build(&backend)
-            .unwrap();
+        let ff1 = crate::LinearBuilder::new(16, 64).with_bias(true).build(&backend).unwrap();
 
-        let ff2 = crate::LinearBuilder::new(64, 16)
-            .with_bias(true)
-            .build(&backend)
-            .unwrap();
+        let ff2 = crate::LinearBuilder::new(64, 16).with_bias(true).build(&backend).unwrap();
 
         let norm2 = crate::normalization::LayerNorm::from_parameters(
             crate::normalization::LayerNormConfig::new(vec![16]).with_eps(1e-5),
@@ -545,26 +502,15 @@ where
     B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
 {
     /// Create new Flash Attention layer.
-    pub fn new(backend: &B, config: SelfAttentionConfig, seed: u64) -> Result<Self> {
-        let q_proj = Linear::new(
-            backend,
-            LinearConfig::new(config.d_model, config.d_model).with_bias(true),
-        )?;
+    pub fn new(backend: &B, config: SelfAttentionConfig, _seed: u64) -> Result<Self> {
+        let q_proj = Linear::new(backend, LinearConfig::new(config.d_model, config.d_model).with_bias(true))?;
 
-        let k_proj = Linear::new(
-            backend,
-            LinearConfig::new(config.d_model, config.d_model).with_bias(true),
-        )?;
+        let k_proj = Linear::new(backend, LinearConfig::new(config.d_model, config.d_model).with_bias(true))?;
 
-        let v_proj = Linear::new(
-            backend,
-            LinearConfig::new(config.d_model, config.d_model).with_bias(true),
-        )?;
+        let v_proj = Linear::new(backend, LinearConfig::new(config.d_model, config.d_model).with_bias(true))?;
 
-        let out_proj = Linear::new(
-            backend,
-            LinearConfig::new(config.d_model, config.d_model).with_bias(true),
-        )?;
+        let out_proj =
+            Linear::new(backend, LinearConfig::new(config.d_model, config.d_model).with_bias(true))?;
 
         let scale = 1.0 / (config.head_dim as f32).sqrt();
 
@@ -637,12 +583,7 @@ where
     }
 
     /// Reshape tensor from heads [seq, batch, heads, head_dim] -> [seq, batch, d_model].
-    fn reshape_from_heads(
-        &self,
-        x: B::Tensor,
-        seq_len: usize,
-        ops: &dyn TensorOps<B>,
-    ) -> Result<B::Tensor> {
+    fn reshape_from_heads(&self, x: B::Tensor, seq_len: usize, ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
         let shape = ops.shape(&x);
         let new_shape = vec![seq_len, shape[1], self.config.d_model];
         ops.reshape(&x, &new_shape)
@@ -660,7 +601,7 @@ where
         // For now, use standard attention but with memory-efficient approach
         // Full Flash Attention requires custom kernels
 
-        let num_blocks = (seq_len + self.block_size - 1) / self.block_size;
+        let _num_blocks = (seq_len + self.block_size - 1) / self.block_size;
 
         // Simple implementation: process in blocks but still compute full attention
         // In production, this would use the online softmax algorithm
@@ -685,7 +626,7 @@ where
     }
 
     /// Transpose tensor for attention: [seq, batch, heads, dim] -> [seq, heads, batch, dim].
-    fn transpose_for_attention(&self, x: B::Tensor, ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
+    fn transpose_for_attention(&self, x: B::Tensor, _ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
         // In full implementation, would properly transpose dimensions
         // For now, keep as-is
         Ok(x)
@@ -693,12 +634,7 @@ where
 
     /// 4D matrix multiplication for attention.
     /// Handles both Q@K^T (4D@4D) and Attention@V (2D@4D) cases.
-    fn matmul_4d(
-        &self,
-        a: &B::Tensor,
-        b: &B::Tensor,
-        ops: &dyn TensorOps<B>,
-    ) -> Result<B::Tensor> {
+    fn matmul_4d(&self, a: &B::Tensor, b: &B::Tensor, ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
         let a_shape = ops.shape(a);
         let b_shape = ops.shape(b);
 
@@ -731,10 +667,10 @@ where
     }
 
     /// Causal softmax (only attends to previous positions).
-    fn causal_softmax(&self, x: &B::Tensor, seq_len: usize, ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
+    fn causal_softmax(&self, x: &B::Tensor, _seq_len: usize, ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
         // Apply causal mask before softmax
         // For positions j > i, set to -inf
-        let shape = ops.shape(x);
+        let _shape = ops.shape(x);
 
         // In full implementation, would apply triangular mask
         // For now, use standard softmax
@@ -777,10 +713,7 @@ pub struct FlashAttentionConfig {
 impl FlashAttentionConfig {
     /// Create config from attention config.
     pub fn from_attention(attention: SelfAttentionConfig) -> Self {
-        Self {
-            attention,
-            block_size: 128,
-        }
+        Self { attention, block_size: 128 }
     }
 
     /// Set block size.
@@ -810,12 +743,7 @@ pub struct AttentionMemoryStats {
 
 impl AttentionMemoryStats {
     /// Calculate memory stats.
-    pub fn calculate(
-        seq_len: usize,
-        batch_size: usize,
-        num_heads: usize,
-        head_dim: usize,
-    ) -> Self {
+    pub fn calculate(seq_len: usize, batch_size: usize, num_heads: usize, head_dim: usize) -> Self {
         // Standard attention: O(N²) for attention matrix per head
         let attn_matrix_size = seq_len * seq_len * batch_size * num_heads * 4; // f32
 
@@ -857,9 +785,7 @@ mod flash_attention_tests {
     fn test_flash_attention_with_block_size() {
         let backend = CpuBackend::default();
         let config = SelfAttentionConfig::new(64, 8);
-        let flash = FlashAttention::new(&backend, config, 42)
-            .unwrap()
-            .with_block_size(256);
+        let flash = FlashAttention::new(&backend, config, 42).unwrap().with_block_size(256);
 
         assert_eq!(flash.block_size, 256);
     }
@@ -867,10 +793,10 @@ mod flash_attention_tests {
     #[test]
     fn test_memory_stats() {
         let stats = AttentionMemoryStats::calculate(
-            8192,  // seq_len
-            4,     // batch_size
-            16,    // num_heads
-            64,    // head_dim
+            8192, // seq_len
+            4,    // batch_size
+            16,   // num_heads
+            64,   // head_dim
         );
 
         // Flash should use significantly less memory
@@ -888,9 +814,7 @@ mod flash_attention_tests {
         let config = SelfAttentionConfig::new(32, 4);
         let flash = FlashAttention::new(&backend, config, 42).unwrap();
 
-        let x = backend
-            .tensor_from_vec(vec![0.1f32; 8 * 2 * 32], &[8, 2, 32])
-            .unwrap();
+        let x = backend.tensor_from_vec(vec![0.1f32; 8 * 2 * 32], &[8, 2, 32]).unwrap();
         let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Inference);
 
         // Should run without error
@@ -905,9 +829,7 @@ mod flash_attention_tests {
         let config = SelfAttentionConfig::new(32, 4);
         let flash = FlashAttention::new(&backend, config, 42).unwrap();
 
-        let x = backend
-            .tensor_from_vec(vec![0.1f32; 8 * 2 * 32], &[8, 2, 32])
-            .unwrap();
+        let x = backend.tensor_from_vec(vec![0.1f32; 8 * 2 * 32], &[8, 2, 32]).unwrap();
         let mut ctx = ForwardCtx::new(&backend, mnr_core::Mode::Inference);
 
         fn call_forward<B: Backend>(

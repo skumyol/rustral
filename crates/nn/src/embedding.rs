@@ -35,12 +35,7 @@ impl<B: Backend> Embedding<B> {
 
     /// Create an embedding module with randomly initialized weights.
     pub fn new(backend: &B, config: EmbeddingConfig, seed: u64) -> Result<Self> {
-        let table = backend.normal_parameter(
-            "embed",
-            &[config.vocab_size, config.dim],
-            seed,
-            0.02,
-        )?;
+        let table = backend.normal_parameter("embed", &[config.vocab_size, config.dim], seed, 0.02)?;
         let vocab = Arc::new(Vocabulary::with_specials("<unk>"));
         Ok(Self { config, table, vocab })
     }

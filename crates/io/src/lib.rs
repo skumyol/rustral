@@ -21,11 +21,7 @@ pub enum IoError {
 
     /// Shape mismatch between stored tensor and expected shape.
     #[error("shape mismatch for '{name}': expected {expected:?}, got {actual:?}")]
-    ShapeMismatch {
-        name: String,
-        expected: Vec<usize>,
-        actual: Vec<usize>,
-    },
+    ShapeMismatch { name: String, expected: Vec<usize>, actual: Vec<usize> },
 
     /// A requested tensor was not found in the file.
     #[error("tensor '{0}' not found in checkpoint")]
@@ -70,9 +66,7 @@ impl View for TensorData {
 /// let bytes = save_parameters::<CpuBackend>(&params).unwrap();
 /// std::fs::write("model.safetensors", &bytes).unwrap();
 /// ```
-pub fn save_parameters<B: Backend>(
-    params: &[(String, &Parameter<B>)],
-) -> Result<Vec<u8>, IoError>
+pub fn save_parameters<B: Backend>(params: &[(String, &Parameter<B>)]) -> Result<Vec<u8>, IoError>
 where
     B::Tensor: AsRef<[f32]> + TensorShape,
 {
@@ -96,9 +90,7 @@ where
 /// let tensors = load_parameters::<CpuBackend>(&bytes).unwrap();
 /// let weight = tensors.get("encoder.weight").unwrap();
 /// ```
-pub fn load_parameters<B: Backend>(
-    data: &[u8],
-) -> Result<HashMap<String, Vec<f32>>, IoError>
+pub fn load_parameters<B: Backend>(data: &[u8]) -> Result<HashMap<String, Vec<f32>>, IoError>
 where
     B::Tensor: From<Vec<f32>>,
 {
@@ -141,9 +133,7 @@ mod tests {
     fn test_roundtrip_single_tensor() {
         let backend = CpuBackend::default();
         let _values = vec![1.0f32, 2.0, 3.0, 4.0];
-        let param = backend
-            .normal_parameter("test", &[2, 2], 42, 0.0)
-            .unwrap();
+        let param = backend.normal_parameter("test", &[2, 2], 42, 0.0).unwrap();
 
         let params = vec![("test".to_string(), &param)];
         let bytes = save_parameters::<CpuBackend>(&params).unwrap();

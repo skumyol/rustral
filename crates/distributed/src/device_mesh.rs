@@ -54,39 +54,35 @@ impl DeviceMesh {
     /// * `my_rank` - This process's global rank
     pub fn new(shape: &[usize], my_rank: usize) -> Result<Self> {
         let world_size: usize = shape.iter().product();
-        
+
         if my_rank >= world_size {
-            return Err(mnr_core::CoreError::InvalidArgument(
-                format!("Rank {} out of bounds for mesh with {} devices", my_rank, world_size)
-            ));
+            return Err(mnr_core::CoreError::InvalidArgument(format!(
+                "Rank {} out of bounds for mesh with {} devices",
+                my_rank, world_size
+            )));
         }
 
         let my_coord = Self::rank_to_coord(my_rank, shape);
-        
-        Ok(Self {
-            shape: shape.to_vec(),
-            world_size,
-            my_coord,
-            process_groups: HashMap::new(),
-        })
+
+        Ok(Self { shape: shape.to_vec(), world_size, my_coord, process_groups: HashMap::new() })
     }
 
     /// Convert global rank to mesh coordinate.
     fn rank_to_coord(rank: usize, shape: &[usize]) -> Vec<usize> {
         let mut coord = Vec::with_capacity(shape.len());
         let mut remaining = rank;
-        
+
         // Calculate strides
         let mut strides = vec![1usize; shape.len()];
-        for i in (0..shape.len()-1).rev() {
+        for i in (0..shape.len() - 1).rev() {
             strides[i] = strides[i + 1] * shape[i + 1];
         }
-        
+
         for i in 0..shape.len() {
             coord.push(remaining / strides[i]);
             remaining %= strides[i];
         }
-        
+
         coord
     }
 
@@ -94,12 +90,12 @@ impl DeviceMesh {
     fn coord_to_rank(coord: &[usize], shape: &[usize]) -> usize {
         let mut rank = 0;
         let mut stride = 1;
-        
+
         for i in (0..shape.len()).rev() {
             rank += coord[i] * stride;
             stride *= shape[i];
         }
-        
+
         rank
     }
 
@@ -113,24 +109,22 @@ impl DeviceMesh {
     /// * `[1, -1, 0]` - All ranks with dp=1, pp=0 (across all TP)
     fn matching_ranks(&self, pattern: &[i64]) -> Vec<usize> {
         assert_eq!(pattern.len(), self.shape.len());
-        
+
         let mut ranks = Vec::new();
-        
+
         // Generate all possible coordinates
         let total_coords: usize = self.shape.iter().product();
         for idx in 0..total_coords {
             let coord = Self::rank_to_coord(idx, &self.shape);
-            
+
             // Check if coord matches pattern
-            let matches = pattern.iter().zip(coord.iter()).all(|(p, c)| {
-                *p < 0 || *p as usize == *c
-            });
-            
+            let matches = pattern.iter().zip(coord.iter()).all(|(p, c)| *p < 0 || *p as usize == *c);
+
             if matches {
                 ranks.push(idx);
             }
         }
-        
+
         ranks
     }
 
@@ -139,31 +133,35 @@ impl DeviceMesh {
     /// # Arguments
     /// * `pattern` - Coordinate pattern (use -1 for dimensions to span)
     pub fn get_process_group(&mut self, pattern: &[i64]) -> Result<ProcessGroup> {
-        let key = pattern.iter()
+        let key = pattern
+            .iter()
             .map(|&x| if x < 0 { "_".to_string() } else { x.to_string() })
             .collect::<Vec<_>>()
             .join(",");
-        
+
         if let Some(pg) = self.process_groups.get(&key) {
             return Ok(pg.clone());
         }
-        
+
         // Find matching ranks
         let ranks = self.matching_ranks(pattern);
-        
+
         if ranks.is_empty() {
-            return Err(mnr_core::CoreError::InvalidArgument(
-                format!("No ranks match pattern {:?}", pattern)
-            ));
+            return Err(mnr_core::CoreError::InvalidArgument(format!(
+                "No ranks match pattern {:?}",
+                pattern
+            )));
         }
-        
+
         // Find my position in this group
-        let my_local_rank = ranks.iter()
-            .position(|&r| r == self.my_rank())
-            .ok_or_else(|| mnr_core::CoreError::InvalidArgument(
-                format!("My rank {} not in group for pattern {:?}", self.my_rank(), pattern)
-            ))?;
-        
+        let my_local_rank = ranks.iter().position(|&r| r == self.my_rank()).ok_or_else(|| {
+            mnr_core::CoreError::InvalidArgument(format!(
+                "My rank {} not in group for pattern {:?}",
+                self.my_rank(),
+                pattern
+            ))
+        })?;
+
         // Create process group (simplified - real impl would use actual comm)
         let pg = ProcessGroup::new_threaded(ranks.len(), my_local_rank)
             .map_err(|e| mnr_core::CoreError::Backend(e.to_string()))?;
@@ -176,16 +174,14 @@ impl DeviceMesh {
     pub fn get_data_parallel_group(&mut self) -> Result<ProcessGroup> {
         if self.shape.len() < 3 {
             return Err(mnr_core::CoreError::InvalidArgument(
-                "Device mesh needs at least 3 dimensions for 3D parallelism".to_string()
+                "Device mesh needs at least 3 dimensions for 3D parallelism".to_string(),
             ));
         }
-        
+
         // Pattern: [-1, my_tp, my_pp] - vary DP
-        let pattern: Vec<i64> = self.my_coord.iter()
-            .enumerate()
-            .map(|(i, &c)| if i == 0 { -1 } else { c as i64 })
-            .collect();
-        
+        let pattern: Vec<i64> =
+            self.my_coord.iter().enumerate().map(|(i, &c)| if i == 0 { -1 } else { c as i64 }).collect();
+
         self.get_process_group(&pattern)
     }
 
@@ -193,16 +189,14 @@ impl DeviceMesh {
     pub fn get_tensor_parallel_group(&mut self) -> Result<ProcessGroup> {
         if self.shape.len() < 3 {
             return Err(mnr_core::CoreError::InvalidArgument(
-                "Device mesh needs at least 3 dimensions for 3D parallelism".to_string()
+                "Device mesh needs at least 3 dimensions for 3D parallelism".to_string(),
             ));
         }
-        
+
         // Pattern: [my_dp, -1, my_pp] - vary TP
-        let pattern: Vec<i64> = self.my_coord.iter()
-            .enumerate()
-            .map(|(i, &c)| if i == 1 { -1 } else { c as i64 })
-            .collect();
-        
+        let pattern: Vec<i64> =
+            self.my_coord.iter().enumerate().map(|(i, &c)| if i == 1 { -1 } else { c as i64 }).collect();
+
         self.get_process_group(&pattern)
     }
 
@@ -210,16 +204,14 @@ impl DeviceMesh {
     pub fn get_pipeline_parallel_group(&mut self) -> Result<ProcessGroup> {
         if self.shape.len() < 3 {
             return Err(mnr_core::CoreError::InvalidArgument(
-                "Device mesh needs at least 3 dimensions for 3D parallelism".to_string()
+                "Device mesh needs at least 3 dimensions for 3D parallelism".to_string(),
             ));
         }
-        
+
         // Pattern: [my_dp, my_tp, -1] - vary PP
-        let pattern: Vec<i64> = self.my_coord.iter()
-            .enumerate()
-            .map(|(i, &c)| if i == 2 { -1 } else { c as i64 })
-            .collect();
-        
+        let pattern: Vec<i64> =
+            self.my_coord.iter().enumerate().map(|(i, &c)| if i == 2 { -1 } else { c as i64 }).collect();
+
         self.get_process_group(&pattern)
     }
 
@@ -255,7 +247,12 @@ impl DeviceMesh {
     /// * `tp_size` - Tensor parallel size  
     /// * `pp_size` - Pipeline parallel size
     /// * `my_rank` - This process's global rank
-    pub fn for_3d_parallelism(dp_size: usize, tp_size: usize, pp_size: usize, my_rank: usize) -> Result<Self> {
+    pub fn for_3d_parallelism(
+        dp_size: usize,
+        tp_size: usize,
+        pp_size: usize,
+        my_rank: usize,
+    ) -> Result<Self> {
         Self::new(&[dp_size, tp_size, pp_size], my_rank)
     }
 }
@@ -277,23 +274,16 @@ impl ParallelismConfig {
         } else {
             1
         };
-        
+
         let remaining = num_gpus / tp_size;
-        
+
         // Use PP for very deep models, DP otherwise
-        let pp_size = if model_params > 10_000_000_000 && remaining >= 2 {
-            (remaining / 2).max(1).min(8)
-        } else {
-            1
-        };
-        
+        let pp_size =
+            if model_params > 10_000_000_000 && remaining >= 2 { (remaining / 2).max(1).min(8) } else { 1 };
+
         let dp_size = remaining / pp_size;
-        
-        Self {
-            data_parallel: dp_size.max(1),
-            tensor_parallel: tp_size,
-            pipeline_parallel: pp_size,
-        }
+
+        Self { data_parallel: dp_size.max(1), tensor_parallel: tp_size, pipeline_parallel: pp_size }
     }
 
     /// Get total number of devices needed.
@@ -309,19 +299,19 @@ mod tests {
     #[test]
     fn test_rank_coord_conversion() {
         let shape = vec![2, 4, 2]; // 16 devices
-        
+
         // Test rank 0 -> [0, 0, 0]
         let coord0 = DeviceMesh::rank_to_coord(0, &shape);
         assert_eq!(coord0, vec![0, 0, 0]);
-        
+
         // Test rank 7 -> [0, 3, 1]
         let coord7 = DeviceMesh::rank_to_coord(7, &shape);
         assert_eq!(coord7, vec![0, 3, 1]);
-        
+
         // Test rank 8 -> [1, 0, 0]
         let coord8 = DeviceMesh::rank_to_coord(8, &shape);
         assert_eq!(coord8, vec![1, 0, 0]);
-        
+
         // Round-trip test
         for rank in 0..16 {
             let coord = DeviceMesh::rank_to_coord(rank, &shape);
@@ -333,12 +323,12 @@ mod tests {
     #[test]
     fn test_matching_ranks() {
         let mesh = DeviceMesh::new(&[2, 4, 2], 0).unwrap();
-        
+
         // Pattern [-1, 0, 1]: all DP ranks with TP=0, PP=1
         let pattern = vec![-1, 0, 1];
         let ranks = mesh.matching_ranks(&pattern);
         assert_eq!(ranks, vec![1, 9]); // ranks with coords [0,0,1] and [1,0,1]
-        
+
         // Pattern [0, -1, 0]: all TP ranks with DP=0, PP=0
         let pattern2 = vec![0, -1, 0];
         let ranks2 = mesh.matching_ranks(&pattern2);
@@ -354,11 +344,11 @@ mod tests {
     #[test]
     fn test_get_process_group() {
         let mut mesh = DeviceMesh::new(&[2, 2, 2], 0).unwrap();
-        
+
         // Get group for all ranks with same TP and PP as rank 0
         let pg = mesh.get_process_group(&[-1, 0, 0]).unwrap();
         assert_eq!(pg.world_size(), 2); // DP dimension
-        
+
         // Cached: same call should return same group
         let pg2 = mesh.get_process_group(&[-1, 0, 0]).unwrap();
         assert_eq!(pg2.world_size(), 2);
@@ -388,7 +378,7 @@ mod tests {
     #[test]
     fn test_get_group_errors() {
         let mut mesh = DeviceMesh::new(&[2, 2, 2], 0).unwrap();
-        
+
         // Pattern doesn't include rank 0
         let result = mesh.get_process_group(&[1, -1, -1]);
         assert!(result.is_err());
@@ -401,7 +391,7 @@ mod tests {
     #[test]
     fn test_mesh_rank_and_shape() {
         let mesh = DeviceMesh::for_3d_parallelism(2, 4, 2, 5).unwrap();
-        
+
         assert_eq!(mesh.world_size(), 16);
         assert_eq!(mesh.shape(), &[2, 4, 2]);
         assert_eq!(mesh.my_coord(), &[0, 2, 1]);
@@ -418,7 +408,7 @@ mod tests {
         let small = ParallelismConfig::auto_select(8, 100_000_000);
         assert_eq!(small.total_devices(), 8);
         assert_eq!(small.tensor_parallel, 1);
-        
+
         // Large model: should use TP and possibly PP
         let large = ParallelismConfig::auto_select(16, 2_000_000_000);
         assert_eq!(large.total_devices(), 16);
@@ -436,7 +426,7 @@ mod tests {
     #[test]
     fn test_mesh_creation() {
         let mesh = DeviceMesh::for_3d_parallelism(2, 4, 2, 5).unwrap();
-        
+
         assert_eq!(mesh.world_size(), 16);
         assert_eq!(mesh.shape(), &[2, 4, 2]);
         assert_eq!(mesh.my_coord(), &[0, 2, 1]); // Rank 5 = [0, 2, 1]

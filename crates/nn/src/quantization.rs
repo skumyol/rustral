@@ -20,9 +20,7 @@
 //! // 4x smaller, minimal accuracy loss
 //! ```
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Module, Parameter, Result, TensorOps, Trainable};
-
-use crate::Linear;
+use mnr_core::{Backend, ForwardCtx, Result, TensorOps};
 
 /// Quantization scheme
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -44,12 +42,11 @@ pub enum QuantizationScheme {
 impl QuantizationScheme {
     pub fn bits(&self) -> usize {
         match self {
-            QuantizationScheme::Int8 |
-            QuantizationScheme::Int8Asymmetric |
-            QuantizationScheme::Int8PerChannel => 8,
+            QuantizationScheme::Int8
+            | QuantizationScheme::Int8Asymmetric
+            | QuantizationScheme::Int8PerChannel => 8,
             QuantizationScheme::Int4 { .. } => 4,
-            QuantizationScheme::Fp8E4M3 |
-            QuantizationScheme::Fp8E5M2 => 8,
+            QuantizationScheme::Fp8E4M3 | QuantizationScheme::Fp8E5M2 => 8,
         }
     }
 
@@ -140,12 +137,7 @@ impl QuantParams {
             let scale = (max_val - min_val) / (qmax - qmin) as f32;
             let zero_point = qmin - (min_val / scale) as i32;
 
-            Self {
-                scale: scale.max(1e-8),
-                zero_point: zero_point.clamp(qmin, qmax),
-                min_val,
-                max_val,
-            }
+            Self { scale: scale.max(1e-8), zero_point: zero_point.clamp(qmin, qmax), min_val, max_val }
         }
     }
 
@@ -154,9 +146,7 @@ impl QuantParams {
         if self.symmetric() {
             (value / self.scale).round().clamp(-127.0, 127.0) as i8
         } else {
-            ((value / self.scale) + self.zero_point as f32)
-                .round()
-                .clamp(-128.0, 127.0) as i8
+            ((value / self.scale) + self.zero_point as f32).round().clamp(-128.0, 127.0) as i8
         }
     }
 
@@ -195,7 +185,12 @@ where
     B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
 {
     /// Create quantized linear layer from weight tensor and optional bias
-    pub fn from_tensors(weight: &B::Tensor, shape: &[usize], bias: Option<B::Tensor>, config: &QuantConfig) -> Result<Self> {
+    pub fn from_tensors(
+        weight: &B::Tensor,
+        shape: &[usize],
+        bias: Option<B::Tensor>,
+        config: &QuantConfig,
+    ) -> Result<Self> {
         let weight_data: Vec<f32> = weight.as_ref().to_vec();
         let shape = shape.to_vec();
 
@@ -293,9 +288,7 @@ where
                 max_val: 0.0,
             };
 
-            self.quantized_weights.iter()
-                .map(|&q| params.dequantize(q))
-                .collect()
+            self.quantized_weights.iter().map(|&q| params.dequantize(q)).collect()
         };
 
         // Create weight tensor
@@ -347,7 +340,12 @@ impl<B: Backend> GPTQLinear<B>
 where
     B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
 {
-    pub fn from_tensors(weight: &B::Tensor, shape: &[usize], bias: Option<B::Tensor>, group_size: usize) -> Result<Self> {
+    pub fn from_tensors(
+        weight: &B::Tensor,
+        shape: &[usize],
+        bias: Option<B::Tensor>,
+        group_size: usize,
+    ) -> Result<Self> {
         let weight_data: Vec<f32> = weight.as_ref().to_vec();
         let shape = shape.to_vec();
 
@@ -361,7 +359,7 @@ where
         // Quantize each group
         for g in 0..num_groups {
             let start = g * group_size;
-            let end = ((start + group_size).min(num_elements));
+            let end = (start + group_size).min(num_elements);
             let group_data = &weight_data[start..end];
 
             // Find scale for this group
@@ -383,14 +381,7 @@ where
             }
         }
 
-        Ok(Self {
-            weights_4bit,
-            scales,
-            zero_points,
-            group_size,
-            shape,
-            bias,
-        })
+        Ok(Self { weights_4bit, scales, zero_points, group_size, shape, bias })
     }
 
     /// Forward with 4-bit dequantization
@@ -442,7 +433,7 @@ pub struct DynamicQuantizer;
 
 impl DynamicQuantizer {
     /// Quantize tensor to INT8 dynamically
-    pub fn quantize<B: Backend>(tensor: &B::Tensor, ops: &dyn TensorOps<B>) -> Result<(Vec<i8>, f32, i32)>
+    pub fn quantize<B: Backend>(tensor: &B::Tensor, _ops: &dyn TensorOps<B>) -> Result<(Vec<i8>, f32, i32)>
     where
         B::Tensor: AsRef<[f32]>,
     {
@@ -462,12 +453,7 @@ impl DynamicQuantizer {
         shape: &[usize],
         ops: &dyn TensorOps<B>,
     ) -> Result<B::Tensor> {
-        let params = QuantParams {
-            scale,
-            zero_point,
-            min_val: 0.0,
-            max_val: 0.0,
-        };
+        let params = QuantParams { scale, zero_point, min_val: 0.0, max_val: 0.0 };
 
         let dequantized: Vec<f32> = quantized.iter().map(|&q| params.dequantize(q)).collect();
         ops.tensor_from_vec(dequantized, shape)
@@ -496,10 +482,13 @@ impl QATTrainer {
         let scale = max_val / qmax as f32;
 
         // Quantize and dequantize
-        let fake_quantized: Vec<f32> = data.iter().map(|&v| {
-            let q = (v / scale).round().clamp(-(qmax as f32), qmax as f32);
-            q * scale // Dequantize
-        }).collect();
+        let fake_quantized: Vec<f32> = data
+            .iter()
+            .map(|&v| {
+                let q = (v / scale).round().clamp(-(qmax as f32), qmax as f32);
+                q * scale // Dequantize
+            })
+            .collect();
 
         ops.tensor_from_vec(fake_quantized, &shape)
     }
@@ -585,7 +574,8 @@ mod tests {
         assert!(scale > 0.0);
 
         // Dequantize
-        let dequantized = DynamicQuantizer::dequantize(&quantized, scale, zero_point, &[5], backend.ops()).unwrap();
+        let dequantized =
+            DynamicQuantizer::dequantize(&quantized, scale, zero_point, &[5], backend.ops()).unwrap();
         let back_data: Vec<f32> = dequantized.as_ref().to_vec();
 
         // Check round-trip error
@@ -614,7 +604,7 @@ mod tests {
     #[test]
     fn test_gptq_packing() {
         // Test that 2 4-bit values fit in 1 byte
-        let q0: u8 = 5;  // First weight
+        let q0: u8 = 5; // First weight
         let q1: u8 = 10; // Second weight
         let packed = (q1 << 4) | q0;
 
@@ -766,7 +756,11 @@ mod tests {
     impl mnr_core::Module<CpuBackend> for DummyModule {
         type Input = <CpuBackend as mnr_core::Backend>::Tensor;
         type Output = <CpuBackend as mnr_core::Backend>::Tensor;
-        fn forward(&self, input: Self::Input, _ctx: &mut mnr_core::ForwardCtx<CpuBackend>) -> mnr_core::Result<Self::Output> {
+        fn forward(
+            &self,
+            input: Self::Input,
+            _ctx: &mut mnr_core::ForwardCtx<CpuBackend>,
+        ) -> mnr_core::Result<Self::Output> {
             Ok(input)
         }
     }

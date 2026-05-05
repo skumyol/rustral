@@ -43,11 +43,7 @@ impl<B: Backend> Readout<B> {
     pub fn predict(&self, hidden: B::Tensor, ctx: &mut ForwardCtx<B>) -> Result<LabelPrediction> {
         let probs = self.probabilities(hidden, ctx)?;
         let id = ctx.backend().ops().argmax(&probs)?;
-        let label = self
-            .labels
-            .token(id)
-            .map_err(|e| CoreError::InvalidArgument(e.to_string()))?
-            .to_string();
+        let label = self.labels.token(id).map_err(|e| CoreError::InvalidArgument(e.to_string()))?.to_string();
         // Extract the actual probability score at the predicted index
         let score = ctx.backend().ops().tensor_element(&probs, id)?;
         Ok(LabelPrediction { label, id, score })
@@ -78,7 +74,8 @@ mod tests {
 
         // Create projection layer: hidden_dim -> num_labels
         let weight_values: Vec<f32> = (0..num_labels * hidden_dim).map(|i| (i as f32) * 0.01).collect();
-        let weight = Parameter::new("W", backend.tensor_from_vec(weight_values, &[num_labels, hidden_dim]).unwrap());
+        let weight =
+            Parameter::new("W", backend.tensor_from_vec(weight_values, &[num_labels, hidden_dim]).unwrap());
         let projection = crate::Linear::from_parameters(
             crate::LinearConfig { in_dim: hidden_dim, out_dim: num_labels, bias: false },
             weight,
@@ -125,13 +122,16 @@ mod tests {
         assert!(prediction.id < vocab.len());
         assert!(!prediction.label.is_empty());
         // Score should be a valid probability (after softmax, all probs sum to 1)
-        assert!(prediction.score >= 0.0 && prediction.score <= 1.0,
-            "score should be in [0,1], got {}", prediction.score);
+        assert!(
+            prediction.score >= 0.0 && prediction.score <= 1.0,
+            "score should be in [0,1], got {}",
+            prediction.score
+        );
     }
 
     #[test]
     fn test_readout_trainable() {
         let (readout, _vocab) = create_mock_readout(5, 10);
-        assert_eq!(readout.parameters().len(), 1);  // Just the projection weight
+        assert_eq!(readout.parameters().len(), 1); // Just the projection weight
     }
 }

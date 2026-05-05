@@ -10,10 +10,7 @@ fn main() -> anyhow::Result<()> {
     let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
 
     // Build a linear layer with the builder — no manual parameter creation.
-    let linear = LinearBuilder::new(4, 2)
-        .with_bias(true)
-        .seed(42)
-        .build(&backend)?;
+    let linear = LinearBuilder::new(4, 2).with_bias(true).seed(42).build(&backend)?;
 
     let mut labels = Vocabulary::with_specials("unknown");
     labels.insert("accept")?;

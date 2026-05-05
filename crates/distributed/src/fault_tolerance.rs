@@ -20,7 +20,6 @@
 //! ```
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -78,13 +77,16 @@ impl HealthMonitor {
 
     /// Register a new node
     pub fn register_node(&mut self, rank: usize, hostname: String) {
-        self.nodes.insert(rank, NodeInfo {
+        self.nodes.insert(
             rank,
-            hostname,
-            state: NodeState::Joining,
-            last_heartbeat: Instant::now(),
-            checkpoint_version: 0,
-        });
+            NodeInfo {
+                rank,
+                hostname,
+                state: NodeState::Joining,
+                last_heartbeat: Instant::now(),
+                checkpoint_version: 0,
+            },
+        );
     }
 
     /// Record heartbeat from a node
@@ -124,11 +126,7 @@ impl HealthMonitor {
 
     /// Get list of healthy nodes
     pub fn healthy_nodes(&self) -> Vec<usize> {
-        self.nodes
-            .values()
-            .filter(|n| n.state == NodeState::Healthy)
-            .map(|n| n.rank)
-            .collect()
+        self.nodes.values().filter(|n| n.state == NodeState::Healthy).map(|n| n.rank).collect()
     }
 
     /// Update checkpoint version
@@ -206,10 +204,7 @@ pub enum MembershipChange {
     /// New nodes are joining
     NodesJoining(Vec<usize>),
     /// Reconfiguration complete
-    ReconfigurationComplete {
-        new_world_size: usize,
-        new_rank: usize,
-    },
+    ReconfigurationComplete { new_world_size: usize, new_rank: usize },
 }
 
 /// Elastic trainer that handles fault recovery
@@ -329,11 +324,7 @@ pub struct TimedBarrier {
 
 impl TimedBarrier {
     pub fn new(world_size: usize, timeout_ms: u64) -> Self {
-        Self {
-            world_size,
-            arrivals: HashSet::new(),
-            timeout: Duration::from_millis(timeout_ms),
-        }
+        Self { world_size, arrivals: HashSet::new(), timeout: Duration::from_millis(timeout_ms) }
     }
 
     /// Arrive at barrier
@@ -383,11 +374,7 @@ pub struct StateSync {
 
 impl StateSync {
     pub fn new(target_world_size: usize, min_nodes: usize) -> Self {
-        Self {
-            target_world_size,
-            active_nodes: HashSet::new(),
-            min_nodes,
-        }
+        Self { target_world_size, active_nodes: HashSet::new(), min_nodes }
     }
 
     /// Check if we have minimum nodes to proceed
@@ -429,11 +416,7 @@ pub struct RestartConfig {
 
 impl Default for RestartConfig {
     fn default() -> Self {
-        Self {
-            max_restarts: 3,
-            restart_delay: Duration::from_secs(10),
-            checkpoint_on_failure: true,
-        }
+        Self { max_restarts: 3, restart_delay: Duration::from_secs(10), checkpoint_on_failure: true }
     }
 }
 
@@ -547,10 +530,10 @@ mod tests {
     #[test]
     fn test_elastic_trainer() {
         let pg = ProcessGroup::new_single_process();
-        let ckpt = crate::DistributedCheckpointManager::new(pg, std::env::temp_dir().join("ft_test"), 3).unwrap();
-        let mut trainer = ElasticTrainer::new(ckpt)
-            .with_health_check_interval(Duration::from_secs(1))
-            .with_max_retries(2);
+        let ckpt =
+            crate::DistributedCheckpointManager::new(pg, std::env::temp_dir().join("ft_test"), 3).unwrap();
+        let mut trainer =
+            ElasticTrainer::new(ckpt).with_health_check_interval(Duration::from_secs(1)).with_max_retries(2);
 
         assert_eq!(trainer.max_retries, 2);
 
@@ -562,9 +545,9 @@ mod tests {
     #[test]
     fn test_elastic_trainer_recoverable() {
         let pg = ProcessGroup::new_single_process();
-        let ckpt = crate::DistributedCheckpointManager::new(pg, std::env::temp_dir().join("ft_test2"), 3).unwrap();
-        let mut trainer = ElasticTrainer::new(ckpt)
-            .with_max_retries(1);
+        let ckpt =
+            crate::DistributedCheckpointManager::new(pg, std::env::temp_dir().join("ft_test2"), 3).unwrap();
+        let mut trainer = ElasticTrainer::new(ckpt).with_max_retries(1);
 
         let mut calls = 0;
         let result = trainer.train_loop(|| {
@@ -582,20 +565,20 @@ mod tests {
     #[test]
     fn test_elastic_trainer_unrecoverable() {
         let pg = ProcessGroup::new_single_process();
-        let ckpt = crate::DistributedCheckpointManager::new(pg, std::env::temp_dir().join("ft_test3"), 3).unwrap();
-        let mut trainer = ElasticTrainer::new(ckpt)
-            .with_max_retries(1);
+        let ckpt =
+            crate::DistributedCheckpointManager::new(pg, std::env::temp_dir().join("ft_test3"), 3).unwrap();
+        let mut trainer = ElasticTrainer::new(ckpt).with_max_retries(1);
 
-        let result: DistributedResult<i32> = trainer.train_loop(|| {
-            Err(DistributedError::Backend(CoreError::InvalidArgument("fatal".to_string())))
-        });
+        let result: DistributedResult<i32> = trainer
+            .train_loop(|| Err(DistributedError::Backend(CoreError::InvalidArgument("fatal".to_string()))));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_elastic_trainer_save_checkpoint() {
         let pg = ProcessGroup::new_single_process();
-        let ckpt = crate::DistributedCheckpointManager::new(pg, std::env::temp_dir().join("ft_test4"), 3).unwrap();
+        let ckpt =
+            crate::DistributedCheckpointManager::new(pg, std::env::temp_dir().join("ft_test4"), 3).unwrap();
         let mut trainer = ElasticTrainer::new(ckpt);
 
         trainer.save_checkpoint(1).unwrap();
@@ -683,10 +666,7 @@ mod tests {
         let change = MembershipChange::NodesJoining(vec![3]);
         let _ = format!("{:?}", change);
 
-        let change = MembershipChange::ReconfigurationComplete {
-            new_world_size: 4,
-            new_rank: 0,
-        };
+        let change = MembershipChange::ReconfigurationComplete { new_world_size: 4, new_rank: 0 };
         let _ = format!("{:?}", change);
     }
 }

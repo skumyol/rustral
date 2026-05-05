@@ -1,4 +1,5 @@
 //! Optimization algorithms for MNR.
+#![allow(dead_code)]
 //!
 //! Provides SGD, Adam, and AdamW optimizers that work with the core
 //! `Parameter` and `Backend` abstractions.
@@ -12,12 +13,10 @@ pub mod lr_scheduler;
 pub mod mixed_precision;
 
 pub use lr_scheduler::{
-    ConstantLR, CosineAnnealingLR, ExponentialLR, LinearWarmup, OneCycleLR,
-    PlateauLR, PolynomialLR, StepDecay, WarmupCosine, LRScheduler,
+    ConstantLR, CosineAnnealingLR, ExponentialLR, LRScheduler, LinearWarmup, OneCycleLR, PlateauLR,
+    PolynomialLR, StepDecay, WarmupCosine,
 };
-pub use mixed_precision::{
-    DType, LossScaleScheduler, MixedPrecisionOptimizer, MixedPrecisionStats,
-};
+pub use mixed_precision::{DType, LossScaleScheduler, MixedPrecisionOptimizer, MixedPrecisionStats};
 
 /// Errors that can occur during optimization.
 #[derive(Debug, Error)]
@@ -49,12 +48,12 @@ pub struct Gradient<B: Backend> {
     pub tensor: B::Tensor,
 }
 
-impl<B: Backend> Clone for Gradient<B> where B::Tensor: Clone {
+impl<B: Backend> Clone for Gradient<B>
+where
+    B::Tensor: Clone,
+{
     fn clone(&self) -> Self {
-        Self {
-            param_id: self.param_id,
-            tensor: self.tensor.clone(),
-        }
+        Self { param_id: self.param_id, tensor: self.tensor.clone() }
     }
 }
 
@@ -119,21 +118,14 @@ pub struct Sgd {
 
 impl Default for Sgd {
     fn default() -> Self {
-        Self {
-            lr: 0.01,
-            momentum: 0.0,
-            weight_decay: 0.0,
-        }
+        Self { lr: 0.01, momentum: 0.0, weight_decay: 0.0 }
     }
 }
 
 impl Sgd {
     /// Create a new SGD optimizer with the given learning rate.
     pub fn new(lr: f32) -> Self {
-        Self {
-            lr,
-            ..Default::default()
-        }
+        Self { lr, ..Default::default() }
     }
 
     /// Enable momentum.
@@ -162,10 +154,8 @@ where
         let ops = ctx.backend().ops();
 
         // Build a map from param_id to gradient tensor for fast lookup
-        let grad_map: HashMap<ParameterId, &B::Tensor> = gradients
-            .iter()
-            .map(|g| (g.param_id, &g.tensor))
-            .collect();
+        let grad_map: HashMap<ParameterId, &B::Tensor> =
+            gradients.iter().map(|g| (g.param_id, &g.tensor)).collect();
 
         for param in params {
             let param_id = param.id();
@@ -232,24 +222,14 @@ pub struct Adam<B: Backend> {
 
 impl<B: Backend> Default for Adam<B> {
     fn default() -> Self {
-        Self {
-            lr: 0.001,
-            beta1: 0.9,
-            beta2: 0.999,
-            eps: 1e-8,
-            weight_decay: 0.0,
-            state: HashMap::new(),
-        }
+        Self { lr: 0.001, beta1: 0.9, beta2: 0.999, eps: 1e-8, weight_decay: 0.0, state: HashMap::new() }
     }
 }
 
 impl<B: Backend> Adam<B> {
     /// Create Adam with default hyperparameters.
     pub fn new(lr: f32) -> Self {
-        Self {
-            lr,
-            ..Default::default()
-        }
+        Self { lr, ..Default::default() }
     }
 
     /// Set betas (momentum decays).
@@ -322,22 +302,21 @@ impl<B: Backend> Adam<B> {
         self.state.clear();
 
         // Build a map from param_id numeric value to the actual parameter
-        let param_map: HashMap<u64, &Parameter<B>> = params
-            .iter()
-            .map(|p| (p.id().get(), p))
-            .collect();
+        let param_map: HashMap<u64, &Parameter<B>> = params.iter().map(|p| (p.id().get(), p)).collect();
 
         for (param_id_num, (m_values, v_values, t, shape)) in &checkpoint.state {
-            let param = param_map.get(param_id_num)
-                .ok_or_else(|| OptimError::MissingState(ParameterId::fresh()))?;
+            let param =
+                param_map.get(param_id_num).ok_or_else(|| OptimError::MissingState(ParameterId::fresh()))?;
 
             // Verify shape matches
             let param_shape = ops.shape(param.tensor());
             if param_shape != shape.as_slice() {
-                return Err(OptimError::ShapeMismatch(
-                    format!("Shape mismatch for param {}: expected {:?}, got {:?}",
-                        param.name(), param_shape, shape)
-                ));
+                return Err(OptimError::ShapeMismatch(format!(
+                    "Shape mismatch for param {}: expected {:?}, got {:?}",
+                    param.name(),
+                    param_shape,
+                    shape
+                )));
             }
 
             // Create tensors from saved values
@@ -364,10 +343,8 @@ where
         let ops = ctx.backend().ops();
 
         // Build a map from param_id to gradient tensor for fast lookup
-        let grad_map: HashMap<ParameterId, &B::Tensor> = gradients
-            .iter()
-            .map(|g| (g.param_id, &g.tensor))
-            .collect();
+        let grad_map: HashMap<ParameterId, &B::Tensor> =
+            gradients.iter().map(|g| (g.param_id, &g.tensor)).collect();
 
         for param in params {
             let param_id = param.id();
@@ -381,11 +358,7 @@ where
             // Get or initialize state for this parameter
             let state = self.state.entry(param_id).or_insert_with(|| {
                 let zeros = ops.zeros(&shape).unwrap();
-                AdamState {
-                    m: zeros.clone(),
-                    v: zeros,
-                    t: 0,
-                }
+                AdamState { m: zeros.clone(), v: zeros, t: 0 }
             });
 
             state.t += 1;
@@ -478,14 +451,10 @@ mod tests {
 
         let mut param = backend.normal_parameter("w", &[2], 42, 0.0).unwrap();
         let grad_tensor = backend.ops().tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap();
-        let gradients = vec![Gradient {
-            param_id: param.id(),
-            tensor: grad_tensor,
-        }];
+        let gradients = vec![Gradient { param_id: param.id(), tensor: grad_tensor }];
 
         let mut sgd = Sgd::new(0.1);
-        sgd.step(std::slice::from_mut(&mut param), &gradients, &mut ctx)
-            .unwrap();
+        sgd.step(std::slice::from_mut(&mut param), &gradients, &mut ctx).unwrap();
 
         // Parameter should have been updated: w = w - lr * grad = 0 - 0.1 * grad
         let values: Vec<f32> = param.tensor().values().to_vec();
@@ -499,14 +468,10 @@ mod tests {
 
         let mut param = backend.normal_parameter("w", &[2], 42, 0.0).unwrap();
         let grad_tensor = backend.ops().tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap();
-        let gradients = vec![Gradient {
-            param_id: param.id(),
-            tensor: grad_tensor,
-        }];
+        let gradients = vec![Gradient { param_id: param.id(), tensor: grad_tensor }];
 
         let mut adam = Adam::new(0.1);
-        adam.step(std::slice::from_mut(&mut param), &gradients, &mut ctx)
-            .unwrap();
+        adam.step(std::slice::from_mut(&mut param), &gradients, &mut ctx).unwrap();
 
         // After first step with Adam, the parameter should have been updated
         let values: Vec<f32> = param.tensor().values().to_vec();
@@ -586,10 +551,7 @@ mod tests {
     fn test_gradient_clone() {
         let backend = CpuBackend::default();
         let tensor = backend.ops().tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap();
-        let grad: Gradient<CpuBackend> = Gradient {
-            param_id: ParameterId::fresh(),
-            tensor,
-        };
+        let grad: Gradient<CpuBackend> = Gradient { param_id: ParameterId::fresh(), tensor };
         let cloned = grad.clone();
         assert_eq!(cloned.param_id, grad.param_id);
     }
@@ -601,10 +563,7 @@ mod tests {
 
         let mut param = backend.normal_parameter("w", &[2], 42, 0.0).unwrap();
         let grad_tensor = backend.ops().tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap();
-        let gradients = vec![Gradient {
-            param_id: param.id(),
-            tensor: grad_tensor,
-        }];
+        let gradients = vec![Gradient { param_id: param.id(), tensor: grad_tensor }];
 
         let mut adam = Adam::new(0.1);
         adam.step(std::slice::from_mut(&mut param), &gradients, &mut ctx).unwrap();

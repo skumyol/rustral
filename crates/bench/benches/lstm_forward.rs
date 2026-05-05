@@ -13,17 +13,15 @@ fn bench_lstm_forward(c: &mut Criterion) {
     let mut group = c.benchmark_group("lstm_forward");
 
     let configs = vec![
-        ("small", 128, 10),   // 128 hidden, 10 steps
-        ("medium", 256, 50),  // 256 hidden, 50 steps
-        ("large", 512, 100),  // 512 hidden, 100 steps
+        ("small", 128, 10),  // 128 hidden, 10 steps
+        ("medium", 256, 50), // 256 hidden, 50 steps
+        ("large", 512, 100), // 512 hidden, 100 steps
     ];
 
     for &(name, hidden_size, seq_len) in &configs {
         let lstm = LstmCell::new(&backend, LstmConfig::new(hidden_size)).unwrap();
 
-        let input = backend
-            .tensor_from_vec(vec![1.0f32; hidden_size], &[hidden_size])
-            .unwrap();
+        let input = backend.tensor_from_vec(vec![1.0f32; hidden_size], &[hidden_size]).unwrap();
 
         group.bench_with_input(
             BenchmarkId::new("sequence", name),
@@ -34,9 +32,7 @@ fn bench_lstm_forward(c: &mut Criterion) {
                     let mut state = lstm.initial_state(&mut ctx).unwrap();
 
                     for _ in 0..steps {
-                        let input = backend
-                            .tensor_from_vec(vec![1.0f32; hidden], &[hidden])
-                            .unwrap();
+                        let input = backend.tensor_from_vec(vec![1.0f32; hidden], &[hidden]).unwrap();
                         let result = lstm.forward((state.clone(), input), &mut ctx).unwrap();
                         state = result;
                         black_box(state.clone());

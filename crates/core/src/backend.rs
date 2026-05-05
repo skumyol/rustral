@@ -23,25 +23,14 @@ pub trait Backend: Clone + Send + Sync + 'static {
     ///
     /// `scale` controls the range `[-scale, scale)`. If `scale <= 0.0`, the
     /// parameter is filled with zeros.
-    fn normal_parameter(
-        &self,
-        name: &str,
-        shape: &[usize],
-        seed: u64,
-        scale: f32,
-    ) -> Result<Parameter<Self>>
+    fn normal_parameter(&self, name: &str, shape: &[usize], seed: u64, scale: f32) -> Result<Parameter<Self>>
     where
         Self: Sized;
 
     /// Create a parameter from existing data.
     ///
     /// This is used for loading saved models.
-    fn parameter_from_vec(
-        &self,
-        name: &str,
-        values: Vec<f32>,
-        shape: &[usize],
-    ) -> Result<Parameter<Self>>
+    fn parameter_from_vec(&self, name: &str, values: Vec<f32>, shape: &[usize]) -> Result<Parameter<Self>>
     where
         Self: Sized;
 }

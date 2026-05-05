@@ -3,14 +3,10 @@
 //! Tests for known bugs and edge cases.
 
 use mnr_core::{Backend, CoreError, ForwardCtx, Mode, Module, TensorOps};
-use mnr_nn::{
-    Conv2d, Conv2dConfig, Embedding, EmbeddingConfig, Linear, LinearConfig,
-    LayerNorm, LayerNormConfig, SelfAttention, SelfAttentionConfig,
-    TransformerEncoder, TransformerEncoderConfig,
-    TransformerDecoder, TransformerDecoderConfig,
-    Dropout, DropoutConfig,
-};
 use mnr_ndarray_backend::CpuBackend;
+use mnr_nn::{
+    Conv2d, Conv2dConfig, Dropout, DropoutConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig,
+};
 
 use crate::common::TestRunner;
 
@@ -67,8 +63,8 @@ fn test_division_by_zero(runner: &mut TestRunner) {
 fn test_empty_input(runner: &mut TestRunner) {
     runner.run_test("bug_empty_input", || {
         let backend = CpuBackend::default();
-        let empty = backend.tensor_from_vec(vec![], &[0, 10])
-            .map_err(|e| format!("Create empty failed: {}", e))?;
+        let empty =
+            backend.tensor_from_vec(vec![], &[0, 10]).map_err(|e| format!("Create empty failed: {}", e))?;
 
         let linear = Linear::new(&backend, LinearConfig::new(10, 5))
             .map_err(|e| format!("Create linear failed: {}", e))?;
@@ -90,8 +86,8 @@ fn test_empty_input(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(single, &mut ctx)
-            .map_err(|e| format!("Single element forward failed: {}", e))?;
+        let output =
+            linear.forward(single, &mut ctx).map_err(|e| format!("Single element forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, vec![1, 3], "Single element output shape wrong");
@@ -170,8 +166,7 @@ fn test_gradient_overflow(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
-        let output = linear.forward(large_input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(large_input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let data: Vec<f32> = output.as_ref().to_vec();
         let has_nan = data.iter().any(|&v| v.is_nan());
@@ -194,8 +189,7 @@ fn test_gradient_overflow(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
-        let output = linear.forward(tiny_input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(tiny_input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let data: Vec<f32> = output.as_ref().to_vec();
         let has_nan = data.iter().any(|&v| v.is_nan());
@@ -221,8 +215,7 @@ fn test_memory_leak_in_layers(runner: &mut TestRunner) {
                 .map_err(|e| format!("Iteration {}: {}", i, e))?;
 
             let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-            let _output = linear.forward(input, &mut ctx)
-                .map_err(|e| format!("Iteration {}: {}", i, e))?;
+            let _output = linear.forward(input, &mut ctx).map_err(|e| format!("Iteration {}: {}", i, e))?;
         }
 
         Ok(())
@@ -255,14 +248,12 @@ fn test_causal_mask_boundary(runner: &mut TestRunner) {
                     assert!(
                         mask_data[idx].is_infinite() || mask_data[idx] < -1e6,
                         "Position ({}, {}) should be masked but got {}",
-                        i, j, mask_data[idx]
+                        i,
+                        j,
+                        mask_data[idx]
                     );
                 } else {
-                    assert_eq!(
-                        mask_data[idx], 0.0,
-                        "Position ({}, {}) should not be masked",
-                        i, j
-                    );
+                    assert_eq!(mask_data[idx], 0.0, "Position ({}, {}) should not be masked", i, j);
                 }
             }
         }
@@ -277,24 +268,18 @@ fn test_batch_size_mismatch(runner: &mut TestRunner) {
 
         for batch_size in [1usize, 2, 4, 8] {
             let input = backend
-                .tensor_from_vec(
-                    vec![1.0f32; batch_size * 10],
-                    &[batch_size, 10],
-                )
+                .tensor_from_vec(vec![1.0f32; batch_size * 10], &[batch_size, 10])
                 .map_err(|e| format!("Batch {}: {}", batch_size, e))?;
 
             let linear = Linear::new(&backend, LinearConfig::new(10, 5))
                 .map_err(|e| format!("Batch {}: {}", batch_size, e))?;
 
             let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-            let output = linear.forward(input, &mut ctx)
-                .map_err(|e| format!("Batch {}: {}", batch_size, e))?;
+            let output =
+                linear.forward(input, &mut ctx).map_err(|e| format!("Batch {}: {}", batch_size, e))?;
 
             let shape = backend.ops().shape(&output);
-            assert_eq!(
-                shape[0], batch_size,
-                "Batch size {} not preserved in output", batch_size
-            );
+            assert_eq!(shape[0], batch_size, "Batch size {} not preserved in output", batch_size);
         }
 
         Ok(())
@@ -316,8 +301,7 @@ fn test_nan_propagation(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let data: Vec<f32> = output.as_ref().to_vec();
         let output_has_nan = data.iter().any(|&v| v.is_nan());
@@ -341,27 +325,23 @@ fn test_dropout_determinism(runner: &mut TestRunner) {
         let dropout = Dropout::new(DropoutConfig::new(0.5));
 
         let mut ctx1 = ForwardCtx::new(&backend, Mode::Train);
-        let output1 = dropout.forward(input.clone(), &mut ctx1)
-            .map_err(|e| format!("First forward failed: {}", e))?;
+        let output1 =
+            dropout.forward(input.clone(), &mut ctx1).map_err(|e| format!("First forward failed: {}", e))?;
 
         let mut ctx2 = ForwardCtx::new(&backend, Mode::Train);
-        let output2 = dropout.forward(input, &mut ctx2)
-            .map_err(|e| format!("Second forward failed: {}", e))?;
+        let output2 =
+            dropout.forward(input, &mut ctx2).map_err(|e| format!("Second forward failed: {}", e))?;
 
-        let data1: Vec<f32> = output1.as_ref().to_vec();
-        let data2: Vec<f32> = output2.as_ref().to_vec();
+        let _data1: Vec<f32> = output1.as_ref().to_vec();
+        let _data2: Vec<f32> = output2.as_ref().to_vec();
 
         let mut inf_ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let inf_output = dropout.forward(
-            backend.tensor_from_vec(vec![1.0f32; 50], &[5, 10]).unwrap(),
-            &mut inf_ctx,
-        ).unwrap();
+        let inf_output = dropout
+            .forward(backend.tensor_from_vec(vec![1.0f32; 50], &[5, 10]).unwrap(), &mut inf_ctx)
+            .unwrap();
         let inf_data: Vec<f32> = inf_output.as_ref().to_vec();
 
-        assert!(
-            inf_data.iter().all(|&v| v == 1.0),
-            "Inference mode should not apply dropout"
-        );
+        assert!(inf_data.iter().all(|&v| v == 1.0), "Inference mode should not apply dropout");
 
         println!("  Dropout determinism verified (training vs inference)");
         Ok(())
@@ -380,8 +360,7 @@ fn test_quantization_precision_loss(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let _data: Vec<f32> = output.as_ref().to_vec();
         Ok(())
@@ -400,23 +379,18 @@ fn test_save_load_consistency(runner: &mut TestRunner) {
             .map_err(|e| format!("Create input failed: {}", e))?;
 
         let mut ctx1 = ForwardCtx::new(&backend, Mode::Inference);
-        let out1 = model.forward(input.clone(), &mut ctx1)
-            .map_err(|e| format!("First forward failed: {}", e))?;
+        let out1 =
+            model.forward(input.clone(), &mut ctx1).map_err(|e| format!("First forward failed: {}", e))?;
 
         let mut ctx2 = ForwardCtx::new(&backend, Mode::Inference);
-        let out2 = model.forward(input, &mut ctx2)
-            .map_err(|e| format!("Second forward failed: {}", e))?;
+        let out2 = model.forward(input, &mut ctx2).map_err(|e| format!("Second forward failed: {}", e))?;
 
         let data1: Vec<f32> = out1.as_ref().to_vec();
         let data2: Vec<f32> = out2.as_ref().to_vec();
 
         for (i, (a, b)) in data1.iter().zip(data2.iter()).enumerate() {
             let diff = (a - b).abs();
-            assert!(
-                diff < 1e-5,
-                "Output element {} differs: {} vs {} (diff: {})",
-                i, a, b, diff
-            );
+            assert!(diff < 1e-5, "Output element {} differs: {} vs {} (diff: {})", i, a, b, diff);
         }
 
         Ok(())
@@ -439,12 +413,10 @@ fn test_concurrent_access(runner: &mut TestRunner) {
             .map_err(|e| format!("Create input2 failed: {}", e))?;
 
         let mut ctx1 = ForwardCtx::new(&backend, Mode::Inference);
-        let out1 = model.forward(input1, &mut ctx1)
-            .map_err(|e| format!("Forward1 failed: {}", e))?;
+        let out1 = model.forward(input1, &mut ctx1).map_err(|e| format!("Forward1 failed: {}", e))?;
 
         let mut ctx2 = ForwardCtx::new(&backend, Mode::Inference);
-        let out2 = model.forward(input2, &mut ctx2)
-            .map_err(|e| format!("Forward2 failed: {}", e))?;
+        let out2 = model.forward(input2, &mut ctx2).map_err(|e| format!("Forward2 failed: {}", e))?;
 
         assert_eq!(backend.ops().shape(&out1), vec![1, 5]);
         assert_eq!(backend.ops().shape(&out2), vec![2, 5]);
@@ -466,8 +438,7 @@ fn test_resource_exhaustion(runner: &mut TestRunner) {
                 .map_err(|e| format!("Iteration {}: {}", i, e))?;
 
             let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-            let _ = model.forward(input, &mut ctx)
-                .map_err(|e| format!("Iteration {}: {}", i, e))?;
+            let _ = model.forward(input, &mut ctx).map_err(|e| format!("Iteration {}: {}", i, e))?;
         }
 
         Ok(())
@@ -486,8 +457,7 @@ fn test_infinite_loop_detection(runner: &mut TestRunner) {
             .map_err(|e| format!("Create input failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let _ = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let _ = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         Ok(())
     });
@@ -505,8 +475,7 @@ fn test_tensor_alignment(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, vec![10, 5], "Output shape mismatch");

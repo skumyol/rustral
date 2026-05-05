@@ -93,10 +93,7 @@ fn main() {
     ];
 
     for (name, d_m, heads, layers, _params) in models {
-        println!(
-            "  {:12}: d_model={:4}, heads={:2}, layers={:2}",
-            name, d_m, heads, layers
-        );
+        println!("  {:12}: d_model={:4}, heads={:2}, layers={:2}", name, d_m, heads, layers);
     }
 
     println!("\nKey concepts:");

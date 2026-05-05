@@ -19,18 +19,12 @@ impl LstmConfig {
     /// Create a new LSTM configuration.
     /// When only one dimension is given, input and hidden dims are set equal.
     pub fn new(dim: usize) -> Self {
-        Self {
-            input_dim: dim,
-            hidden_dim: dim,
-        }
+        Self { input_dim: dim, hidden_dim: dim }
     }
 
     /// Create with explicit input and hidden dimensions.
     pub fn new_with_dims(input_dim: usize, hidden_dim: usize) -> Self {
-        Self {
-            input_dim,
-            hidden_dim,
-        }
+        Self { input_dim, hidden_dim }
     }
 }
 
@@ -75,10 +69,7 @@ impl<B: Backend> LstmCell<B> {
     pub fn default_state(&self, backend: &B) -> Result<LstmState<B>> {
         let ops = backend.ops();
         let hidden_dim = self.config.hidden_dim;
-        Ok(LstmState {
-            cell: ops.zeros(&[hidden_dim])?,
-            hidden: ops.zeros(&[hidden_dim])?,
-        })
+        Ok(LstmState { cell: ops.zeros(&[hidden_dim])?, hidden: ops.zeros(&[hidden_dim])? })
     }
 
     /// Access the cell configuration.
@@ -89,15 +80,16 @@ impl<B: Backend> LstmCell<B> {
 
 impl<B: Backend> LstmCell<B> {
     /// Split combined gates tensor into individual gates.
-    fn split_gates(&self, gates: &B::Tensor, ops: &dyn mnr_core::TensorOps<B>) -> Result<(B::Tensor, B::Tensor, B::Tensor, B::Tensor)> {
+    fn split_gates(
+        &self,
+        gates: &B::Tensor,
+        ops: &dyn mnr_core::TensorOps<B>,
+    ) -> Result<(B::Tensor, B::Tensor, B::Tensor, B::Tensor)> {
         let hidden_dim = self.config.hidden_dim;
         let shape = ops.shape(gates);
         // If gates is 2D [1, 4*hidden_dim], reshape to [4*hidden_dim] for slicing
-        let gates_1d = if shape.len() == 2 && shape[0] == 1 {
-            ops.reshape(gates, &[shape[1]])?
-        } else {
-            gates.clone()
-        };
+        let gates_1d =
+            if shape.len() == 2 && shape[0] == 1 { ops.reshape(gates, &[shape[1]])? } else { gates.clone() };
         let i = ops.slice(&gates_1d, 0, hidden_dim)?;
         let f = ops.slice(&gates_1d, hidden_dim, hidden_dim * 2)?;
         let o = ops.slice(&gates_1d, hidden_dim * 2, hidden_dim * 3)?;
@@ -138,10 +130,10 @@ impl<B: Backend> Module<B> for LstmCell<B> {
         let (i_raw, f_raw, o_raw, g_raw) = self.split_gates(&gates, ops)?;
 
         // Apply activations
-        let i = ops.sigmoid(&i_raw)?;  // input gate
-        let f = ops.sigmoid(&f_raw)?;  // forget gate
-        let o = ops.sigmoid(&o_raw)?;  // output gate
-        let g = ops.tanh(&g_raw)?;     // cell candidate
+        let i = ops.sigmoid(&i_raw)?; // input gate
+        let f = ops.sigmoid(&f_raw)?; // forget gate
+        let o = ops.sigmoid(&o_raw)?; // output gate
+        let g = ops.tanh(&g_raw)?; // cell candidate
 
         // c_new = f * c + i * g (element-wise)
         let f_c = ops.mul(&f, c)?;
@@ -199,10 +191,8 @@ impl<B: Backend> StackedLstm<B> {
 
         for (layer_idx, layer) in self.layers.iter().enumerate() {
             let mut new_outputs = Vec::with_capacity(outputs.len());
-            let mut state = states
-                .get(layer_idx)
-                .cloned()
-                .unwrap_or_else(|| layer.initial_state(ctx).unwrap());
+            let mut state =
+                states.get(layer_idx).cloned().unwrap_or_else(|| layer.initial_state(ctx).unwrap());
 
             for input in outputs {
                 state = layer.forward((state, input), ctx)?;
@@ -262,9 +252,7 @@ impl<B: Backend> GruCell<B> {
     pub fn default_state(&self, backend: &B) -> Result<GruState<B>> {
         let ops = backend.ops();
         let hidden_dim = self.config.hidden_dim;
-        Ok(GruState {
-            hidden: ops.zeros(&[hidden_dim])?,
-        })
+        Ok(GruState { hidden: ops.zeros(&[hidden_dim])? })
     }
 
     /// Access the cell configuration.
@@ -273,16 +261,17 @@ impl<B: Backend> GruCell<B> {
     }
 
     /// Split combined gates tensor into update, reset, and new gates.
-    fn split_gates(&self, gates: &B::Tensor, ops: &dyn mnr_core::TensorOps<B>) -> Result<(B::Tensor, B::Tensor, B::Tensor)> {
+    fn split_gates(
+        &self,
+        gates: &B::Tensor,
+        ops: &dyn mnr_core::TensorOps<B>,
+    ) -> Result<(B::Tensor, B::Tensor, B::Tensor)> {
         let hidden_dim = self.config.hidden_dim;
         let shape = ops.shape(gates);
         // If gates is 2D [1, 3*hidden_dim], reshape to [3*hidden_dim] for slicing
-        let gates_1d = if shape.len() == 2 && shape[0] == 1 {
-            ops.reshape(gates, &[shape[1]])?
-        } else {
-            gates.clone()
-        };
-        let z = ops.slice(&gates_1d, 0, hidden_dim)?;           // update gate
+        let gates_1d =
+            if shape.len() == 2 && shape[0] == 1 { ops.reshape(gates, &[shape[1]])? } else { gates.clone() };
+        let z = ops.slice(&gates_1d, 0, hidden_dim)?; // update gate
         let r = ops.slice(&gates_1d, hidden_dim, hidden_dim * 2)?; // reset gate
         let n = ops.slice(&gates_1d, hidden_dim * 2, hidden_dim * 3)?; // new gate
         Ok((z, r, n))
@@ -312,13 +301,13 @@ impl<B: Backend> Module<B> for GruCell<B> {
         let (z_raw, r_raw, n_raw) = self.split_gates(&gates, ops)?;
 
         // Apply activations
-        let z = ops.sigmoid(&z_raw)?;   // update gate
-        let r = ops.sigmoid(&r_raw)?;   // reset gate
-        let n = ops.tanh(&n_raw)?;      // new gate
+        let z = ops.sigmoid(&z_raw)?; // update gate
+        let r = ops.sigmoid(&r_raw)?; // reset gate
+        let n = ops.tanh(&n_raw)?; // new gate
 
         // h_new = z * n + (1 - z) * h
         let one_minus_z = ops.add_scalar(&ops.neg(&z)?, 1.0)?;
-        let _r_h = ops.mul(&r, h)?;  // For reset gate computation (future use)
+        let _r_h = ops.mul(&r, h)?; // For reset gate computation (future use)
         let z_n = ops.mul(&z, &n)?;
         let one_minus_z_h = ops.mul(&one_minus_z, h)?;
         let h_new = ops.add(&z_n, &one_minus_z_h)?;
@@ -362,7 +351,10 @@ impl<F, Bw> BidirectionalRnn<F, Bw> {
 }
 
 /// Trait for RNN cells that can be used in a bidirectional wrapper.
-pub trait RnnCell<B: Backend>: Module<B, Input = (<Self as RnnCell<B>>::State, B::Tensor), Output = <Self as RnnCell<B>>::State> + StatefulModule<B> {
+pub trait RnnCell<B: Backend>:
+    Module<B, Input = (<Self as RnnCell<B>>::State, B::Tensor), Output = <Self as RnnCell<B>>::State>
+    + StatefulModule<B>
+{
     type State: Clone;
     fn default_state(&self, backend: &B) -> Result<<Self as RnnCell<B>>::State>;
     fn hidden<'a>(&self, state: &'a <Self as RnnCell<B>>::State) -> &'a B::Tensor;
@@ -528,11 +520,13 @@ mod tests {
 
         // Wx: [4*hidden_dim, input_dim]
         let wx_values: Vec<f32> = (0..4 * hidden_dim * input_dim).map(|i| (i as f32) * 0.001).collect();
-        let wx = Parameter::new("Wx", backend.tensor_from_vec(wx_values, &[4 * hidden_dim, input_dim]).unwrap());
+        let wx =
+            Parameter::new("Wx", backend.tensor_from_vec(wx_values, &[4 * hidden_dim, input_dim]).unwrap());
 
         // Wh: [4*hidden_dim, hidden_dim]
         let wh_values: Vec<f32> = (0..4 * hidden_dim * hidden_dim).map(|i| (i as f32) * 0.001).collect();
-        let wh = Parameter::new("Wh", backend.tensor_from_vec(wh_values, &[4 * hidden_dim, hidden_dim]).unwrap());
+        let wh =
+            Parameter::new("Wh", backend.tensor_from_vec(wh_values, &[4 * hidden_dim, hidden_dim]).unwrap());
 
         // b: [4*hidden_dim]
         let b_values: Vec<f32> = (0..4 * hidden_dim).map(|_i| 0.0).collect();
@@ -547,11 +541,13 @@ mod tests {
 
         // Wx: [3*hidden_dim, input_dim]
         let wx_values: Vec<f32> = (0..3 * hidden_dim * input_dim).map(|i| (i as f32) * 0.001).collect();
-        let wx = Parameter::new("Wx", backend.tensor_from_vec(wx_values, &[3 * hidden_dim, input_dim]).unwrap());
+        let wx =
+            Parameter::new("Wx", backend.tensor_from_vec(wx_values, &[3 * hidden_dim, input_dim]).unwrap());
 
         // Wh: [3*hidden_dim, hidden_dim]
         let wh_values: Vec<f32> = (0..3 * hidden_dim * hidden_dim).map(|i| (i as f32) * 0.001).collect();
-        let wh = Parameter::new("Wh", backend.tensor_from_vec(wh_values, &[3 * hidden_dim, hidden_dim]).unwrap());
+        let wh =
+            Parameter::new("Wh", backend.tensor_from_vec(wh_values, &[3 * hidden_dim, hidden_dim]).unwrap());
 
         // b: [3*hidden_dim]
         let b_values: Vec<f32> = (0..3 * hidden_dim).map(|_i| 0.0).collect();
@@ -634,12 +630,11 @@ mod tests {
 
         // Create 2-layer stacked LSTM
         let layer1 = create_mock_lstm_cell(3, 4);
-        let layer2 = create_mock_lstm_cell(4, 4);  // input is hidden from layer1
+        let layer2 = create_mock_lstm_cell(4, 4); // input is hidden from layer1
         let stacked = StackedLstm::new(vec![layer1, layer2]);
 
-        let inputs: Vec<_> = (0..5)
-            .map(|i| backend.tensor_from_vec(vec![(i as f32) * 0.1; 3], &[3]).unwrap())
-            .collect();
+        let inputs: Vec<_> =
+            (0..5).map(|i| backend.tensor_from_vec(vec![(i as f32) * 0.1; 3], &[3]).unwrap()).collect();
 
         let (states, outputs) = stacked.forward_sequence(vec![], inputs, &mut ctx).unwrap();
 
@@ -655,7 +650,7 @@ mod tests {
     fn test_lstm_trainable() {
         let cell = create_mock_lstm_cell(3, 2);
         let params = cell.parameters();
-        assert_eq!(params.len(), 3);  // Wx, Wh, b
+        assert_eq!(params.len(), 3); // Wx, Wh, b
     }
 
     #[test]
@@ -701,7 +696,7 @@ mod tests {
     fn test_gru_trainable() {
         let cell = create_mock_gru_cell(3, 2);
         let params = cell.parameters();
-        assert_eq!(params.len(), 3);  // Wx, Wh, b
+        assert_eq!(params.len(), 3); // Wx, Wh, b
     }
 
     #[test]
@@ -713,9 +708,8 @@ mod tests {
         let backward_cell = create_mock_lstm_cell(3, 4);
         let bilstm = BidirectionalRnn::new(forward_cell, backward_cell);
 
-        let inputs: Vec<_> = (0..3)
-            .map(|i| backend.tensor_from_vec(vec![(i as f32) * 0.1; 3], &[3]).unwrap())
-            .collect();
+        let inputs: Vec<_> =
+            (0..3).map(|i| backend.tensor_from_vec(vec![(i as f32) * 0.1; 3], &[3]).unwrap()).collect();
 
         let outputs = bilstm.forward_sequence(inputs, &mut ctx).unwrap();
 
@@ -736,9 +730,8 @@ mod tests {
         let backward_cell = create_mock_lstm_cell(3, 4);
         let bilstm = BidirectionalRnn::new(forward_cell, backward_cell);
 
-        let inputs: Vec<_> = (0..3)
-            .map(|i| backend.tensor_from_vec(vec![(i as f32) * 0.1; 3], &[3]).unwrap())
-            .collect();
+        let inputs: Vec<_> =
+            (0..3).map(|i| backend.tensor_from_vec(vec![(i as f32) * 0.1; 3], &[3]).unwrap()).collect();
 
         let (forward_final, backward_final) = bilstm.final_hidden(inputs, &mut ctx).unwrap();
 
@@ -768,7 +761,7 @@ mod tests {
         let bilstm = BidirectionalRnn::new(forward_cell, backward_cell);
 
         let params = bilstm.parameters();
-        assert_eq!(params.len(), 6);  // 3 forward + 3 backward
+        assert_eq!(params.len(), 6); // 3 forward + 3 backward
     }
 
     #[test]

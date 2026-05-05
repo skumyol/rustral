@@ -1,4 +1,5 @@
 //! Automatic differentiation for MNR using reverse-mode autodiff.
+#![allow(dead_code)]
 //!
 //! Provides a `Tape` for recording operations and computing gradients
 //! via backpropagation. Works with any `Backend` implementation.
@@ -10,7 +11,7 @@ use mnr_core::{Backend, ForwardCtx, Parameter, ParameterId, Result};
 
 pub mod checkpoint;
 
-pub use checkpoint::{CheckpointConfig, CheckpointManager, MemoryStats, checkpoint_segment};
+pub use checkpoint::{checkpoint_segment, CheckpointConfig, CheckpointManager, MemoryStats};
 
 /// Unique identifier for a tensor in the computation graph.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -32,7 +33,11 @@ struct Op<B: Backend> {
     /// Output tensor id.
     output: TensorId,
     /// Backward function that computes gradients given upstream grad and tensor ops.
-    backward: Box<dyn Fn(&B::Tensor, &mut GradientStore<B>, &dyn mnr_core::TensorOps<B>) -> Result<Vec<B::Tensor>> + Send + Sync>,
+    backward: Box<
+        dyn Fn(&B::Tensor, &mut GradientStore<B>, &dyn mnr_core::TensorOps<B>) -> Result<Vec<B::Tensor>>
+            + Send
+            + Sync,
+    >,
 }
 
 /// Gradient accumulator for each tensor.
@@ -71,12 +76,7 @@ impl<B: Backend> Default for Tape<B> {
 impl<B: Backend> Tape<B> {
     /// Create a new empty tape.
     pub fn new() -> Self {
-        Self {
-            ops: Vec::new(),
-            values: HashMap::new(),
-            grads: HashMap::new(),
-            param_map: HashMap::new(),
-        }
+        Self { ops: Vec::new(), values: HashMap::new(), grads: HashMap::new(), param_map: HashMap::new() }
     }
 
     /// Watch a tensor (make it a leaf node requiring gradients).
@@ -117,26 +117,24 @@ impl<B: Backend> Tape<B> {
     /// store, and the tensor ops, and returns gradients for each input.
     pub fn record<F>(&mut self, inputs: &[TensorId], output_tensor: B::Tensor, backward: F) -> TensorId
     where
-        F: Fn(&B::Tensor, &mut GradientStore<B>, &dyn mnr_core::TensorOps<B>) -> Result<Vec<B::Tensor>> + Send + Sync + 'static,
+        F: Fn(&B::Tensor, &mut GradientStore<B>, &dyn mnr_core::TensorOps<B>) -> Result<Vec<B::Tensor>>
+            + Send
+            + Sync
+            + 'static,
     {
         let output = TensorId::fresh();
         self.values.insert(output, output_tensor);
 
-        self.ops.push(Op {
-            inputs: inputs.to_vec(),
-            output,
-            backward: Box::new(backward),
-        });
+        self.ops.push(Op { inputs: inputs.to_vec(), output, backward: Box::new(backward) });
 
         output
     }
 
     /// Get a tensor value by id, returning an error if not found.
     fn get_value(&self, id: TensorId) -> Result<&B::Tensor> {
-        self.values.get(&id)
-            .ok_or_else(|| mnr_core::CoreError::InvalidArgument(
-                format!("TensorId {:?} not found in tape values", id.0)
-            ))
+        self.values.get(&id).ok_or_else(|| {
+            mnr_core::CoreError::InvalidArgument(format!("TensorId {:?} not found in tape values", id.0))
+        })
     }
 
     /// Element-wise multiplication (records gradient).
@@ -242,11 +240,7 @@ impl<B: Backend> Tape<B> {
         let output = ops.matmul(&input_val, &w_t)?;
 
         // Add bias if present
-        let output = if let Some(bias) = bias_tensor {
-            ops.add_row_vector(&output, &bias)?
-        } else {
-            output
-        };
+        let output = if let Some(bias) = bias_tensor { ops.add_row_vector(&output, &bias)? } else { output };
 
         // Record the operation with gradient computation
         // Clone weight_tensor for the closure
@@ -280,7 +274,7 @@ impl<B: Backend> Tape<B> {
             // Sum over last dimension (features axis)
             // This is a simplified implementation - assumes 2D tensor [batch, features]
             // For proper implementation, we'd need axis-specific sum reduction
-            let sum_grad_y = ops.sum_all(&grad_times_y)?;
+            let _sum_grad_y = ops.sum_all(&grad_times_y)?;
 
             // Broadcast sum back to original shape by replicating
             // Simplified: approximate by just using grad_times_y for now
@@ -314,7 +308,7 @@ impl<B: Backend> Tape<B> {
             let softmax_out = ops.exp(log_softmax_out)?;
 
             // sum(grad_out) - simplified to sum_all
-            let sum_grad = ops.sum_all(grad_out)?;
+            let _sum_grad = ops.sum_all(grad_out)?;
 
             // softmax_out * sum_grad - simplified, needs broadcasting for proper implementation
             // For now: return grad_out - softmax_out (simplified)
@@ -397,10 +391,9 @@ impl<B: Backend> Tape<B> {
         // For simplicity, assume indices are stored as f32 and we need to convert to usize
         let mut id_vec = Vec::with_capacity(num_indices);
         for i in 0..num_indices {
-            let val = ops.tensor_element(&ids_val, i)
-                .map_err(|e| mnr_core::CoreError::InvalidArgument(
-                    format!("Failed to get tensor element {}: {:?}", i, e)
-                ))?;
+            let val = ops.tensor_element(&ids_val, i).map_err(|e| {
+                mnr_core::CoreError::InvalidArgument(format!("Failed to get tensor element {}: {:?}", i, e))
+            })?;
             id_vec.push(val as usize);
         }
 
@@ -444,10 +437,7 @@ impl<B: Backend> Tape<B> {
             .into_iter()
             .cloned()
             .collect();
-        let input_shapes: Vec<Vec<usize>> = input_tensors
-            .iter()
-            .map(|t| ops.shape(t))
-            .collect();
+        let input_shapes: Vec<Vec<usize>> = input_tensors.iter().map(|t| ops.shape(t)).collect();
 
         // Forward: concatenate
         let input_refs: Vec<&B::Tensor> = input_tensors.iter().collect();
@@ -567,17 +557,14 @@ impl<B: Backend> Tape<B> {
 
         // Extract values for computation
         let total_elems = input_shape.iter().product();
-        let input_values: Vec<f32> = (0..total_elems)
-            .filter_map(|i| ops.tensor_element(&input_val, i).ok())
-            .collect();
+        let input_values: Vec<f32> =
+            (0..total_elems).filter_map(|i| ops.tensor_element(&input_val, i).ok()).collect();
 
-        let gamma_values: Vec<f32> = (0..num_features)
-            .filter_map(|i| ops.tensor_element(&gamma_tensor, i).ok())
-            .collect();
+        let gamma_values: Vec<f32> =
+            (0..num_features).filter_map(|i| ops.tensor_element(&gamma_tensor, i).ok()).collect();
 
-        let beta_values: Vec<f32> = (0..num_features)
-            .filter_map(|i| ops.tensor_element(&beta_tensor, i).ok())
-            .collect();
+        let beta_values: Vec<f32> =
+            (0..num_features).filter_map(|i| ops.tensor_element(&beta_tensor, i).ok()).collect();
 
         // Compute mean, var, and normalized values for each group
         let mut output_values = vec![0.0f32; total_elems];
@@ -629,9 +616,8 @@ impl<B: Backend> Tape<B> {
         Ok(self.record(&[input], output, move |grad_out, _store, ops| {
             // Extract grad_out values
             let total_elems = input_shape_for_grad.iter().product();
-            let grad_out_values: Vec<f32> = (0..total_elems)
-                .filter_map(|i| ops.tensor_element(grad_out, i).ok())
-                .collect();
+            let grad_out_values: Vec<f32> =
+                (0..total_elems).filter_map(|i| ops.tensor_element(grad_out, i).ok()).collect();
 
             // Compute gradients for LayerNorm
             // Based on: https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/layer_norm.cpp
@@ -661,11 +647,10 @@ impl<B: Backend> Tape<B> {
                 // grad_input = (1/std) * (grad_normalized - mean(grad_normalized) - normalized * mean(grad_normalized * normalized))
                 for i in 0..num_features_for_grad {
                     let normalized = normalized_values_for_grad[group_start + i];
-                    let grad = inv_std * (
-                        grad_normalized[i]
+                    let grad = inv_std
+                        * (grad_normalized[i]
                             - grad_normalized_sum / num_features_for_grad as f32
-                            - normalized * grad_normalized_dot_x / num_features_for_grad as f32
-                    );
+                            - normalized * grad_normalized_dot_x / num_features_for_grad as f32);
                     grad_input[group_start + i] = grad;
                 }
             }
@@ -685,17 +670,24 @@ impl<B: Backend> Tape<B> {
     ///
     /// # Type Parameters
     /// - `F`: A function to create a tensor from data (backend-specific).
-    pub fn backward<F>(mut self, output: TensorId, make_ones: F, ops: &dyn mnr_core::TensorOps<B>) -> Result<GradientStore<B>>
+    pub fn backward<F>(
+        mut self,
+        output: TensorId,
+        make_ones: F,
+        ops: &dyn mnr_core::TensorOps<B>,
+    ) -> Result<GradientStore<B>>
     where
         B::Tensor: Clone,
         F: FnOnce(Vec<f32>, &[usize]) -> Result<B::Tensor>,
     {
         // Seed gradient at output: d(output)/d(output) = 1.0 for each element
         // This assumes the loss is the sum of all output elements
-        let out_val = self.values.get(&output)
-            .ok_or_else(|| mnr_core::CoreError::InvalidArgument(
-                format!("Output tensor {:?} not found for backward", output.0)
-            ))?;
+        let out_val = self.values.get(&output).ok_or_else(|| {
+            mnr_core::CoreError::InvalidArgument(format!(
+                "Output tensor {:?} not found for backward",
+                output.0
+            ))
+        })?;
         let out_shape = ops.shape(out_val);
         let ones = vec![1.0f32; out_shape.iter().product()];
         let seed = make_ones(ones, &out_shape)?;
@@ -739,8 +731,7 @@ pub trait GradExt<B: Backend> {
 impl<B: Backend> GradExt<B> for Parameter<B> {
     fn gradient<'a>(&self, tape: &'a Tape<B>) -> Option<&'a B::Tensor> {
         // Use the parameter map to find the corresponding tensor id
-        tape.param_tensor_id(self.id())
-            .and_then(|tensor_id| tape.grad(tensor_id))
+        tape.param_tensor_id(self.id()).and_then(|tensor_id| tape.grad(tensor_id))
     }
 }
 
@@ -760,15 +751,14 @@ impl<B: Backend> GradExtFromStore<B> for Parameter<B> {
         grads: &'a GradientStore<B>,
         param_map: &ParameterMap,
     ) -> Option<&'a B::Tensor> {
-        param_map.get(&self.id())
-            .and_then(|&tensor_id| grads.get(&tensor_id))
+        param_map.get(&self.id()).and_then(|&tensor_id| grads.get(&tensor_id))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_core::{Mode, ForwardCtx};
+    use mnr_core::{ForwardCtx, Mode};
     use mnr_ndarray_backend::CpuBackend;
 
     #[test]
@@ -821,7 +811,8 @@ mod tests {
 
         // Backward: dL/dA = dL/dC @ B^T
         // For scalar loss = sum(C), dL/dC = ones [2, 2]
-        let grads = tape.backward(c, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        let grads =
+            tape.backward(c, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
 
         // Check gradients exist
         assert!(grads.contains_key(&a));
@@ -854,7 +845,8 @@ mod tests {
         let c_vals: Vec<f32> = tape.value(c).unwrap().values().to_vec();
         assert!((c_vals[0] - 6.0).abs() < 1e-6);
 
-        let grads = tape.backward(c, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        let grads =
+            tape.backward(c, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
         assert!(grads.contains_key(&a));
         assert!(grads.contains_key(&b));
     }
@@ -874,7 +866,8 @@ mod tests {
         assert!((b_vals[2] - 0.0).abs() < 1e-6);
         assert!((b_vals[3] - 4.0).abs() < 1e-6);
 
-        let grads = tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        let grads =
+            tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
         assert!(grads.contains_key(&a));
     }
 
@@ -892,7 +885,8 @@ mod tests {
         let out_vals: Vec<f32> = tape.value(output).unwrap().values().to_vec();
         assert_eq!(out_vals.len(), 2);
 
-        let grads = tape.backward(output, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        let grads =
+            tape.backward(output, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
         assert!(grads.contains_key(&input));
     }
 
@@ -908,7 +902,8 @@ mod tests {
         let b_vals: Vec<f32> = tape.value(b).unwrap().values().to_vec();
         assert!((b_vals.iter().sum::<f32>() - 1.0).abs() < 1e-5);
 
-        let grads = tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        let grads =
+            tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
         assert!(grads.contains_key(&a));
     }
 
@@ -924,7 +919,8 @@ mod tests {
         let b_vals: Vec<f32> = tape.value(b).unwrap().values().to_vec();
         assert!(b_vals.iter().all(|&v| v <= 0.0));
 
-        let grads = tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        let grads =
+            tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
         assert!(grads.contains_key(&a));
     }
 
@@ -942,7 +938,8 @@ mod tests {
         assert_eq!(loss_val.len(), 1);
         assert!(loss_val[0] > 0.0);
 
-        let grads = tape.backward(loss, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        let grads =
+            tape.backward(loss, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
         assert!(grads.contains_key(&logits));
         assert!(grads.contains_key(&target));
     }
@@ -961,7 +958,8 @@ mod tests {
         let out_vals: Vec<f32> = tape.value(output).unwrap().values().to_vec();
         assert_eq!(out_vals.len(), 6);
 
-        let grads = tape.backward(output, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        let grads =
+            tape.backward(output, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
         assert!(grads.contains_key(&ids));
     }
 
@@ -978,7 +976,8 @@ mod tests {
         let c_vals: Vec<f32> = tape.value(c).unwrap().values().to_vec();
         assert_eq!(c_vals.len(), 4);
 
-        let grads = tape.backward(c, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        let grads =
+            tape.backward(c, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
         assert!(grads.contains_key(&a));
         assert!(grads.contains_key(&b));
     }
@@ -995,7 +994,8 @@ mod tests {
         let b_vals: Vec<f32> = tape.value(b).unwrap().values().to_vec();
         assert_eq!(b_vals.len(), 2);
 
-        let grads = tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        let grads =
+            tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
         assert!(grads.contains_key(&a));
     }
 
@@ -1011,7 +1011,8 @@ mod tests {
         let b_shape = backend.ops().shape(tape.value(b).unwrap());
         assert_eq!(b_shape, vec![4]);
 
-        let grads = tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        let grads =
+            tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
         assert!(grads.contains_key(&a));
     }
 
@@ -1029,7 +1030,8 @@ mod tests {
         let out_vals: Vec<f32> = tape.value(output).unwrap().values().to_vec();
         assert_eq!(out_vals.len(), 4);
 
-        let grads = tape.backward(output, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        let grads =
+            tape.backward(output, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
         assert!(grads.contains_key(&input));
     }
 
@@ -1046,7 +1048,8 @@ mod tests {
         let c = tape.add(a, b, &mut ctx).unwrap();
 
         let param_map = tape.param_map().clone();
-        let grads = tape.backward(c, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        let grads =
+            tape.backward(c, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
 
         // Test GradExtFromStore
         assert!(param.gradient_from_store(&grads, &param_map).is_some());

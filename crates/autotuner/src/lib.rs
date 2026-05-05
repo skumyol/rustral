@@ -1,4 +1,5 @@
 //! Auto-Tuner for the Modular Neural Runtime
+#![allow(dead_code)]
 //!
 //! Provides automatic kernel configuration search, block size optimization,
 //! and algorithm selection for GPU operations. Results are cached for
@@ -24,9 +25,9 @@ mod kernel_config;
 mod search;
 mod tuner;
 
-pub use cache::{ConfigCache, CacheEntry, TuningCache};
-pub use kernel_config::{ConfigSpace, KernelConfig, BlockSize, WorkgroupConfig, MatmulAlgorithm};
-pub use search::{SearchStrategy, GridSearch, RandomSearch, BayesianSearch};
+pub use cache::{CacheEntry, ConfigCache, TuningCache};
+pub use kernel_config::{BlockSize, ConfigSpace, KernelConfig, MatmulAlgorithm, WorkgroupConfig};
+pub use search::{BayesianSearch, GridSearch, RandomSearch, SearchStrategy};
 pub use tuner::{AutoTuner, TunerConfig, TuningResult, TuningSession};
 
 use std::collections::HashMap;
@@ -69,37 +70,15 @@ where
 #[derive(Debug, Clone, PartialEq)]
 pub enum OpConfig {
     /// Matrix multiplication configuration.
-    Matmul {
-        algorithm: MatmulAlgorithm,
-        block_m: usize,
-        block_n: usize,
-        block_k: usize,
-        num_stages: usize,
-    },
+    Matmul { algorithm: MatmulAlgorithm, block_m: usize, block_n: usize, block_k: usize, num_stages: usize },
     /// Convolution configuration.
-    Conv2d {
-        algorithm: ConvAlgorithm,
-        tile_size: usize,
-        num_filters: usize,
-    },
+    Conv2d { algorithm: ConvAlgorithm, tile_size: usize, num_filters: usize },
     /// Reduction configuration.
-    Reduce {
-        block_size: usize,
-        items_per_thread: usize,
-        algorithm: ReduceAlgorithm,
-    },
+    Reduce { block_size: usize, items_per_thread: usize, algorithm: ReduceAlgorithm },
     /// Element-wise configuration.
-    Elementwise {
-        block_size: usize,
-        items_per_thread: usize,
-        vector_width: usize,
-    },
+    Elementwise { block_size: usize, items_per_thread: usize, vector_width: usize },
     /// Attention configuration.
-    Attention {
-        block_size_m: usize,
-        block_size_n: usize,
-        use_flash: bool,
-    },
+    Attention { block_size_m: usize, block_size_n: usize, use_flash: bool },
 }
 
 /// Convolution algorithms.
@@ -160,19 +139,11 @@ impl PerfMetrics {
         let time_us = duration.as_micros() as f64;
         let time_s = duration.as_secs_f64();
 
-        let throughput_gflops = if time_s > 0.0 {
-            (flops as f64 / time_s) / 1e9
-        } else {
-            0.0
-        };
+        let throughput_gflops = if time_s > 0.0 { (flops as f64 / time_s) / 1e9 } else { 0.0 };
 
         // Assume peak bandwidth of 900 GB/s for H100, 600 GB/s for A100
         let peak_bw_gbps = 600.0;
-        let achieved_bw_gbps = if time_s > 0.0 {
-            (bytes as f64 / time_s) / 1e9
-        } else {
-            0.0
-        };
+        let achieved_bw_gbps = if time_s > 0.0 { (bytes as f64 / time_s) / 1e9 } else { 0.0 };
         let bandwidth_pct = (achieved_bw_gbps / peak_bw_gbps * 100.0).min(100.0);
 
         Self {
@@ -193,13 +164,7 @@ impl PerfMetrics {
 
 impl Default for PerfMetrics {
     fn default() -> Self {
-        Self {
-            avg_time_us: f64::MAX,
-            std_dev_us: 0.0,
-            throughput: 0.0,
-            bandwidth_pct: 0.0,
-            compute_pct: 0.0,
-        }
+        Self { avg_time_us: f64::MAX, std_dev_us: 0.0, throughput: 0.0, bandwidth_pct: 0.0, compute_pct: 0.0 }
     }
 }
 
@@ -212,17 +177,11 @@ pub struct KernelFactory {
 impl KernelFactory {
     /// Create a new kernel factory.
     pub fn new(tuner: AutoTuner) -> Self {
-        Self {
-            tuner,
-            default_configs: Self::load_default_configs(),
-        }
+        Self { tuner, default_configs: Self::load_default_configs() }
     }
 
     /// Get or tune a kernel for given input shapes.
-    pub fn get_kernel<K: TunableKernel>(
-        &mut self,
-        kernel: K,
-    ) -> (K, OpConfig) {
+    pub fn get_kernel<K: TunableKernel>(&mut self, kernel: K) -> (K, OpConfig) {
         let key = format!("{}:{:?}", kernel.kernel_id(), kernel.input_signature());
 
         if let Some(config) = self.tuner.get_cached(&key) {
@@ -252,11 +211,7 @@ impl KernelFactory {
         // Default conv config
         configs.insert(
             "conv2d_default".to_string(),
-            OpConfig::Conv2d {
-                algorithm: ConvAlgorithm::ImplicitGemm,
-                tile_size: 16,
-                num_filters: 64,
-            },
+            OpConfig::Conv2d { algorithm: ConvAlgorithm::ImplicitGemm, tile_size: 16, num_filters: 64 },
         );
 
         configs
@@ -277,8 +232,8 @@ impl PreTuner {
             vec![512, 768, 768],
             vec![1024, 768, 768],
             vec![2048, 768, 768],
-            vec![512, 3072, 768],  // FFN expand
-            vec![512, 768, 3072],  // FFN project
+            vec![512, 3072, 768], // FFN expand
+            vec![512, 768, 3072], // FFN project
             // ResNet shapes
             vec![64, 64, 224, 224],
             vec![128, 128, 112, 112],
@@ -289,10 +244,7 @@ impl PreTuner {
             vec![8192, 12288, 49152],
         ];
 
-        Self {
-            tuner,
-            common_shapes,
-        }
+        Self { tuner, common_shapes }
     }
 
     /// Pre-tune all common shapes.
@@ -302,13 +254,16 @@ impl PreTuner {
         for shape in &self.common_shapes {
             let key = format!("matmul:{:?}", shape);
             // Would actually tune here with real kernels
-            results.insert(key, OpConfig::Matmul {
-                algorithm: MatmulAlgorithm::Tiled,
-                block_m: 128,
-                block_n: 128,
-                block_k: 32,
-                num_stages: 2,
-            });
+            results.insert(
+                key,
+                OpConfig::Matmul {
+                    algorithm: MatmulAlgorithm::Tiled,
+                    block_m: 128,
+                    block_n: 128,
+                    block_k: 32,
+                    num_stages: 2,
+                },
+            );
         }
 
         results
@@ -384,32 +339,17 @@ mod tests {
         };
         assert_eq!(matmul, matmul);
 
-        let conv = OpConfig::Conv2d {
-            algorithm: ConvAlgorithm::Direct,
-            tile_size: 16,
-            num_filters: 64,
-        };
+        let conv = OpConfig::Conv2d { algorithm: ConvAlgorithm::Direct, tile_size: 16, num_filters: 64 };
         assert_eq!(conv, conv);
 
-        let reduce = OpConfig::Reduce {
-            block_size: 256,
-            items_per_thread: 8,
-            algorithm: ReduceAlgorithm::Tree,
-        };
+        let reduce =
+            OpConfig::Reduce { block_size: 256, items_per_thread: 8, algorithm: ReduceAlgorithm::Tree };
         assert_eq!(reduce, reduce);
 
-        let elem = OpConfig::Elementwise {
-            block_size: 256,
-            items_per_thread: 4,
-            vector_width: 4,
-        };
+        let elem = OpConfig::Elementwise { block_size: 256, items_per_thread: 4, vector_width: 4 };
         assert_eq!(elem, elem);
 
-        let attn = OpConfig::Attention {
-            block_size_m: 64,
-            block_size_n: 64,
-            use_flash: true,
-        };
+        let attn = OpConfig::Attention { block_size_m: 64, block_size_n: 64, use_flash: true };
         assert_eq!(attn, attn);
     }
 
@@ -419,12 +359,18 @@ mod tests {
 
         struct DummyKernel;
         impl TunableKernel for DummyKernel {
-            fn kernel_id(&self) -> &'static str { "test_kernel" }
-            fn config_space(&self) -> ConfigSpace { ConfigSpace::matmul_reduced() }
+            fn kernel_id(&self) -> &'static str {
+                "test_kernel"
+            }
+            fn config_space(&self) -> ConfigSpace {
+                ConfigSpace::matmul_reduced()
+            }
             fn with_config(&self, _config: &KernelConfig) -> Box<dyn FnMut()> {
                 Box::new(|| {})
             }
-            fn input_signature(&self) -> Vec<usize> { vec![64, 64, 64] }
+            fn input_signature(&self) -> Vec<usize> {
+                vec![64, 64, 64]
+            }
         }
 
         let tuner = AutoTuner::new(TunerConfig::default());

@@ -29,11 +29,10 @@
 //!}
 //!```
 
-use std::collections::{BinaryHeap, HashMap, VecDeque};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::collections::{HashMap, VecDeque};
+use std::time::Instant;
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Result};
+use mnr_core::{Backend, CoreError, Result};
 
 use super::kv_cache::PagedCache;
 
@@ -123,7 +122,8 @@ impl Request {
         }
         // Check for stop token (e.g., EOS)
         if let Some(&last) = self.generated.last() {
-            if last == 2 { // Assuming 2 is EOS
+            if last == 2 {
+                // Assuming 2 is EOS
                 return true;
             }
         }
@@ -245,13 +245,10 @@ where
     }
 
     /// Schedule requests for next iteration
-    pub fn schedule(&mut self, max_new_tokens: usize) -> Option<Batch> {
+    pub fn schedule(&mut self, _max_new_tokens: usize) -> Option<Batch> {
         // 1. Move completed from running to completed
-        let completed_ids: Vec<u64> = self.running
-            .values()
-            .filter(|r| r.should_complete())
-            .map(|r| r.id)
-            .collect();
+        let completed_ids: Vec<u64> =
+            self.running.values().filter(|r| r.should_complete()).map(|r| r.id).collect();
 
         for id in completed_ids {
             if let Some(mut req) = self.running.remove(&id) {
@@ -295,12 +292,7 @@ where
             }
         }
 
-        Some(Batch {
-            request_ids,
-            input_ids,
-            seq_lens,
-            block_tables,
-        })
+        Some(Batch { request_ids, input_ids, seq_lens, block_tables })
     }
 
     /// Update requests with generated tokens
@@ -356,7 +348,7 @@ where
     fn try_resume_paused(&mut self) {
         let mut to_resume = Vec::new();
 
-        for (idx, req) in self.paused.iter().enumerate() {
+        for (idx, _req) in self.paused.iter().enumerate() {
             if self.running.len() < self.max_batch_size {
                 to_resume.push(idx);
             } else {
@@ -377,7 +369,8 @@ where
 
         if memory_pressure > self.preemption_threshold {
             // Find lowest priority request to preempt
-            let to_preempt: Option<u64> = self.running
+            let to_preempt: Option<u64> = self
+                .running
                 .values()
                 .filter(|r| r.priority == RequestPriority::Low)
                 .min_by_key(|r| r.priority as u8)
@@ -417,16 +410,14 @@ where
 
     /// Get statistics
     pub fn stats(&self) -> SchedulerStats {
-        let total_tokens_generated: usize = self.completed
-            .iter()
-            .map(|r| r.generated.len())
-            .sum();
+        let total_tokens_generated: usize = self.completed.iter().map(|r| r.generated.len()).sum();
 
         let avg_latency_ms = if !self.completed.is_empty() {
             self.completed
                 .iter()
                 .map(|r| r.last_gen_time.duration_since(r.arrival_time).as_millis() as f32)
-                .sum::<f32>() / self.completed.len() as f32
+                .sum::<f32>()
+                / self.completed.len() as f32
         } else {
             0.0
         };
@@ -465,10 +456,8 @@ pub struct Sampler;
 impl Sampler {
     /// Greedy sampling (argmax)
     pub fn greedy(logits: &[f32]) -> u32 {
-        let (idx, _) = logits.iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap_or((0, &0.0));
+        let (idx, _) =
+            logits.iter().enumerate().max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap_or((0, &0.0));
         idx as u32
     }
 
@@ -515,10 +504,7 @@ where
     B::Tensor: Clone,
 {
     pub fn new(scheduler: Scheduler<B>) -> Self {
-        Self {
-            scheduler,
-            callbacks: HashMap::new(),
-        }
+        Self { scheduler, callbacks: HashMap::new() }
     }
 
     /// Submit request and get future
@@ -531,7 +517,9 @@ where
         if let Some(batch) = self.scheduler.schedule(1) {
             // In real impl, would run model forward here
             // For now, simulate generation
-            let outputs: HashMap<u64, u32> = batch.request_ids.iter()
+            let outputs: HashMap<u64, u32> = batch
+                .request_ids
+                .iter()
                 .map(|&id| (id, 1u32)) // Dummy token
                 .collect();
 
@@ -618,8 +606,8 @@ mod tests {
         let cache = PagedCache::new(16, 100, &backend).unwrap();
         let mut scheduler = Scheduler::new(cache, SchedulingPolicy::Fcfs, 8, 8192);
 
-        let id1 = scheduler.add_request(vec![1, 2, 3], 100);
-        let id2 = scheduler.add_request(vec![4, 5], 50);
+        let _id1 = scheduler.add_request(vec![1, 2, 3], 100);
+        let _id2 = scheduler.add_request(vec![4, 5], 50);
 
         assert_eq!(scheduler.pending_count(), 2);
         assert!(!scheduler.is_empty());

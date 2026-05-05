@@ -57,13 +57,7 @@ pub struct CoverageMetrics {
 
 impl CoverageMetrics {
     pub fn new(category: CoverageCategory) -> Self {
-        Self {
-            category,
-            total_tests: 0,
-            passing_tests: 0,
-            lines_covered: 0,
-            lines_total: 0,
-        }
+        Self { category, total_tests: 0, passing_tests: 0, lines_covered: 0, lines_total: 0 }
     }
 
     pub fn test_pass_rate(&self) -> f64 {
@@ -111,15 +105,12 @@ impl CoverageReport {
         }
 
         // Simple timestamp
-        let timestamp = format!("{}", std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs());
+        let timestamp = format!(
+            "{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()
+        );
 
-        Self {
-            metrics,
-            generated_at: timestamp,
-        }
+        Self { metrics, generated_at: timestamp }
     }
 
     pub fn update(&mut self, category: CoverageCategory, tests: usize, passing: usize) {
@@ -153,8 +144,7 @@ impl CoverageReport {
         println!("{}", "=".repeat(80));
         println!();
 
-        println!("{:<30} {:>10} {:>10} {:>10} {:>10}",
-            "Category", "Tests", "Passing", "Pass %", "Target %");
+        println!("{:<30} {:>10} {:>10} {:>10} {:>10}", "Category", "Tests", "Passing", "Pass %", "Target %");
         println!("{}", "-".repeat(80));
 
         for category in [
@@ -168,7 +158,8 @@ impl CoverageReport {
         ] {
             if let Some(metrics) = self.metrics.get(&category) {
                 let status = if metrics.meets_target() { "✓" } else { "✗" };
-                println!("{:<30} {:>10} {:>10} {:>9.1}% {:>9}% {}",
+                println!(
+                    "{:<30} {:>10} {:>10} {:>9.1}% {:>9}% {}",
                     category.name(),
                     metrics.total_tests,
                     metrics.passing_tests,
@@ -180,7 +171,8 @@ impl CoverageReport {
         }
 
         println!("{}", "-".repeat(80));
-        println!("{:<30} {:>10} {:>10} {:>9.1}%",
+        println!(
+            "{:<30} {:>10} {:>10} {:>9.1}%",
             "OVERALL",
             self.total_tests(),
             self.total_passing(),
@@ -206,8 +198,11 @@ impl CoverageReport {
         // Overall stats
         html.push_str("<div class='summary'>\n");
         html.push_str(&format!("<h2>Overall: {:.1}% passing</h2>\n", self.overall_pass_rate()));
-        html.push_str(&format!("<p>{} tests total, {} passing</p>\n",
-            self.total_tests(), self.total_passing()));
+        html.push_str(&format!(
+            "<p>{} tests total, {} passing</p>\n",
+            self.total_tests(),
+            self.total_passing()
+        ));
         html.push_str("</div>\n");
 
         // Category table
@@ -340,8 +335,7 @@ fn generate_coverage_report() {
 
     // Check if we meet targets
     let all_meet = report.metrics.values().all(|m| m.meets_target());
-    assert!(all_meet || report.total_tests() > 0,
-        "Some coverage targets not met. See report above.");
+    assert!(all_meet || report.total_tests() > 0, "Some coverage targets not met. See report above.");
 }
 
 /// Verify 100% bug regression coverage
@@ -365,11 +359,7 @@ fn verify_bug_regression_coverage() {
         }
 
         // We should have at least 15 bug regression tests
-        assert!(
-            total_tests >= 15,
-            "Expected at least 15 bug regression tests, found {}",
-            total_tests
-        );
+        assert!(total_tests >= 15, "Expected at least 15 bug regression tests, found {}", total_tests);
 
         println!("  Found {} bug regression tests ✓", total_tests);
     }
@@ -423,11 +413,7 @@ fn verify_module_test_coverage() {
         println!("  Module '{}' has {} tests", module, test_count);
 
         // Each module should have at least some tests
-        assert!(
-            test_count > 0,
-            "Module '{}' should have tests",
-            module
-        );
+        assert!(test_count > 0, "Module '{}' should have tests", module);
     }
 }
 

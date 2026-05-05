@@ -32,7 +32,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Mode, Module, Parameter, ParameterRef, Result, Trainable};
+use mnr_core::{Backend, ForwardCtx, Module, ParameterRef, Result, Trainable};
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
 
@@ -110,12 +110,7 @@ impl<B: Backend, T: Module<B, Input = B::Tensor, Output = B::Tensor> + Trainable
 
 impl<B: Backend> PipelineStage<B> {
     pub fn new(stage_id: usize, device: usize) -> Self {
-        Self {
-            stage_id,
-            layers: Vec::new(),
-            activations: Vec::new(),
-            device,
-        }
+        Self { stage_id, layers: Vec::new(), activations: Vec::new(), device }
     }
 
     pub fn add_layer(&mut self, layer: Box<dyn PipelineLayer<B>>) {
@@ -131,10 +126,7 @@ impl<B: Backend> PipelineStage<B> {
     }
 
     pub fn parameters(&self) -> Vec<ParameterRef> {
-        self.layers
-            .iter()
-            .flat_map(|l| l.parameters())
-            .collect()
+        self.layers.iter().flat_map(|l| l.parameters()).collect()
     }
 }
 
@@ -151,9 +143,7 @@ impl StageSplitter {
         let total_params: usize = params.len();
         let params_per_stage = (total_params + num_stages - 1) / num_stages;
 
-        let mut stages: Vec<PipelineStage<B>> = (0..num_stages)
-            .map(|i| PipelineStage::new(i, i))
-            .collect();
+        let stages: Vec<PipelineStage<B>> = (0..num_stages).map(|i| PipelineStage::new(i, i)).collect();
 
         // Simple round-robin assignment
         // In real impl, would analyze model structure and balance by FLOPs
@@ -172,9 +162,7 @@ impl StageSplitter {
         layers: Vec<Box<dyn PipelineLayer<B>>>,
         num_stages: usize,
     ) -> Vec<PipelineStage<B>> {
-        let mut stages: Vec<PipelineStage<B>> = (0..num_stages)
-            .map(|i| PipelineStage::new(i, i))
-            .collect();
+        let mut stages: Vec<PipelineStage<B>> = (0..num_stages).map(|i| PipelineStage::new(i, i)).collect();
 
         let layers_per_stage = (layers.len() + num_stages - 1) / num_stages;
 
@@ -193,9 +181,7 @@ impl StageSplitter {
         layers: Vec<(Box<dyn PipelineLayer<B>>, usize)>, // (layer, param_count)
         num_stages: usize,
     ) -> Vec<PipelineStage<B>> {
-        let mut stages: Vec<PipelineStage<B>> = (0..num_stages)
-            .map(|i| PipelineStage::new(i, i))
-            .collect();
+        let mut stages: Vec<PipelineStage<B>> = (0..num_stages).map(|i| PipelineStage::new(i, i)).collect();
 
         let total_params: usize = layers.iter().map(|(_, c)| c).sum();
         let target_per_stage = total_params / num_stages;
@@ -286,11 +272,7 @@ where
     }
 
     /// Training step with pipeline parallelism
-    pub fn train_step(
-        &mut self,
-        micro_batches: &[B::Tensor],
-        ctx: &mut ForwardCtx<B>,
-    ) -> Result<Vec<f32>> {
+    pub fn train_step(&mut self, micro_batches: &[B::Tensor], ctx: &mut ForwardCtx<B>) -> Result<Vec<f32>> {
         let rank = self.process_group.rank();
         let num_stages = self.stages.len();
         let num_micro = micro_batches.len();
@@ -402,11 +384,7 @@ impl<B: Backend> PipelineComm<B> {
     pub fn new(stage_id: usize, num_stages: usize) -> Self {
         Self {
             stage_id,
-            next_stage: if stage_id < num_stages - 1 {
-                Some(stage_id + 1)
-            } else {
-                None
-            },
+            next_stage: if stage_id < num_stages - 1 { Some(stage_id + 1) } else { None },
             prev_stage: if stage_id > 0 { Some(stage_id - 1) } else { None },
             send_queue: Arc::new(Mutex::new(Vec::new())),
             recv_queue: Arc::new(Mutex::new(Vec::new())),
@@ -449,9 +427,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mnr_core::{ForwardCtx, Mode};
     use mnr_ndarray_backend::CpuBackend;
     use mnr_nn::{Linear, LinearConfig};
-    use mnr_core::{ForwardCtx, Mode};
 
     #[test]
     fn test_pipeline_config() {
@@ -503,9 +481,21 @@ mod tests {
     fn test_stage_splitter_balance_by_params() {
         let backend = CpuBackend::default();
         let layers = vec![
-            (Box::new(Linear::new(&backend, LinearConfig::new(64, 64)).unwrap()) as Box<dyn PipelineLayer<CpuBackend>>, 100),
-            (Box::new(Linear::new(&backend, LinearConfig::new(64, 64)).unwrap()) as Box<dyn PipelineLayer<CpuBackend>>, 200),
-            (Box::new(Linear::new(&backend, LinearConfig::new(64, 64)).unwrap()) as Box<dyn PipelineLayer<CpuBackend>>, 100),
+            (
+                Box::new(Linear::new(&backend, LinearConfig::new(64, 64)).unwrap())
+                    as Box<dyn PipelineLayer<CpuBackend>>,
+                100,
+            ),
+            (
+                Box::new(Linear::new(&backend, LinearConfig::new(64, 64)).unwrap())
+                    as Box<dyn PipelineLayer<CpuBackend>>,
+                200,
+            ),
+            (
+                Box::new(Linear::new(&backend, LinearConfig::new(64, 64)).unwrap())
+                    as Box<dyn PipelineLayer<CpuBackend>>,
+                100,
+            ),
         ];
 
         let stages = StageSplitter::balance_by_params(layers, 2);
@@ -518,9 +508,7 @@ mod tests {
         let pg = ProcessGroup::new_threaded(4, 1).unwrap();
 
         // Create stages manually
-        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..4)
-            .map(|i| PipelineStage::new(i, i))
-            .collect();
+        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..4).map(|i| PipelineStage::new(i, i)).collect();
 
         // Add layers
         for stage in &mut stages {
@@ -539,9 +527,7 @@ mod tests {
         let backend = CpuBackend::default();
         let pg = ProcessGroup::new_threaded(4, 0).unwrap();
 
-        let stages: Vec<PipelineStage<CpuBackend>> = (0..2)
-            .map(|i| PipelineStage::new(i, i))
-            .collect();
+        let stages: Vec<PipelineStage<CpuBackend>> = (0..2).map(|i| PipelineStage::new(i, i)).collect();
 
         let config = PipelineConfig::new();
         assert!(PipelineParallel::new(stages, pg, config).is_err());
@@ -569,9 +555,7 @@ mod tests {
         let backend = CpuBackend::default();
         let pg = ProcessGroup::new_threaded(4, 0).unwrap();
 
-        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..4)
-            .map(|i| PipelineStage::new(i, i))
-            .collect();
+        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..4).map(|i| PipelineStage::new(i, i)).collect();
 
         for stage in &mut stages {
             let layer = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
@@ -593,9 +577,7 @@ mod tests {
         let backend = CpuBackend::default();
         let pg = ProcessGroup::new_threaded(4, 3).unwrap();
 
-        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..4)
-            .map(|i| PipelineStage::new(i, i))
-            .collect();
+        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..4).map(|i| PipelineStage::new(i, i)).collect();
 
         for stage in &mut stages {
             let layer = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
@@ -617,18 +599,14 @@ mod tests {
         let backend = CpuBackend::default();
         let pg = ProcessGroup::new_threaded(1, 0).unwrap();
 
-        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..1)
-            .map(|i| PipelineStage::new(i, i))
-            .collect();
+        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..1).map(|i| PipelineStage::new(i, i)).collect();
 
         for stage in &mut stages {
             let layer = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
             stage.add_layer(Box::new(layer));
         }
 
-        let config = PipelineConfig::new()
-            .with_schedule(PipelineSchedule::Simple)
-            .with_micro_batches(2);
+        let config = PipelineConfig::new().with_schedule(PipelineSchedule::Simple).with_micro_batches(2);
         let mut pipeline = PipelineParallel::new(stages, pg, config).unwrap();
 
         let micro_batches = vec![
@@ -645,18 +623,14 @@ mod tests {
         let backend = CpuBackend::default();
         let pg = ProcessGroup::new_threaded(2, 0).unwrap();
 
-        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..2)
-            .map(|i| PipelineStage::new(i, i))
-            .collect();
+        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..2).map(|i| PipelineStage::new(i, i)).collect();
 
         for stage in &mut stages {
             let layer = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
             stage.add_layer(Box::new(layer));
         }
 
-        let config = PipelineConfig::new()
-            .with_schedule(PipelineSchedule::Interleaved)
-            .with_micro_batches(4);
+        let config = PipelineConfig::new().with_schedule(PipelineSchedule::Interleaved).with_micro_batches(4);
         let mut pipeline = PipelineParallel::new(stages, pg, config).unwrap();
 
         let micro_batches = vec![
@@ -676,18 +650,14 @@ mod tests {
         let backend = CpuBackend::default();
         let pg = ProcessGroup::new_threaded(1, 0).unwrap();
 
-        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..1)
-            .map(|i| PipelineStage::new(i, i))
-            .collect();
+        let mut stages: Vec<PipelineStage<CpuBackend>> = (0..1).map(|i| PipelineStage::new(i, i)).collect();
 
         for stage in &mut stages {
             let layer = Linear::new(&backend, LinearConfig::new(64, 64)).unwrap();
             stage.add_layer(Box::new(layer));
         }
 
-        let config = PipelineConfig::new()
-            .with_schedule(PipelineSchedule::ZeroBubble)
-            .with_micro_batches(2);
+        let config = PipelineConfig::new().with_schedule(PipelineSchedule::ZeroBubble).with_micro_batches(2);
         let mut pipeline = PipelineParallel::new(stages, pg, config).unwrap();
 
         let micro_batches = vec![
@@ -703,15 +673,13 @@ mod tests {
     fn test_pipeline_stats() {
         let backend = CpuBackend::default();
 
-        for schedule in [PipelineSchedule::Simple, PipelineSchedule::Interleaved, PipelineSchedule::ZeroBubble] {
+        for schedule in
+            [PipelineSchedule::Simple, PipelineSchedule::Interleaved, PipelineSchedule::ZeroBubble]
+        {
             let pg = ProcessGroup::new_threaded(4, 0).unwrap();
-            let stages: Vec<PipelineStage<CpuBackend>> = (0..4)
-                .map(|i| PipelineStage::new(i, i))
-                .collect();
+            let stages: Vec<PipelineStage<CpuBackend>> = (0..4).map(|i| PipelineStage::new(i, i)).collect();
 
-            let config = PipelineConfig::new()
-                .with_micro_batches(16)
-                .with_schedule(schedule);
+            let config = PipelineConfig::new().with_micro_batches(16).with_schedule(schedule);
 
             let pipeline = PipelineParallel::new(stages, pg, config).unwrap();
             let stats = pipeline.pipeline_stats();

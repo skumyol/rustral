@@ -42,14 +42,16 @@ impl<B: Backend> MultiReadout<B> {
 
     /// Compute logits for all labels.
     pub fn logits(&self, hidden: &B::Tensor, ctx: &mut ForwardCtx<B>) -> Result<Vec<B::Tensor>> {
-        self.projections
-            .iter()
-            .map(|proj| proj.forward(hidden.clone(), ctx))
-            .collect()
+        self.projections.iter().map(|proj| proj.forward(hidden.clone(), ctx)).collect()
     }
 
     /// Predict labels with a threshold.
-    pub fn predict(&self, hidden: B::Tensor, ctx: &mut ForwardCtx<B>, threshold: f32) -> Result<Vec<LabelBinaryPrediction>> {
+    pub fn predict(
+        &self,
+        hidden: B::Tensor,
+        ctx: &mut ForwardCtx<B>,
+        threshold: f32,
+    ) -> Result<Vec<LabelBinaryPrediction>> {
         let logits = self.logits(&hidden, ctx)?;
         let ops = ctx.backend().ops();
         let mut predictions = Vec::new();
@@ -77,11 +79,17 @@ impl<B: Backend> MultiReadout<B> {
     }
 
     /// Get top-k predicted labels by probability.
-    pub fn top_k(&self, hidden: B::Tensor, ctx: &mut ForwardCtx<B>, k: usize) -> Result<Vec<LabelBinaryPrediction>> {
+    pub fn top_k(
+        &self,
+        hidden: B::Tensor,
+        ctx: &mut ForwardCtx<B>,
+        k: usize,
+    ) -> Result<Vec<LabelBinaryPrediction>> {
         let mut predictions = self.predict(hidden, ctx, 0.0)?;
 
         // Sort by probability in descending order
-        predictions.sort_by(|a, b| b.probability.partial_cmp(&a.probability).unwrap_or(std::cmp::Ordering::Equal));
+        predictions
+            .sort_by(|a, b| b.probability.partial_cmp(&a.probability).unwrap_or(std::cmp::Ordering::Equal));
 
         // Take top k (or fewer if not enough predictions)
         let k = k.min(predictions.len());
@@ -136,11 +144,7 @@ impl<B: Backend> BinaryReadout<B> {
         let prob_tensor = ops.sigmoid(&logit_tensor)?;
         let prob = ops.tensor_element(&prob_tensor, 0)?;
 
-        Ok(BinaryPrediction {
-            logit,
-            probability: prob,
-            predicted: prob > 0.5,
-        })
+        Ok(BinaryPrediction { logit, probability: prob, predicted: prob > 0.5 })
     }
 }
 
@@ -178,7 +182,9 @@ mod tests {
         // vocab includes <unk> + num_labels labels, so we need num_labels + 1 projections
         let projections: Vec<_> = (0..num_labels + 1)
             .map(|i| {
-                let w = backend.normal_parameter(&format!("W_{}", i), &[1, hidden_dim], 42 + i as u64, 0.01).unwrap();
+                let w = backend
+                    .normal_parameter(&format!("W_{}", i), &[1, hidden_dim], 42 + i as u64, 0.01)
+                    .unwrap();
                 crate::Linear::from_parameters(
                     crate::LinearConfig { in_dim: hidden_dim, out_dim: 1, bias: false },
                     w,
@@ -236,7 +242,7 @@ mod tests {
     #[test]
     fn test_binary_readout_parameters() {
         let br = create_mock_binary_readout(10);
-        assert_eq!(br.parameters().len(), 1);  // Just weight
+        assert_eq!(br.parameters().len(), 1); // Just weight
     }
 
     #[test]
@@ -253,8 +259,12 @@ mod tests {
 
         // Each prediction should have a valid probability between 0 and 1
         for pred in &predictions {
-            assert!(pred.probability >= 0.0 && pred.probability <= 1.0,
-                "probability should be in [0,1], got {} for {}", pred.probability, pred.label);
+            assert!(
+                pred.probability >= 0.0 && pred.probability <= 1.0,
+                "probability should be in [0,1], got {} for {}",
+                pred.probability,
+                pred.label
+            );
         }
     }
 
@@ -272,8 +282,10 @@ mod tests {
 
         // Probabilities should be in descending order
         for i in 1..top_k.len() {
-            assert!(top_k[i-1].probability >= top_k[i].probability,
-                "top_k should be sorted by probability");
+            assert!(
+                top_k[i - 1].probability >= top_k[i].probability,
+                "top_k should be sorted by probability"
+            );
         }
     }
 
@@ -287,8 +299,11 @@ mod tests {
         let prediction = br.predict(hidden, &mut ctx).unwrap();
 
         // Probability should be between 0 and 1
-        assert!(prediction.probability >= 0.0 && prediction.probability <= 1.0,
-            "probability should be in [0,1], got {}", prediction.probability);
+        assert!(
+            prediction.probability >= 0.0 && prediction.probability <= 1.0,
+            "probability should be in [0,1], got {}",
+            prediction.probability
+        );
 
         // Predicted should be based on threshold 0.5
         assert_eq!(prediction.predicted, prediction.probability > 0.5);

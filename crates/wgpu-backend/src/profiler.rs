@@ -32,7 +32,7 @@ use std::time::Instant;
 pub struct ProfileEvent {
     pub name: String,
     pub category: String,
-    pub start_time: u64,  // microseconds
+    pub start_time: u64,       // microseconds
     pub end_time: Option<u64>, // microseconds
     pub metadata: HashMap<String, String>,
 }
@@ -49,10 +49,8 @@ impl ProfileEvent {
     }
 
     fn now_micros() -> u64 {
-        Instant::now()
-            .elapsed()
-            .as_micros() as u64 + 
-            std::time::SystemTime::now()
+        Instant::now().elapsed().as_micros() as u64
+            + std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_micros() as u64
@@ -156,7 +154,7 @@ impl GpuProfiler {
 
         self.total_allocated += size;
         self.current_allocations.insert(tag.to_string(), size);
-        
+
         if self.total_allocated > self.peak_allocated {
             self.peak_allocated = self.total_allocated;
         }
@@ -193,19 +191,16 @@ impl GpuProfiler {
 
     /// Get events by category.
     pub fn get_events_by_category(&self, category: &str) -> Vec<&ProfileEvent> {
-        self.events.iter()
-            .filter(|e| e.category == category)
-            .collect()
+        self.events.iter().filter(|e| e.category == category).collect()
     }
 
     /// Get summary statistics.
     pub fn summary(&self) -> ProfileSummary {
         let mut category_times: HashMap<String, (u64, usize)> = HashMap::new();
-        
+
         for event in &self.events {
             if let Some(duration) = event.duration_micros() {
-                let entry = category_times.entry(event.category.clone())
-                    .or_insert((0, 0));
+                let entry = category_times.entry(event.category.clone()).or_insert((0, 0));
                 entry.0 += duration;
                 entry.1 += 1;
             }
@@ -226,7 +221,7 @@ impl GpuProfiler {
         use std::io::Write;
 
         let mut file = File::create(path)?;
-        
+
         // Chrome trace format header
         writeln!(file, "[")?;
 
@@ -261,7 +256,7 @@ impl GpuProfiler {
             first = false;
 
             let trace_event = serde_json::json!({
-                "name": format!("{} {}", 
+                "name": format!("{} {}",
                     if mem_event.allocation_size > 0 { "alloc" } else { "free" },
                     mem_event.tag
                 ),
@@ -280,7 +275,7 @@ impl GpuProfiler {
         }
 
         writeln!(file, "\n]")?;
-        
+
         println!("Exported Chrome trace to: {}", path);
         Ok(())
     }
@@ -288,32 +283,26 @@ impl GpuProfiler {
     /// Print summary to console.
     pub fn print_summary(&self) {
         let summary = self.summary();
-        
+
         println!("\n{}", "=".repeat(60));
         println!("GPU Profile Summary");
         println!("{}", "=".repeat(60));
-        println!("Total Events: {} ({} completed)", 
-            summary.total_events, 
-            summary.completed_events
-        );
-        println!("Peak Memory: {:.2} MB", 
-            summary.total_memory_allocated as f64 / (1024.0 * 1024.0)
-        );
-        println!("Current Memory: {:.2} MB",
-            summary.current_memory as f64 / (1024.0 * 1024.0)
-        );
-        
+        println!("Total Events: {} ({} completed)", summary.total_events, summary.completed_events);
+        println!("Peak Memory: {:.2} MB", summary.total_memory_allocated as f64 / (1024.0 * 1024.0));
+        println!("Current Memory: {:.2} MB", summary.current_memory as f64 / (1024.0 * 1024.0));
+
         println!("\nTime by Category:");
         for (category, (total_us, count)) in &summary.category_times {
             let avg_us = *total_us as f64 / *count as f64;
-            println!("  {:20}: {:8.2} ms total, {:8.2} ms avg ({} calls)",
+            println!(
+                "  {:20}: {:8.2} ms total, {:8.2} ms avg ({} calls)",
                 category,
                 *total_us as f64 / 1000.0,
                 avg_us / 1000.0,
                 count
             );
         }
-        
+
         println!("{}", "=".repeat(60));
     }
 
@@ -351,10 +340,7 @@ pub struct ScopedEvent<'a> {
 impl<'a> ScopedEvent<'a> {
     pub fn new(profiler: &'a mut GpuProfiler, name: &str, category: &str) -> Self {
         let event_id = profiler.start_event(name, category);
-        Self {
-            profiler,
-            event_id,
-        }
+        Self { profiler, event_id }
     }
 }
 
@@ -380,10 +366,7 @@ pub struct BandwidthCalculator {
 
 impl BandwidthCalculator {
     pub fn new(bytes: u64, duration_micros: u64) -> Self {
-        Self {
-            bytes_transferred: bytes,
-            duration_micros,
-        }
+        Self { bytes_transferred: bytes, duration_micros }
     }
 
     /// Calculate bandwidth in GB/s.
@@ -457,7 +440,7 @@ mod tests {
         use std::fs;
 
         let mut profiler = GpuProfiler::new();
-        
+
         let event_id = profiler.start_event("kernel", "compute");
         profiler.end_event(event_id);
 

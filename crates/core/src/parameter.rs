@@ -87,10 +87,7 @@ pub struct ParameterGroup {
 impl ParameterGroup {
     /// Create an empty parameter group with the given name.
     pub fn new(name: impl Into<Arc<str>>) -> Self {
-        Self {
-            name: name.into(),
-            params: Vec::new(),
-        }
+        Self { name: name.into(), params: Vec::new() }
     }
 
     /// Insert a parameter under a named role.

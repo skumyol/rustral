@@ -14,7 +14,7 @@ fn bench_attention(c: &mut Criterion) {
 
     let configs = vec![
         ("small", 64, 4, 32),    // d_model=64, heads=4, seq=32
-        ("medium", 256, 8, 128),  // d_model=256, heads=8, seq=128
+        ("medium", 256, 8, 128), // d_model=256, heads=8, seq=128
         ("large", 512, 8, 256),  // d_model=512, heads=8, seq=256
     ];
 
@@ -22,9 +22,8 @@ fn bench_attention(c: &mut Criterion) {
         let config = SelfAttentionConfig::new(d_model, num_heads);
         let mha = MultiHeadAttention::new(&backend, config, 42).unwrap();
 
-        let input = backend
-            .tensor_from_vec(vec![1.0f32; 1 * seq_len * d_model], &[1, seq_len, d_model])
-            .unwrap();
+        let input =
+            backend.tensor_from_vec(vec![1.0f32; 1 * seq_len * d_model], &[1, seq_len, d_model]).unwrap();
 
         group.bench_with_input(
             BenchmarkId::new("forward", name),

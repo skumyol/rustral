@@ -3,8 +3,8 @@
 //! Provides shared infrastructure for bug detection, performance testing,
 //! and integration validation across all crates.
 
-use std::time::{Duration, Instant};
 use std::panic;
+use std::time::{Duration, Instant};
 
 /// Test result with timing and success/failure info
 #[derive(Debug, Clone)]
@@ -17,21 +17,11 @@ pub struct TestResult {
 
 impl TestResult {
     pub fn passed(name: &str, duration: Duration) -> Self {
-        Self {
-            name: name.to_string(),
-            passed: true,
-            duration,
-            error: None,
-        }
+        Self { name: name.to_string(), passed: true, duration, error: None }
     }
 
     pub fn failed(name: &str, duration: Duration, error: String) -> Self {
-        Self {
-            name: name.to_string(),
-            passed: false,
-            duration,
-            error: Some(error),
-        }
+        Self { name: name.to_string(), passed: false, duration, error: Some(error) }
     }
 }
 
@@ -43,10 +33,7 @@ pub struct TestRunner {
 
 impl TestRunner {
     pub fn new() -> Self {
-        Self {
-            results: Vec::new(),
-            start_time: Instant::now(),
-        }
+        Self { results: Vec::new(), start_time: Instant::now() }
     }
 
     /// Run a test with panic catching and timing
@@ -68,11 +55,7 @@ impl TestRunner {
                 self.results.push(TestResult::failed(name, duration, e));
             }
             Err(_) => {
-                self.results.push(TestResult::failed(
-                    name,
-                    duration,
-                    "Test panicked".to_string(),
-                ));
+                self.results.push(TestResult::failed(name, duration, "Test panicked".to_string()));
             }
         }
     }
@@ -155,12 +138,7 @@ pub struct PerfConfig {
 
 impl Default for PerfConfig {
     fn default() -> Self {
-        Self {
-            warmup_iterations: 3,
-            test_iterations: 10,
-            max_duration_ms: 5000,
-            tolerance_percent: 20.0,
-        }
+        Self { warmup_iterations: 3, test_iterations: 10, max_duration_ms: 5000, tolerance_percent: 20.0 }
     }
 }
 
@@ -184,10 +162,7 @@ impl PerfResult {
 }
 
 /// Run performance test with statistical analysis
-pub fn run_performance_test<F>(
-    config: &PerfConfig,
-    mut test_fn: F,
-) -> PerfResult
+pub fn run_performance_test<F>(config: &PerfConfig, mut test_fn: F) -> PerfResult
 where
     F: FnMut(),
 {
@@ -248,14 +223,7 @@ macro_rules! assert_approx_eq_slice {
         );
         for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
             let diff = (a - e).abs();
-            assert!(
-                diff <= $epsilon,
-                "Element {} differs: {} vs {} (diff: {})",
-                i,
-                a,
-                e,
-                diff
-            );
+            assert!(diff <= $epsilon, "Element {} differs: {} vs {} (diff: {})", i, a, e, diff);
         }
     };
 }
@@ -267,12 +235,7 @@ macro_rules! assert_completes_within {
         let start = std::time::Instant::now();
         let result = $operation;
         let elapsed = start.elapsed();
-        assert!(
-            elapsed <= $duration,
-            "Operation took {:?}, expected within {:?}",
-            elapsed,
-            $duration
-        );
+        assert!(elapsed <= $duration, "Operation took {:?}, expected within {:?}", elapsed, $duration);
         result
     };
 }
@@ -301,9 +264,7 @@ pub struct MemoryTracker {
 
 impl MemoryTracker {
     pub fn new() -> Self {
-        Self {
-            baseline: Self::current_memory(),
-        }
+        Self { baseline: Self::current_memory() }
     }
 
     fn current_memory() -> usize {
@@ -316,10 +277,7 @@ impl MemoryTracker {
         let leaked = current.saturating_sub(self.baseline);
 
         if leaked > tolerance_bytes {
-            Err(format!(
-                "Memory leak detected: {} bytes leaked (tolerance: {})",
-                leaked, tolerance_bytes
-            ))
+            Err(format!("Memory leak detected: {} bytes leaked (tolerance: {})", leaked, tolerance_bytes))
         } else {
             Ok(())
         }

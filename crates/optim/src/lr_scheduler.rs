@@ -92,12 +92,7 @@ pub struct LinearWarmup {
 
 impl LinearWarmup {
     pub fn new(initial_lr: f64, peak_lr: f64, warmup_steps: u64) -> Self {
-        Self {
-            initial_lr,
-            peak_lr,
-            warmup_steps,
-            current_step: 0,
-        }
+        Self { initial_lr, peak_lr, warmup_steps, current_step: 0 }
     }
 }
 
@@ -142,12 +137,7 @@ pub struct CosineAnnealingLR {
 
 impl CosineAnnealingLR {
     pub fn new(initial_lr: f64, min_lr: f64, total_steps: u64) -> Self {
-        Self {
-            initial_lr,
-            min_lr,
-            total_steps,
-            current_step: 0,
-        }
+        Self { initial_lr, min_lr, total_steps, current_step: 0 }
     }
 }
 
@@ -195,14 +185,7 @@ pub struct WarmupCosine {
 
 impl WarmupCosine {
     pub fn new(peak_lr: f64, min_lr: f64, warmup_steps: u64, total_steps: u64) -> Self {
-        Self {
-            initial_lr: 0.0,
-            peak_lr,
-            min_lr,
-            warmup_steps,
-            total_steps,
-            current_step: 0,
-        }
+        Self { initial_lr: 0.0, peak_lr, min_lr, warmup_steps, total_steps, current_step: 0 }
     }
 
     /// Create with custom initial LR (for fine-tuning where you don't start from 0).
@@ -259,12 +242,7 @@ pub struct StepDecay {
 impl StepDecay {
     pub fn new(initial_lr: f64, decay_factor: f64, step_size: u64) -> Self {
         assert!(decay_factor > 0.0 && decay_factor < 1.0, "Decay factor must be in (0, 1)");
-        Self {
-            initial_lr,
-            decay_factor,
-            step_size,
-            current_step: 0,
-        }
+        Self { initial_lr, decay_factor, step_size, current_step: 0 }
     }
 }
 
@@ -305,11 +283,7 @@ pub struct ExponentialLR {
 impl ExponentialLR {
     pub fn new(initial_lr: f64, decay_rate: f64) -> Self {
         assert!(decay_rate > 0.0, "Decay rate must be positive");
-        Self {
-            initial_lr,
-            decay_rate,
-            current_step: 0,
-        }
+        Self { initial_lr, decay_rate, current_step: 0 }
     }
 }
 
@@ -436,12 +410,7 @@ pub struct OneCycleLR {
 
 impl OneCycleLR {
     pub fn new(max_lr: f64, total_steps: u64) -> Self {
-        Self {
-            max_lr,
-            min_lr: max_lr / 10.0,
-            total_steps,
-            current_step: 0,
-        }
+        Self { max_lr, min_lr: max_lr / 10.0, total_steps, current_step: 0 }
     }
 
     pub fn with_min_lr(mut self, min_lr: f64) -> Self {
@@ -503,13 +472,7 @@ pub struct PolynomialLR {
 impl PolynomialLR {
     pub fn new(initial_lr: f64, min_lr: f64, total_steps: u64, power: f64) -> Self {
         assert!(power > 0.0, "Power must be positive");
-        Self {
-            initial_lr,
-            min_lr,
-            total_steps,
-            power,
-            current_step: 0,
-        }
+        Self { initial_lr, min_lr, total_steps, power, current_step: 0 }
     }
 }
 
@@ -556,7 +519,7 @@ mod tests {
 
     #[test]
     fn test_linear_warmup() {
-        let mut scheduler = LinearWarmup::new(0.0, 0.001, 100);
+        let scheduler = LinearWarmup::new(0.0, 0.001, 100);
 
         assert_eq!(scheduler.get_lr(0), 0.0);
         assert_eq!(scheduler.get_lr(50), 0.0005);
@@ -590,7 +553,7 @@ mod tests {
 
     #[test]
     fn test_step_decay() {
-        let mut scheduler = StepDecay::new(0.001, 0.5, 100);
+        let scheduler = StepDecay::new(0.001, 0.5, 100);
 
         assert_eq!(scheduler.get_lr(0), 0.001);
         assert_eq!(scheduler.get_lr(99), 0.001);

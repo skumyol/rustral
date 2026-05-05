@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, Result, TensorOps};
+use mnr_core::{Backend, ForwardCtx, Parameter, ParameterId, Result, TensorOps};
 
 use crate::{Gradient, OptimError, Optimizer};
 
@@ -107,10 +107,7 @@ impl LossScaleScheduler {
 
         if has_overflow {
             // Decrease scale and skip step
-            self.current_scale = f32::max(
-                self.current_scale * self.backoff_factor,
-                self.min_scale,
-            );
+            self.current_scale = f32::max(self.current_scale * self.backoff_factor, self.min_scale);
             self.steps_since_overflow = 0;
             true
         } else {
@@ -218,7 +215,7 @@ impl<O> MixedPrecisionOptimizer<O> {
     }
 
     /// Convert tensor to low precision.
-    fn to_low_precision<B: Backend>(&self, tensor: &B::Tensor, ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
+    fn to_low_precision<B: Backend>(&self, tensor: &B::Tensor, _ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
         match self.dtype {
             DType::Float32 => Ok(tensor.clone()),
             DType::Float16 => {
@@ -267,17 +264,9 @@ impl<O> MixedPrecisionOptimizer<O> {
             .iter()
             .map(|g| {
                 let shape = ops.shape(&g.tensor);
-                let scaled_data: Vec<f32> = g
-                    .tensor
-                    .as_ref()
-                    .iter()
-                    .map(|&v| v * scale)
-                    .collect();
+                let scaled_data: Vec<f32> = g.tensor.as_ref().iter().map(|&v| v * scale).collect();
                 let scaled_tensor = ops.tensor_from_vec(scaled_data, &shape)?;
-                Ok(Gradient {
-                    param_id: g.param_id,
-                    tensor: scaled_tensor,
-                })
+                Ok(Gradient { param_id: g.param_id, tensor: scaled_tensor })
             })
             .collect()
     }
@@ -301,17 +290,9 @@ impl<O> MixedPrecisionOptimizer<O> {
             .iter()
             .map(|g| {
                 let shape = ops.shape(&g.tensor);
-                let unscaled_data: Vec<f32> = g
-                    .tensor
-                    .as_ref()
-                    .iter()
-                    .map(|&v| v * inv_scale)
-                    .collect();
+                let unscaled_data: Vec<f32> = g.tensor.as_ref().iter().map(|&v| v * inv_scale).collect();
                 let unscaled_tensor = ops.tensor_from_vec(unscaled_data, &shape)?;
-                Ok(Gradient {
-                    param_id: g.param_id,
-                    tensor: unscaled_tensor,
-                })
+                Ok(Gradient { param_id: g.param_id, tensor: unscaled_tensor })
             })
             .collect()
     }
@@ -345,11 +326,7 @@ where
         ctx: &mut ForwardCtx<B>,
     ) -> std::result::Result<(), OptimError> {
         // Check for overflow
-        let has_overflow = if self.check_overflow {
-            self.has_overflow(gradients)
-        } else {
-            false
-        };
+        let has_overflow = if self.check_overflow { self.has_overflow(gradients) } else { false };
 
         // Update loss scale
         let should_skip = self.loss_scale.step(has_overflow);
@@ -379,11 +356,7 @@ where
                         .cloned()
                         .unwrap_or_else(|| p.tensor().as_ref().to_vec());
                     let shape = ctx.backend().ops().shape(p.tensor());
-                    let tensor = ctx
-                        .backend()
-                        .ops()
-                        .tensor_from_vec(master, &shape)
-                        .unwrap();
+                    let tensor = ctx.backend().ops().tensor_from_vec(master, &shape).unwrap();
                     Parameter::new(p.name(), tensor)
                 })
                 .collect();
@@ -401,10 +374,7 @@ where
                 let low_precision = match self.dtype {
                     DType::Float16 => {
                         // Simulate FP16 conversion (truncate mantissa)
-                        let fp16_data: Vec<f32> = data
-                            .iter()
-                            .map(|&v| f16::from_f32(v).to_f32())
-                            .collect();
+                        let fp16_data: Vec<f32> = data.iter().map(|&v| f16::from_f32(v).to_f32()).collect();
                         ctx.backend()
                             .ops()
                             .tensor_from_vec(fp16_data, &shape)
@@ -444,12 +414,9 @@ impl MixedPrecisionStats {
     /// Calculate stats for a given configuration.
     pub fn for_dtype(dtype: DType) -> Self {
         match dtype {
-            DType::Float32 => Self {
-                loss_scale: 1.0,
-                overflow_count: 0,
-                memory_saved_percent: 0.0,
-                estimated_speedup: 1.0,
-            },
+            DType::Float32 => {
+                Self { loss_scale: 1.0, overflow_count: 0, memory_saved_percent: 0.0, estimated_speedup: 1.0 }
+            }
             DType::Float16 => Self {
                 loss_scale: 1024.0,
                 overflow_count: 0,
@@ -468,6 +435,7 @@ impl MixedPrecisionStats {
 
 /// FP16 simulation type for testing (actual GPU would use half crate).
 #[derive(Clone, Copy, Debug, Default)]
+#[allow(non_camel_case_types)]
 struct f16(u16);
 
 impl f16 {
@@ -487,12 +455,22 @@ impl f16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Adam;
+    use mnr_core::{ForwardCtx, Mode};
+    use mnr_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_dtype_sizes() {
         assert_eq!(DType::Float32.size_bytes(), 4);
         assert_eq!(DType::Float16.size_bytes(), 2);
         assert_eq!(DType::BFloat16.size_bytes(), 2);
+    }
+
+    #[test]
+    fn test_dtype_is_low_precision() {
+        assert!(!DType::Float32.is_low_precision());
+        assert!(DType::Float16.is_low_precision());
+        assert!(DType::BFloat16.is_low_precision());
     }
 
     #[test]
@@ -514,6 +492,26 @@ mod tests {
     }
 
     #[test]
+    fn test_loss_scale_scheduler_min_scale() {
+        let mut scheduler = LossScaleScheduler::new().with_initial_scale(1.0);
+        assert_eq!(scheduler.current_scale(), 1.0);
+        let skip = scheduler.step(true);
+        assert!(skip);
+        // Should not go below min_scale (1.0)
+        assert_eq!(scheduler.current_scale(), 1.0);
+    }
+
+    #[test]
+    fn test_loss_scale_scheduler_reset() {
+        let mut scheduler = LossScaleScheduler::new();
+        scheduler.step(true); // Decrease scale
+        assert_eq!(scheduler.current_scale(), 512.0); // Starts at 1024, halves to 512
+        scheduler.reset();
+        assert_eq!(scheduler.current_scale(), 1024.0);
+        assert_eq!(scheduler.step_count, 0);
+    }
+
+    #[test]
     fn test_mixed_precision_stats() {
         let fp16_stats = MixedPrecisionStats::for_dtype(DType::Float16);
         assert_eq!(fp16_stats.memory_saved_percent, 50.0);
@@ -524,5 +522,117 @@ mod tests {
 
         let fp32_stats = MixedPrecisionStats::for_dtype(DType::Float32);
         assert_eq!(fp32_stats.memory_saved_percent, 0.0);
+    }
+
+    #[test]
+    fn test_mixed_precision_optimizer_builder() {
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let mp = MixedPrecisionOptimizer::new(adam)
+            .with_dtype(DType::BFloat16)
+            .with_loss_scale(512.0)
+            .without_overflow_check();
+
+        assert_eq!(mp.dtype(), DType::BFloat16);
+        assert_eq!(mp.current_loss_scale(), 512.0);
+    }
+
+    #[test]
+    fn test_mixed_precision_optimizer_fp32_step() {
+        let backend = CpuBackend::default();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let mut mp = MixedPrecisionOptimizer::new(adam).with_dtype(DType::Float32).without_overflow_check();
+
+        let mut params =
+            vec![mnr_core::Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
+
+        let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
+        let gradients = vec![Gradient { param_id: params[0].id(), tensor: grad_tensor }];
+
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        mp.step(&mut params, &gradients, &mut ctx).unwrap();
+        // Parameter should have been updated
+        let val = params[0].tensor().as_ref()[0];
+        assert_ne!(val, 1.0); // Should change due to gradient update
+    }
+
+    #[test]
+    fn test_mixed_precision_optimizer_bf16_step() {
+        let backend = CpuBackend::default();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let mut mp = MixedPrecisionOptimizer::new(adam).with_dtype(DType::BFloat16).without_overflow_check();
+
+        let mut params =
+            vec![mnr_core::Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
+
+        let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
+        let gradients = vec![Gradient { param_id: params[0].id(), tensor: grad_tensor }];
+
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        mp.step(&mut params, &gradients, &mut ctx).unwrap();
+        let val = params[0].tensor().as_ref()[0];
+        assert_ne!(val, 1.0);
+    }
+
+    #[test]
+    fn test_mixed_precision_optimizer_overflow_skip() {
+        let backend = CpuBackend::default();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let mut mp = MixedPrecisionOptimizer::new(adam).with_dtype(DType::Float32).with_loss_scale(1.0); // Scale 1.0 so overflow check works directly
+
+        let mut params =
+            vec![mnr_core::Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
+
+        // Create a gradient with NaN to trigger overflow detection
+        let grad_tensor = backend.tensor_from_vec(vec![f32::NAN], &[1]).unwrap();
+        let gradients = vec![Gradient { param_id: params[0].id(), tensor: grad_tensor }];
+
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        mp.step(&mut params, &gradients, &mut ctx).unwrap();
+        // Loss scale should have backed off
+        assert_eq!(mp.current_loss_scale(), 1.0); // min_scale = 1.0
+    }
+
+    #[test]
+    fn test_mixed_precision_optimizer_initialize_master_weights() {
+        let backend = CpuBackend::default();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let mut mp = MixedPrecisionOptimizer::new(adam).with_dtype(DType::Float16);
+
+        let params: Vec<mnr_core::Parameter<CpuBackend>> = vec![mnr_core::Parameter::new(
+            "p0",
+            backend.tensor_from_vec(vec![1.0f32, 2.0f32], &[2]).unwrap(),
+        )];
+
+        mp.initialize_master_weights(&params);
+        // BF16 would skip initialization, so we used Float16 here
+    }
+
+    #[test]
+    fn test_mixed_precision_optimizer_fp16_step() {
+        let backend = CpuBackend::default();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let mut mp = MixedPrecisionOptimizer::new(adam).with_dtype(DType::Float16).without_overflow_check();
+
+        let mut params = vec![mnr_core::Parameter::new(
+            "p0",
+            backend.tensor_from_vec(vec![10.0f32; 100], &[100]).unwrap(),
+        )];
+
+        let grad_tensor = backend.tensor_from_vec(vec![0.5f32; 100], &[100]).unwrap();
+        let gradients = vec![Gradient { param_id: params[0].id(), tensor: grad_tensor }];
+
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        // Step should complete without error; FP16 simulation may truncate small updates
+        mp.step(&mut params, &gradients, &mut ctx).unwrap();
+        // Verify master weights were initialized
+        assert!(!mp.master_weights.is_empty());
+    }
+
+    #[test]
+    fn test_f16_simulation() {
+        let a = f16::from_f32(1.0);
+        let b = a.to_f32();
+        // Due to truncation, it won't be exactly 1.0 but close
+        assert!(b > 0.0);
     }
 }

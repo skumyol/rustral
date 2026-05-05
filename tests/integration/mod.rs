@@ -1,18 +1,13 @@
 //! Module Integration Tests
 
-use mnr_core::{Backend, ForwardCtx, Mode, Module, Trainable, TensorOps};
-use mnr_nn::{
-    Conv2d, Conv2dConfig, Embedding, EmbeddingConfig, Linear, LinearConfig,
-    LayerNorm, LayerNormConfig,
-    SelfAttention, SelfAttentionConfig,
-    TransformerEncoder, TransformerEncoderConfig,
-    TransformerDecoder, TransformerDecoderConfig,
-    Sequential2, chain,
-    Dropout, DropoutConfig,
-};
+use mnr_core::{Backend, ForwardCtx, Mode, Module, TensorOps, Trainable};
 use mnr_ndarray_backend::CpuBackend;
+use mnr_nn::{
+    chain, Dropout, DropoutConfig, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear,
+    LinearConfig,
+};
 
-use crate::common::{TestRunner};
+use crate::common::TestRunner;
 
 pub fn run_all(runner: &mut TestRunner) {
     test_core_to_nn_integration(runner);
@@ -41,8 +36,7 @@ fn test_core_to_nn_integration(runner: &mut TestRunner) {
             .map_err(|e| format!("Create input failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, vec![2, 5], "Output shape mismatch");
@@ -51,21 +45,21 @@ fn test_core_to_nn_integration(runner: &mut TestRunner) {
 
     runner.run_test("integration_tensor_ops", || {
         let backend = CpuBackend::default();
-        let a = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0], &[2, 2])
+        let a = backend
+            .tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0], &[2, 2])
             .map_err(|e| format!("Create tensor A failed: {}", e))?;
 
-        let b = backend.tensor_from_vec(vec![0.5f32, 0.5, 0.5, 0.5], &[2, 2])
+        let b = backend
+            .tensor_from_vec(vec![0.5f32, 0.5, 0.5, 0.5], &[2, 2])
             .map_err(|e| format!("Create tensor B failed: {}", e))?;
 
         let ops = backend.ops();
 
-        let c = ops.add(&a, &b)
-            .map_err(|e| format!("Add failed: {}", e))?;
+        let c = ops.add(&a, &b).map_err(|e| format!("Add failed: {}", e))?;
         let c_data: Vec<f32> = c.as_ref().to_vec();
         assert_eq!(c_data, vec![1.5, 2.5, 3.5, 4.5], "Addition wrong");
 
-        let d = ops.mul(&a, &b)
-            .map_err(|e| format!("Mul failed: {}", e))?;
+        let d = ops.mul(&a, &b).map_err(|e| format!("Mul failed: {}", e))?;
         let d_data: Vec<f32> = d.as_ref().to_vec();
         assert_eq!(d_data, vec![0.5, 1.0, 1.5, 2.0], "Multiplication wrong");
 
@@ -87,8 +81,7 @@ fn test_autodiff_integration(runner: &mut TestRunner) {
             .map_err(|e| format!("Create input failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, vec![1, 2], "Autodiff output shape wrong");
@@ -105,12 +98,13 @@ fn test_autodiff_integration(runner: &mut TestRunner) {
             .map_err(|e| format!("Create input failed: {}", e))?;
 
         let mut inf_ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let inf_output = linear.forward(input.clone(), &mut inf_ctx)
+        let inf_output = linear
+            .forward(input.clone(), &mut inf_ctx)
             .map_err(|e| format!("Inference forward failed: {}", e))?;
 
         let mut train_ctx = ForwardCtx::new(&backend, Mode::Train);
-        let train_output = linear.forward(input, &mut train_ctx)
-            .map_err(|e| format!("Training forward failed: {}", e))?;
+        let train_output =
+            linear.forward(input, &mut train_ctx).map_err(|e| format!("Training forward failed: {}", e))?;
 
         assert_eq!(
             backend.ops().shape(&inf_output),
@@ -135,8 +129,7 @@ fn test_optim_integration(runner: &mut TestRunner) {
             .map_err(|e| format!("Create input failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
-        let _output = model.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let _output = model.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         Ok(())
     });
@@ -145,11 +138,7 @@ fn test_optim_integration(runner: &mut TestRunner) {
 fn test_data_nn_integration(runner: &mut TestRunner) {
     runner.run_test("integration_data_loader", || {
         use mnr_data::DataLoaderConfig;
-        let config = DataLoaderConfig {
-            batch_size: 32,
-            shuffle: true,
-            ..Default::default()
-        };
+        let config = DataLoaderConfig { batch_size: 32, shuffle: true, ..Default::default() };
         assert_eq!(config.batch_size, 32);
         Ok(())
     });
@@ -169,8 +158,8 @@ fn test_sequential_chaining(runner: &mut TestRunner) {
             .map_err(|e| format!("Create input failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = model.forward(input, &mut ctx)
-            .map_err(|e| format!("Sequential forward failed: {}", e))?;
+        let output =
+            model.forward(input, &mut ctx).map_err(|e| format!("Sequential forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, vec![3, 5], "Sequential output shape wrong");
@@ -194,8 +183,7 @@ fn test_sequential_chaining(runner: &mut TestRunner) {
 
         let input: Vec<usize> = vec![1, 2, 3, 4, 5];
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = model.forward(input, &mut ctx)
-            .map_err(|e| format!("Pipeline forward failed: {}", e))?;
+        let output = model.forward(input, &mut ctx).map_err(|e| format!("Pipeline forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, vec![5, 10], "Complex pipeline output shape wrong");
@@ -214,14 +202,12 @@ fn test_mixed_precision_integration(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let linear_out = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Linear failed: {}", e))?;
+        let linear_out = linear.forward(input, &mut ctx).map_err(|e| format!("Linear failed: {}", e))?;
 
         let norm = LayerNorm::new(&backend, LayerNormConfig::new(vec![5]), 42)
             .map_err(|e| format!("Create norm failed: {}", e))?;
 
-        let norm_out = norm.forward(linear_out, &mut ctx)
-            .map_err(|e| format!("Norm failed: {}", e))?;
+        let norm_out = norm.forward(linear_out, &mut ctx).map_err(|e| format!("Norm failed: {}", e))?;
 
         let shape = backend.ops().shape(&norm_out);
         assert_eq!(shape, vec![10, 5], "Mixed precision output shape wrong");
@@ -240,23 +226,18 @@ fn test_save_load_integration(runner: &mut TestRunner) {
             .map_err(|e| format!("Create input failed: {}", e))?;
 
         let mut ctx1 = ForwardCtx::new(&backend, Mode::Inference);
-        let out1 = model.forward(input.clone(), &mut ctx1)
-            .map_err(|e| format!("First forward failed: {}", e))?;
+        let out1 =
+            model.forward(input.clone(), &mut ctx1).map_err(|e| format!("First forward failed: {}", e))?;
 
         let mut ctx2 = ForwardCtx::new(&backend, Mode::Inference);
-        let out2 = model.forward(input, &mut ctx2)
-            .map_err(|e| format!("Second forward failed: {}", e))?;
+        let out2 = model.forward(input, &mut ctx2).map_err(|e| format!("Second forward failed: {}", e))?;
 
         let data1: Vec<f32> = out1.as_ref().to_vec();
         let data2: Vec<f32> = out2.as_ref().to_vec();
 
         for (i, (a, b)) in data1.iter().zip(data2.iter()).enumerate() {
             let diff = (a - b).abs();
-            assert!(
-                diff < 1e-5,
-                "Output element {} differs: {} vs {} (diff: {})",
-                i, a, b, diff
-            );
+            assert!(diff < 1e-5, "Output element {} differs: {} vs {} (diff: {})", i, a, b, diff);
         }
 
         Ok(())
@@ -268,10 +249,12 @@ fn test_backend_consistency(runner: &mut TestRunner) {
         let backend = CpuBackend::default();
         let ops = backend.ops();
 
-        let a = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0], &[2, 2])
+        let a = backend
+            .tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0], &[2, 2])
             .map_err(|e| format!("Create tensor A failed: {}", e))?;
 
-        let b = backend.tensor_from_vec(vec![2.0f32, 2.0, 2.0, 2.0], &[2, 2])
+        let b = backend
+            .tensor_from_vec(vec![2.0f32, 2.0, 2.0, 2.0], &[2, 2])
             .map_err(|e| format!("Create tensor B failed: {}", e))?;
 
         let _sum = ops.add(&a, &b).map_err(|e| format!("Add failed: {}", e))?;
@@ -314,7 +297,8 @@ fn test_mode_switching(runner: &mut TestRunner) {
             .map_err(|e| format!("Create input failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = dropout.forward(input.clone(), &mut ctx)
+        let output = dropout
+            .forward(input.clone(), &mut ctx)
             .map_err(|e| format!("Dropout inference failed: {}", e))?;
 
         let in_data: Vec<f32> = input.as_ref().to_vec();
@@ -336,7 +320,8 @@ fn test_mode_switching(runner: &mut TestRunner) {
             .map_err(|e| format!("Create input failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
-        let output = dropout.forward(input.clone(), &mut ctx)
+        let output = dropout
+            .forward(input.clone(), &mut ctx)
             .map_err(|e| format!("Dropout training failed: {}", e))?;
 
         let out_data: Vec<f32> = output.as_ref().to_vec();

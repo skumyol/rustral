@@ -8,7 +8,7 @@
 //! Run with: `cargo run -p mnr-nn --example transformer_composition`
 
 use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_nn::{Linear, LinearConfig, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig};
+use mnr_nn::{Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig};
 
 fn main() {
     use mnr_ndarray_backend::CpuBackend;

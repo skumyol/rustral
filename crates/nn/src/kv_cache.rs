@@ -122,11 +122,7 @@ impl CacheConfig {
     /// Calculate memory required for cache
     pub fn memory_bytes(&self) -> usize {
         let kv_len = 2; // K + V
-        let elements = self.batch_size
-            * self.num_kv_heads
-            * self.max_seq_len
-            * self.head_dim
-            * kv_len;
+        let elements = self.batch_size * self.num_kv_heads * self.max_seq_len * self.head_dim * kv_len;
         elements * self.quantization.bytes_per_element()
     }
 
@@ -163,26 +159,13 @@ where
     pub fn new(backend: &B, config: CacheConfig) -> Result<Self> {
         let ops = backend.ops();
 
-        let shape = vec![
-            config.batch_size,
-            config.num_kv_heads,
-            config.max_seq_len,
-            config.head_dim,
-        ];
+        let shape = vec![config.batch_size, config.num_kv_heads, config.max_seq_len, config.head_dim];
 
         // Pre-allocate caches
         let k_cache = ops.zeros(&shape)?;
         let v_cache = ops.zeros(&shape)?;
 
-        Ok(Self {
-            k_cache,
-            v_cache,
-            current_len: 0,
-            config,
-            k_scale: None,
-            v_scale: None,
-            is_full: false,
-        })
+        Ok(Self { k_cache, v_cache, current_len: 0, config, k_scale: None, v_scale: None, is_full: false })
     }
 
     /// Append new keys and values to cache
@@ -199,7 +182,7 @@ where
 
         // Get cache slices for update
         let start = self.current_len;
-        let end = start + new_len;
+        let _end = start + new_len;
 
         // In a full implementation, would use slice assignment
         // For now, simplified: reconstruct with concatenation
@@ -213,11 +196,11 @@ where
 
         // Update cache
         // Simplified: full cache rewrite
-        let mut k_full = self.k_cache.as_ref().to_vec();
-        let mut v_full = self.v_cache.as_ref().to_vec();
+        let k_full = self.k_cache.as_ref().to_vec();
+        let v_full = self.v_cache.as_ref().to_vec();
 
-        let k_new = k_to_store.as_ref();
-        let v_new = v_to_store.as_ref();
+        let _k_new = k_to_store.as_ref();
+        let _v_new = v_to_store.as_ref();
 
         // Copy new data into appropriate positions
         // This is a simplified implementation
@@ -243,7 +226,12 @@ where
     }
 
     /// Get K/V for specific sequence range
-    pub fn get_range(&self, start: usize, end: usize, ops: &dyn TensorOps<B>) -> Result<(B::Tensor, B::Tensor)> {
+    pub fn get_range(
+        &self,
+        _start: usize,
+        _end: usize,
+        _ops: &dyn TensorOps<B>,
+    ) -> Result<(B::Tensor, B::Tensor)> {
         // In real impl, would slice the cache
         // Simplified: return full cache
         let k_slice = self.k_cache.clone();
@@ -276,7 +264,12 @@ where
     }
 
     /// Quantize K/V to INT8
-    fn quantize_kv(&self, k: &B::Tensor, v: &B::Tensor, ops: &dyn TensorOps<B>) -> Result<(B::Tensor, B::Tensor)> {
+    fn quantize_kv(
+        &self,
+        k: &B::Tensor,
+        v: &B::Tensor,
+        ops: &dyn TensorOps<B>,
+    ) -> Result<(B::Tensor, B::Tensor)> {
         // Find scales
         let k_data: Vec<f32> = k.as_ref().to_vec();
         let v_data: Vec<f32> = v.as_ref().to_vec();
@@ -288,13 +281,11 @@ where
         let v_scale = v_max / 127.0;
 
         // Quantize
-        let k_quantized: Vec<f32> = k_data.iter().map(|&x| {
-            (x / k_scale * 127.0).round().clamp(-127.0, 127.0)
-        }).collect();
+        let k_quantized: Vec<f32> =
+            k_data.iter().map(|&x| (x / k_scale * 127.0).round().clamp(-127.0, 127.0)).collect();
 
-        let v_quantized: Vec<f32> = v_data.iter().map(|&x| {
-            (x / v_scale * 127.0).round().clamp(-127.0, 127.0)
-        }).collect();
+        let v_quantized: Vec<f32> =
+            v_data.iter().map(|&x| (x / v_scale * 127.0).round().clamp(-127.0, 127.0)).collect();
 
         let shape = ops.shape(k);
         let k_t = ops.tensor_from_vec(k_quantized, &shape)?;
@@ -304,7 +295,14 @@ where
     }
 
     /// Dequantize from INT8
-    fn dequantize_kv(&self, k: &B::Tensor, v: &B::Tensor, k_scale: f32, v_scale: f32, ops: &dyn TensorOps<B>) -> Result<(B::Tensor, B::Tensor)> {
+    fn dequantize_kv(
+        &self,
+        k: &B::Tensor,
+        v: &B::Tensor,
+        k_scale: f32,
+        v_scale: f32,
+        ops: &dyn TensorOps<B>,
+    ) -> Result<(B::Tensor, B::Tensor)> {
         let k_data: Vec<f32> = k.as_ref().iter().map(|&x| x * k_scale / 127.0).collect();
         let v_data: Vec<f32> = v.as_ref().iter().map(|&x| x * v_scale / 127.0).collect();
 
@@ -356,11 +354,7 @@ where
 {
     pub fn new(backend: &B, config: CacheConfig, window_size: usize) -> Result<Self> {
         let cache = KVCache::new(backend, config)?;
-        Ok(Self {
-            cache,
-            window_size,
-            window_start: 0,
-        })
+        Ok(Self { cache, window_size, window_start: 0 })
     }
 
     /// Append with sliding window
@@ -402,9 +396,9 @@ impl<B: Backend> PagedCache<B>
 where
     B::Tensor: Clone,
 {
-    pub fn new(block_size: usize, num_blocks: usize, backend: &B) -> Result<Self> {
+    pub fn new(block_size: usize, num_blocks: usize, _backend: &B) -> Result<Self> {
         // Pre-allocate blocks
-        let mut blocks = Vec::with_capacity(num_blocks);
+        let blocks = Vec::with_capacity(num_blocks);
         for _ in 0..num_blocks {
             // In real impl, would allocate block tensors
             // blocks.push(allocate_block(backend, block_size)?);
@@ -412,13 +406,7 @@ where
 
         let free_blocks: Vec<usize> = (0..num_blocks).collect();
 
-        Ok(Self {
-            block_size,
-            num_blocks,
-            free_blocks,
-            block_tables: HashMap::new(),
-            blocks,
-        })
+        Ok(Self { block_size, num_blocks, free_blocks, block_tables: HashMap::new(), blocks })
     }
 
     /// Allocate blocks for a new sequence
@@ -429,9 +417,7 @@ where
             return None; // Out of memory
         }
 
-        let allocated: Vec<usize> = self.free_blocks
-            .drain(0..num_blocks_needed)
-            .collect();
+        let allocated: Vec<usize> = self.free_blocks.drain(0..num_blocks_needed).collect();
 
         self.block_tables.insert(seq_id, allocated.clone());
         Some(allocated)
@@ -505,8 +491,7 @@ mod tests {
 
     #[test]
     fn test_cache_config_gqa() {
-        let config = CacheConfig::new(32, 128, 4096)
-            .with_gqa(4); // 4 K/V heads for 32 query heads
+        let config = CacheConfig::new(32, 128, 4096).with_gqa(4); // 4 K/V heads for 32 query heads
 
         assert_eq!(config.num_kv_heads, 4);
         assert!(!config.use_mqa);
@@ -515,8 +500,7 @@ mod tests {
     #[test]
     fn test_kv_cache_creation() {
         let backend = CpuBackend::default();
-        let config = CacheConfig::new(8, 64, 1024)
-            .with_batch_size(1);
+        let config = CacheConfig::new(8, 64, 1024).with_batch_size(1);
 
         let cache = KVCache::new(&backend, config).unwrap();
 
@@ -527,11 +511,10 @@ mod tests {
     #[test]
     fn test_memory_stats() {
         let backend = CpuBackend::default();
-        let config = CacheConfig::new(8, 64, 1024)
-            .with_batch_size(1)
-            .with_quantization(CacheQuantization::Fp16);
+        let config =
+            CacheConfig::new(8, 64, 1024).with_batch_size(1).with_quantization(CacheQuantization::Fp16);
 
-        let mut cache = KVCache::new(&backend, config).unwrap();
+        let cache = KVCache::new(&backend, config).unwrap();
 
         // Initially empty
         let stats = cache.memory_stats();
@@ -605,9 +588,7 @@ mod tests {
     #[test]
     fn test_kv_cache_append_int8() {
         let backend = CpuBackend::default();
-        let config = CacheConfig::new(2, 4, 8)
-            .with_batch_size(1)
-            .with_quantization(CacheQuantization::Int8);
+        let config = CacheConfig::new(2, 4, 8).with_batch_size(1).with_quantization(CacheQuantization::Int8);
         let mut cache = KVCache::new(&backend, config).unwrap();
 
         let k = backend.tensor_from_vec(vec![0.1f32; 8], &[1, 2, 1, 4]).unwrap();
@@ -620,9 +601,7 @@ mod tests {
     #[test]
     fn test_kv_cache_append_non_int8() {
         let backend = CpuBackend::default();
-        let config = CacheConfig::new(2, 4, 8)
-            .with_batch_size(1)
-            .with_quantization(CacheQuantization::Fp32);
+        let config = CacheConfig::new(2, 4, 8).with_batch_size(1).with_quantization(CacheQuantization::Fp32);
         let mut cache = KVCache::new(&backend, config).unwrap();
 
         let k = backend.tensor_from_vec(vec![0.1f32; 8], &[1, 2, 1, 4]).unwrap();

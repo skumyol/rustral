@@ -3,6 +3,8 @@
 //! Provides data parallelism, model parallelism, and ZeRO sharding
 //! for training large models across multiple GPUs and nodes.
 
+#![allow(dead_code, unused_variables, unused_imports)]
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -26,55 +28,39 @@ mod zero;
 mod zero_infinity;
 
 pub use chaos_engineering::{
-    ChaosMonkey, FaultInjection, FaultResult, FaultType,
-    CheckpointCorruption, ChaosScenarios, TestReport,
+    ChaosMonkey, ChaosScenarios, CheckpointCorruption, FaultInjection, FaultResult, FaultType, TestReport,
 };
-pub use checkpoint::{DistributedCheckpointManager, CheckpointMetadata, AsyncCheckpointWriter};
+pub use checkpoint::{AsyncCheckpointWriter, CheckpointMetadata, DistributedCheckpointManager};
 pub use compression::{
-    CompressedCommunicator, CompressionType, ErrorFeedbackCompression, OneBitAdam,
-    BandwidthStats,
+    BandwidthStats, CompressedCommunicator, CompressionType, ErrorFeedbackCompression, OneBitAdam,
 };
-pub use context_parallel::{
-    ContextParallel, ContextParallelConfig, CommunicationStats, DynamicLoadBalancer,
-};
-pub use device_mesh::{
-    DeviceMesh, MeshCoord, ParallelismConfig,
-};
+pub use context_parallel::{CommunicationStats, ContextParallel, ContextParallelConfig, DynamicLoadBalancer};
+pub use device_mesh::{DeviceMesh, MeshCoord, ParallelismConfig};
 pub use fault_tolerance::{
-    ElasticProcessGroup, ElasticTrainer, HealthMonitor, MembershipChange,
-    NodeState, NodeInfo, RestartConfig, TimedBarrier, StateSync,
-    CheckpointVersion, FaultStats,
+    CheckpointVersion, ElasticProcessGroup, ElasticTrainer, FaultStats, HealthMonitor, MembershipChange,
+    NodeInfo, NodeState, RestartConfig, StateSync, TimedBarrier,
 };
-pub use fsdp::{
-    FSDP, FSDPConfig, FSDPMemoryStats, FSDPCheckpoint,
-    auto_wrap,
-};
+pub use fsdp::{auto_wrap, FSDPCheckpoint, FSDPConfig, FSDPMemoryStats, FSDP};
 #[cfg(feature = "nccl")]
 pub use nccl::{
-    NcclCommunicator, NcclProcessGroup, NcclRedOp, NcclDataType,
-    AllReduceOp, NcclCompressedCommunicator,
+    AllReduceOp, NcclCommunicator, NcclCompressedCommunicator, NcclDataType, NcclProcessGroup, NcclRedOp,
 };
-pub use parallelism_3d::{
-    Parallel3DTrainer, Parallel3DConfig, Parallel3DLayer,
-    create_3d_parallel_model,
-};
+pub use parallelism_3d::{create_3d_parallel_model, Parallel3DConfig, Parallel3DLayer, Parallel3DTrainer};
 pub use pipeline_parallel::{
-    PipelineParallel, PipelineStage, PipelineConfig, PipelineSchedule,
+    create_pipeline, PipelineComm, PipelineConfig, PipelineParallel, PipelineSchedule, PipelineStage,
     PipelineStats, StageSplitter as PipelineStageSplitter,
-    create_pipeline, PipelineComm,
 };
 pub use sequence_parallel::{
-    SequenceParallelConfig, RingAttention,
-    shard_sequence, gather_sequence, compute_sequence_sharding,
+    compute_sequence_sharding, gather_sequence, shard_sequence, RingAttention, SequenceParallelConfig,
 };
 pub use tensor_parallel::{
-    TensorParallelLinear, PipelineStage as TensorPipelineStage,
-    PipelineParallelTrainer, ParallelStyle, ReduceOp,
+    ParallelStyle, PipelineParallelTrainer, PipelineStage as TensorPipelineStage, ReduceOp,
+    TensorParallelLinear,
 };
-pub use zero::{ZeroOptimizer, Zero2Optimizer, ZeRoMemoryStats};
+pub use zero::{ZeRoMemoryStats, Zero2Optimizer, ZeroOptimizer};
 pub use zero_infinity::{
-    ZeroInfinity, ZeroInfinityConfig, ZeroInfinityStats,
-    ZeROInfinityEstimator, ZeROMemoryEstimate, StorageLocation,
+    StorageLocation, ZeROInfinityEstimator, ZeROMemoryEstimate, ZeroInfinity, ZeroInfinityConfig,
+    ZeroInfinityStats,
 };
 
 /// Errors specific to distributed training.
@@ -134,20 +120,13 @@ pub enum CommunicationBackend {
 impl ProcessGroup {
     /// Create a single-process process group (for testing).
     pub fn new_single_process() -> Self {
-        Self {
-            rank: 0,
-            world_size: 1,
-            backend: CommunicationBackend::SingleProcess,
-        }
+        Self { rank: 0, world_size: 1, backend: CommunicationBackend::SingleProcess }
     }
 
     /// Create a multi-threaded process group for single-node multi-GPU.
     pub fn new_threaded(world_size: usize, rank: usize) -> DistributedResult<Self> {
         if rank >= world_size {
-            return Err(DistributedError::RankMismatch {
-                expected: world_size,
-                actual: rank,
-            });
+            return Err(DistributedError::RankMismatch { expected: world_size, actual: rank });
         }
 
         Ok(Self {
@@ -199,7 +178,11 @@ impl ProcessGroup {
             #[cfg(feature = "mpi")]
             CommunicationBackend::Mpi { communicator } => {
                 let mut recv_buffer = vec![0.0f32; data.len()];
-                communicator.all_reduce_into(data, &mut recv_buffer, mpi::collective::SystemOperation::sum())?;
+                communicator.all_reduce_into(
+                    data,
+                    &mut recv_buffer,
+                    mpi::collective::SystemOperation::sum(),
+                )?;
                 data.copy_from_slice(&recv_buffer);
                 Ok(())
             }
@@ -255,11 +238,7 @@ where
 {
     /// Create a new data parallel trainer.
     pub fn new(process_group: ProcessGroup, optimizer: O) -> Self {
-        Self {
-            process_group,
-            optimizer,
-            _phantom: std::marker::PhantomData,
-        }
+        Self { process_group, optimizer, _phantom: std::marker::PhantomData }
     }
 
     /// Train for one step with data parallelism.
@@ -333,16 +312,10 @@ where
                 .map(|p| ctx.backend().ops().shape(p.tensor()))
                 .unwrap_or_else(|| vec![data.len()]);
 
-            let tensor = ctx
-                .backend()
-                .ops()
-                .tensor_from_vec(data, &shape)
-                .map_err(DistributedError::Backend)?;
+            let tensor =
+                ctx.backend().ops().tensor_from_vec(data, &shape).map_err(DistributedError::Backend)?;
 
-            synced_gradients.push(Gradient {
-                param_id,
-                tensor,
-            });
+            synced_gradients.push(Gradient { param_id, tensor });
         }
 
         self.optimizer
@@ -358,12 +331,7 @@ where
 
     /// Split a batch across processes.
     fn split_batch<'a, D>(&self, batch: &'a [D], rank: usize, world_size: usize) -> Vec<&'a D> {
-        batch
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| i % world_size == rank)
-            .map(|(_, d)| d)
-            .collect()
+        batch.iter().enumerate().filter(|(i, _)| i % world_size == rank).map(|(_, d)| d).collect()
     }
 }
 
@@ -383,11 +351,7 @@ where
 {
     /// Create a new gradient accumulator.
     pub fn new(process_group: ProcessGroup) -> Self {
-        Self {
-            process_group,
-            accumulated_gradients: HashMap::new(),
-            steps: 0,
-        }
+        Self { process_group, accumulated_gradients: HashMap::new(), steps: 0 }
     }
 
     /// Accumulate gradients from a local step.
@@ -510,20 +474,16 @@ mod tests {
         let optimizer = Sgd::new(0.01);
         let mut trainer = DataParallelTrainer::new(pg, optimizer);
 
-        let mut params = vec![
-            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()),
-        ];
+        let mut params = vec![Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
         let param_id = params[0].id();
 
         let batch = vec![backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()];
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
 
-        let mut loss_fn = |_item: &<CpuBackend as mnr_core::Backend>::Tensor, _ctx: &mut ForwardCtx<CpuBackend>| {
+        let mut loss_fn = |_item: &<CpuBackend as mnr_core::Backend>::Tensor,
+                           _ctx: &mut ForwardCtx<CpuBackend>| {
             let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
-            Ok((0.5f32, vec![Gradient {
-                param_id,
-                tensor: grad_tensor,
-            }]))
+            Ok((0.5f32, vec![Gradient { param_id, tensor: grad_tensor }]))
         };
 
         let loss = trainer.step(&mut params, &batch, &mut loss_fn, &mut ctx).unwrap();
@@ -538,10 +498,7 @@ mod tests {
 
         // Create some dummy gradients
         let grad_tensor = backend.tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap();
-        let gradients = vec![Gradient {
-            param_id: mnr_core::ParameterId::fresh(),
-            tensor: grad_tensor,
-        }];
+        let gradients = vec![Gradient { param_id: mnr_core::ParameterId::fresh(), tensor: grad_tensor }];
 
         // Accumulate twice
         acc.accumulate(&gradients, backend.ops()).unwrap();
@@ -557,10 +514,7 @@ mod tests {
         let mut acc = GradientAccumulator::<CpuBackend>::new(pg);
 
         let grad_tensor = backend.tensor_from_vec(vec![1.0f32, 2.0], &[2]).unwrap();
-        let gradients = vec![Gradient {
-            param_id: mnr_core::ParameterId::fresh(),
-            tensor: grad_tensor,
-        }];
+        let gradients = vec![Gradient { param_id: mnr_core::ParameterId::fresh(), tensor: grad_tensor }];
 
         acc.accumulate(&gradients, backend.ops()).unwrap();
         let result = acc.all_reduce().unwrap();

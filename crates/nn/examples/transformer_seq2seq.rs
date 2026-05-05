@@ -10,9 +10,7 @@
 //! Run with: `cargo run -p mnr-nn --example transformer_seq2seq`
 
 use mnr_core::{Backend, ForwardCtx, Mode, Module};
-use mnr_nn::{
-    Linear, LinearConfig, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig,
-};
+use mnr_nn::{Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig};
 
 fn main() {
     use mnr_ndarray_backend::CpuBackend;
@@ -91,10 +89,7 @@ fn main() {
     ];
 
     for (name, d_m, heads, layers, _params) in models {
-        println!(
-            "  {:12}: d_model={:4}, heads={:2}, layers={:2}",
-            name, d_m, heads, layers
-        );
+        println!("  {:12}: d_model={:4}, heads={:2}, layers={:2}", name, d_m, heads, layers);
     }
 
     println!("\nUse cases:");

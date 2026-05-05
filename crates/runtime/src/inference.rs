@@ -44,7 +44,8 @@ where
             anyhow::bail!("queue_bound must be non-zero");
         }
 
-        let (sender, receiver): (Sender<InferenceRequest<I, O>>, Receiver<InferenceRequest<I, O>>) = bounded(queue_bound);
+        let (sender, receiver): (Sender<InferenceRequest<I, O>>, Receiver<InferenceRequest<I, O>>) =
+            bounded(queue_bound);
         let handler = Arc::new(handler);
         let mut handles = Vec::with_capacity(workers);
 

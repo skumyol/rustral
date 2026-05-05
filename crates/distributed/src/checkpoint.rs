@@ -5,10 +5,9 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use mnr_core::{Backend, CoreError, Parameter, ParameterId, Result};
+use mnr_core::{Backend, CoreError, Parameter};
 use mnr_io::{load_parameters, save_parameters};
 use mnr_optim::AdamCheckpoint;
 
@@ -48,12 +47,7 @@ impl DistributedCheckpointManager {
             })?;
         }
 
-        Ok(Self {
-            process_group,
-            checkpoint_dir,
-            keep_last_n,
-            checkpoint_history: Vec::new(),
-        })
+        Ok(Self { process_group, checkpoint_dir, keep_last_n, checkpoint_history: Vec::new() })
     }
 
     /// Save a distributed checkpoint.
@@ -76,20 +70,17 @@ impl DistributedCheckpointManager {
         // Create epoch directory
         let epoch_dir = self.checkpoint_dir.join(format!("epoch_{}", epoch));
         if self.process_group.is_primary() && !epoch_dir.exists() {
-            fs::create_dir_all(&epoch_dir).map_err(|e| {
-                DistributedError::Communication(format!("Failed to create epoch dir: {}", e))
-            })?;
+            fs::create_dir_all(&epoch_dir)
+                .map_err(|e| DistributedError::Communication(format!("Failed to create epoch dir: {}", e)))?;
         }
 
         // Each rank saves its shard
         let shard_path = epoch_dir.join(format!("rank_{}.safetensors", rank));
-        let param_data = save_parameters(params).map_err(|e| {
-            DistributedError::Backend(CoreError::Serialization(format!("{:?}", e)))
-        })?;
+        let param_data = save_parameters(params)
+            .map_err(|e| DistributedError::Backend(CoreError::Serialization(format!("{:?}", e))))?;
 
-        fs::write(&shard_path, param_data).map_err(|e| {
-            DistributedError::Communication(format!("Failed to write checkpoint: {}", e))
-        })?;
+        fs::write(&shard_path, param_data)
+            .map_err(|e| DistributedError::Communication(format!("Failed to write checkpoint: {}", e)))?;
 
         // Save optimizer state if provided
         if let Some(opt_ckpt) = optimizer_checkpoint {
@@ -121,9 +112,8 @@ impl DistributedCheckpointManager {
                 DistributedError::Communication(format!("Failed to serialize metadata: {}", e))
             })?;
 
-            fs::write(&meta_path, meta_data).map_err(|e| {
-                DistributedError::Communication(format!("Failed to write metadata: {}", e))
-            })?;
+            fs::write(&meta_path, meta_data)
+                .map_err(|e| DistributedError::Communication(format!("Failed to write metadata: {}", e)))?;
 
             // Update history and rotate
             self.checkpoint_history.push(epoch);
@@ -156,20 +146,19 @@ impl DistributedCheckpointManager {
         // Load metadata on primary and broadcast
         let metadata = if self.process_group.is_primary() {
             let meta_path = epoch_dir.join("metadata.json");
-            let meta_data = fs::read(&meta_path).map_err(|e| {
-                DistributedError::Communication(format!("Failed to read metadata: {}", e))
-            })?;
+            let meta_data = fs::read(&meta_path)
+                .map_err(|e| DistributedError::Communication(format!("Failed to read metadata: {}", e)))?;
 
-            let metadata: CheckpointMetadata = serde_json::from_slice(&meta_data).map_err(|e| {
-                DistributedError::Communication(format!("Failed to parse metadata: {}", e))
-            })?;
+            let metadata: CheckpointMetadata = serde_json::from_slice(&meta_data)
+                .map_err(|e| DistributedError::Communication(format!("Failed to parse metadata: {}", e)))?;
 
             // Broadcast world size check
             if metadata.world_size != self.process_group.world_size() {
-                return Err(DistributedError::Communication(
-                    format!("Checkpoint world_size {} doesn't match current {}",
-                        metadata.world_size, self.process_group.world_size())
-                ));
+                return Err(DistributedError::Communication(format!(
+                    "Checkpoint world_size {} doesn't match current {}",
+                    metadata.world_size,
+                    self.process_group.world_size()
+                )));
             }
 
             metadata
@@ -191,9 +180,8 @@ impl DistributedCheckpointManager {
         })?;
 
         // Deserialize and update parameters
-        let loaded: std::collections::HashMap<String, Vec<f32>> = load_parameters::<B>(&shard_data).map_err(|e| {
-            DistributedError::Backend(CoreError::Serialization(format!("{:?}", e)))
-        })?;
+        let loaded: std::collections::HashMap<String, Vec<f32>> = load_parameters::<B>(&shard_data)
+            .map_err(|e| DistributedError::Backend(CoreError::Serialization(format!("{:?}", e))))?;
 
         // Update provided parameters
         // Note: requires backend to convert Vec<f32> to B::Tensor
@@ -204,13 +192,14 @@ impl DistributedCheckpointManager {
         // Try to load optimizer checkpoint
         let opt_path = epoch_dir.join(format!("optimizer_rank_{}.json", rank));
         let optimizer_checkpoint = if opt_path.exists() {
-            let opt_data = fs::read(&opt_path).map_err(|e| {
-                DistributedError::Communication(format!("Failed to read optimizer: {}", e))
-            })?;
+            let opt_data = fs::read(&opt_path)
+                .map_err(|e| DistributedError::Communication(format!("Failed to read optimizer: {}", e)))?;
 
-            Some(serde_json::from_slice(&opt_data).map_err(|e| {
-                DistributedError::Communication(format!("Failed to parse optimizer: {}", e))
-            })?)
+            Some(
+                serde_json::from_slice(&opt_data).map_err(|e| {
+                    DistributedError::Communication(format!("Failed to parse optimizer: {}", e))
+                })?,
+            )
         } else {
             None
         };
@@ -305,10 +294,7 @@ impl AsyncCheckpointWriter {
             }
         });
 
-        Self {
-            sender,
-            _handle: handle,
-        }
+        Self { sender, _handle: handle }
     }
 
     /// Queue a checkpoint write.
@@ -564,10 +550,7 @@ mod tests {
     #[test]
     fn test_sharded_checkpoint_scatter() {
         let mut shards = HashMap::new();
-        shards.insert(0, ShardData {
-            params: HashMap::new(),
-            optimizer: None,
-        });
+        shards.insert(0, ShardData { params: HashMap::new(), optimizer: None });
 
         let mut sharded = ShardedCheckpoint {
             metadata: CheckpointMetadata {

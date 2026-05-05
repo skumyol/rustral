@@ -9,8 +9,8 @@
 //!
 //! Run with: `cargo test --test system_tests`
 
-mod common;
 mod bug_regression;
+mod common;
 mod edge_cases;
 mod integration;
 mod performance;
@@ -60,7 +60,7 @@ fn smoke_test() {
 
     runner.run_test("smoke_core_module", || {
         // Quick sanity check that core modules load
-        use mnr_core::{Backend, ForwardCtx, Mode};
+        use mnr_core::{ForwardCtx, Mode};
         use mnr_ndarray_backend::CpuBackend;
 
         let backend = CpuBackend::default();
@@ -69,9 +69,8 @@ fn smoke_test() {
     });
 
     runner.run_test("smoke_nn_module", || {
-        use mnr_core::Backend;
-        use mnr_nn::{Linear, LinearConfig};
         use mnr_ndarray_backend::CpuBackend;
+        use mnr_nn::{Linear, LinearConfig};
 
         let backend = CpuBackend::default();
         let _linear = Linear::new(&backend, LinearConfig::new(10, 5)).unwrap();
@@ -79,7 +78,7 @@ fn smoke_test() {
     });
 
     runner.run_test("smoke_data_module", || {
-        use mnr_data::{Dataset, DataLoader, DataLoaderConfig};
+        use mnr_data::DataLoaderConfig;
         // Verify data module is available
         let _config = DataLoaderConfig { batch_size: 32, ..Default::default() };
         Ok(())

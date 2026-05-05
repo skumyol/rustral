@@ -1,10 +1,9 @@
 //! Main auto-tuner implementation.
 
-use crate::cache::{ConfigCache, TuningCache};
-use crate::kernel_config::{ConfigSpace, KernelConfig};
+use crate::cache::TuningCache;
+use crate::kernel_config::KernelConfig;
 use crate::search::{GridSearch, RandomSearch, SearchStrategy};
 use crate::{benchmark_kernel, OpConfig, PerfMetrics, TunableKernel};
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 /// Configuration for the auto-tuner.
@@ -140,11 +139,7 @@ pub struct TuningSession<'a> {
 
 impl<'a> TuningSession<'a> {
     /// Create a new tuning session.
-    fn new(
-        kernel_id: String,
-        input_signature: Vec<usize>,
-        tuner: &'a mut AutoTuner,
-    ) -> Self {
+    fn new(kernel_id: String, input_signature: Vec<usize>, tuner: &'a mut AutoTuner) -> Self {
         Self {
             kernel_id,
             input_signature,
@@ -204,12 +199,11 @@ impl<'a> TuningSession<'a> {
         }
 
         // Convert to OpConfig result
-        let op_results: Vec<(OpConfig, PerfMetrics)> = self.results
-            .iter()
-            .map(|(kc, pm)| (self.kernel_config_to_op_config(kc), *pm))
-            .collect();
+        let op_results: Vec<(OpConfig, PerfMetrics)> =
+            self.results.iter().map(|(kc, pm)| (self.kernel_config_to_op_config(kc), *pm)).collect();
 
-        let best_op_config = self.best_config
+        let best_op_config = self
+            .best_config
             .as_ref()
             .map(|kc| self.kernel_config_to_op_config(kc))
             .unwrap_or_else(|| self.default_op_config());
@@ -249,11 +243,7 @@ impl<'a> TuningSession<'a> {
     }
 
     /// Benchmark a specific configuration.
-    fn benchmark_with_config<K: TunableKernel>(
-        &self,
-        kernel: &K,
-        config: &KernelConfig,
-    ) -> PerfMetrics {
+    fn benchmark_with_config<K: TunableKernel>(&self, kernel: &K, config: &KernelConfig) -> PerfMetrics {
         let mut bench_kernel = kernel.with_config(config);
 
         let duration = benchmark_kernel(
@@ -271,7 +261,7 @@ impl<'a> TuningSession<'a> {
     /// Convert KernelConfig to OpConfig.
     fn kernel_config_to_op_config(&self, config: &KernelConfig) -> OpConfig {
         // Simplified conversion
-        use crate::kernel_config::{AlgorithmConfig, MatmulAlgorithm, ReduceAlgorithm, ConvAlgorithm};
+        use crate::kernel_config::{AlgorithmConfig, MatmulAlgorithm};
         use crate::{ConvAlgorithm as OpConvAlg, ReduceAlgorithm as OpReduceAlg};
 
         match &config.algorithm {
@@ -282,11 +272,9 @@ impl<'a> TuningSession<'a> {
                 block_k: config.params.get("tile_k").copied().unwrap_or(8) as usize,
                 num_stages: 2,
             },
-            AlgorithmConfig::Conv(_) => OpConfig::Conv2d {
-                algorithm: OpConvAlg::ImplicitGemm,
-                tile_size: 16,
-                num_filters: 64,
-            },
+            AlgorithmConfig::Conv(_) => {
+                OpConfig::Conv2d { algorithm: OpConvAlg::ImplicitGemm, tile_size: 16, num_filters: 64 }
+            }
             AlgorithmConfig::Reduce(_) => OpConfig::Reduce {
                 block_size: config.workgroup.x as usize,
                 items_per_thread: config.params.get("items_per_thread").copied().unwrap_or(8) as usize,
@@ -302,11 +290,7 @@ impl<'a> TuningSession<'a> {
 
     /// Get default OpConfig.
     fn default_op_config(&self) -> OpConfig {
-        OpConfig::Elementwise {
-            block_size: 256,
-            items_per_thread: 4,
-            vector_width: 4,
-        }
+        OpConfig::Elementwise { block_size: 256, items_per_thread: 4, vector_width: 4 }
     }
 }
 
@@ -326,11 +310,7 @@ impl AutoTuner {
             TuningCache::new() // Still create, just won't use
         };
 
-        Self {
-            config,
-            cache,
-            stats: TunerStats::default(),
-        }
+        Self { config, cache, stats: TunerStats::default() }
     }
 
     /// Tune a kernel for given input shapes.
@@ -361,11 +341,7 @@ impl AutoTuner {
         }
 
         // Run tuning session
-        let mut session = TuningSession::new(
-            kernel.kernel_id().to_string(),
-            kernel.input_signature(),
-            self,
-        );
+        let mut session = TuningSession::new(kernel.kernel_id().to_string(), kernel.input_signature(), self);
 
         let result = session.run(kernel);
 
@@ -385,12 +361,10 @@ impl AutoTuner {
             let kernel = parts[0];
             // Try to parse shapes
             if let Ok(shapes) = serde_json::from_str::<Vec<usize>>(parts[1]) {
-                return self.cache.get_config(kernel, &shapes).map(|kc| {
-                    OpConfig::Elementwise {
-                        block_size: kc.workgroup.x as usize,
-                        items_per_thread: 4,
-                        vector_width: kc.memory.vector_width,
-                    }
+                return self.cache.get_config(kernel, &shapes).map(|kc| OpConfig::Elementwise {
+                    block_size: kc.workgroup.x as usize,
+                    items_per_thread: 4,
+                    vector_width: kc.memory.vector_width,
                 });
             }
         }
@@ -462,7 +436,7 @@ fn estimate_workload(kernel_id: &str, input_sig: &[usize]) -> (u64, u64) {
         "conv2d" => {
             // Simplified: assume common convolution sizes
             let flops = 1_000_000_000u64; // 1 GFLOP default
-            let bytes = 100_000_000u64;   // 100 MB default
+            let bytes = 100_000_000u64; // 100 MB default
             (flops, bytes)
         }
         _ => (0, 0),
@@ -513,11 +487,7 @@ mod tests {
     #[test]
     fn test_tuning_result() {
         let mut result = TuningResult {
-            best_config: OpConfig::Elementwise {
-                block_size: 256,
-                items_per_thread: 4,
-                vector_width: 4,
-            },
+            best_config: OpConfig::Elementwise { block_size: 256, items_per_thread: 4, vector_width: 4 },
             best_time_us: 50.0,
             default_time_us: 100.0,
             speedup: 0.0,
@@ -560,11 +530,7 @@ mod tests {
     #[test]
     fn test_tuning_result_print_summary() {
         let result = TuningResult {
-            best_config: OpConfig::Elementwise {
-                block_size: 256,
-                items_per_thread: 4,
-                vector_width: 4,
-            },
+            best_config: OpConfig::Elementwise { block_size: 256, items_per_thread: 4, vector_width: 4 },
             best_time_us: 50.0,
             default_time_us: 100.0,
             speedup: 2.0,

@@ -20,9 +20,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Module, Parameter, Result, TensorOps};
+use mnr_core::{Backend, ForwardCtx, Module, Result};
 
-use crate::{Tape, TensorId};
+use crate::TensorId;
 
 /// Configuration for gradient checkpointing.
 #[derive(Clone, Debug)]
@@ -37,22 +37,14 @@ pub struct CheckpointConfig {
 
 impl Default for CheckpointConfig {
     fn default() -> Self {
-        Self {
-            enabled: true,
-            checkpoint_every_n_layers: 2,
-            preserve_patterns: vec![],
-        }
+        Self { enabled: true, checkpoint_every_n_layers: 2, preserve_patterns: vec![] }
     }
 }
 
 impl CheckpointConfig {
     /// Create config with checkpointing disabled.
     pub fn disabled() -> Self {
-        Self {
-            enabled: false,
-            checkpoint_every_n_layers: 0,
-            preserve_patterns: vec![],
-        }
+        Self { enabled: false, checkpoint_every_n_layers: 0, preserve_patterns: vec![] }
     }
 
     /// Set checkpoint frequency.
@@ -91,12 +83,7 @@ where
         output_id: TensorId,
         forward_fn: impl Fn(&B::Tensor, &mut ForwardCtx<B>) -> Result<B::Tensor> + Send + Sync + 'static,
     ) -> Self {
-        Self {
-            input_id,
-            input_value,
-            output_id,
-            forward_fn: Arc::new(forward_fn),
-        }
+        Self { input_id, input_value, output_id, forward_fn: Arc::new(forward_fn) }
     }
 
     /// Recompute the forward pass given the saved input.
@@ -126,7 +113,7 @@ where
     }
 
     // Save input for recomputation
-    let input_checkpoint = input.clone();
+    let _input_checkpoint = input.clone();
 
     // Run forward pass normally
     let output = segment_fn(&input, ctx)?;
@@ -157,15 +144,9 @@ pub struct CheckpointedTransformerLayer<B: Backend, L: Module<B>> {
 impl<B: Backend, L: Module<B, Input = B::Tensor, Output = B::Tensor>> CheckpointedTransformerLayer<B, L> {
     /// Create a new checkpointed layer.
     pub fn new(layer: L, layer_idx: usize, config: &CheckpointConfig) -> Self {
-        let should_checkpoint = config.enabled
-            && layer_idx % config.checkpoint_every_n_layers == 1; // Checkpoint layers 1, 3, 5, ...
+        let should_checkpoint = config.enabled && layer_idx % config.checkpoint_every_n_layers == 1; // Checkpoint layers 1, 3, 5, ...
 
-        Self {
-            layer,
-            config: config.clone(),
-            should_checkpoint,
-            _phantom: std::marker::PhantomData,
-        }
+        Self { layer, config: config.clone(), should_checkpoint, _phantom: std::marker::PhantomData }
     }
 
     /// Check if this layer uses checkpointing.
@@ -200,11 +181,7 @@ pub struct CheckpointManager<B: Backend> {
 impl<B: Backend> CheckpointManager<B> {
     /// Create a new checkpoint manager.
     pub fn new(config: CheckpointConfig) -> Self {
-        Self {
-            segments: HashMap::new(),
-            memory_saved_bytes: 0,
-            config,
-        }
+        Self { segments: HashMap::new(), memory_saved_bytes: 0, config }
     }
 
     /// Register a checkpointed segment.
@@ -265,10 +242,8 @@ impl MemoryStats {
         let activations_per_layer = 4;
         let activation_size = hidden_size * seq_length * batch_size * dtype_bytes;
 
-        let without_checkpointing = num_layers as f32
-            * activations_per_layer as f32
-            * activation_size as f32
-            / (1024.0 * 1024.0);
+        let without_checkpointing =
+            num_layers as f32 * activations_per_layer as f32 * activation_size as f32 / (1024.0 * 1024.0);
 
         // With checkpointing: only save inputs and outputs, recompute intermediates
         let checkpointed_layers = num_layers / checkpoint_frequency;
@@ -276,9 +251,7 @@ impl MemoryStats {
 
         // Each checkpointed layer only stores input (not intermediate activations)
         let with_checkpointing = (checkpointed_layers as f32 * activation_size as f32
-            + non_checkpointed_layers as f32
-                * activations_per_layer as f32
-                * activation_size as f32)
+            + non_checkpointed_layers as f32 * activations_per_layer as f32 * activation_size as f32)
             / (1024.0 * 1024.0);
 
         let saved = without_checkpointing - with_checkpointing;
@@ -349,12 +322,12 @@ mod tests {
     #[test]
     fn test_memory_stats_calculation() {
         let stats = MemoryStats::calculate(
-            24,      // num_layers
-            768,     // hidden_size
-            512,     // seq_length
-            8,       // batch_size
-            2,       // checkpoint every 2 layers
-            4,       // f32 = 4 bytes
+            24,  // num_layers
+            768, // hidden_size
+            512, // seq_length
+            8,   // batch_size
+            2,   // checkpoint every 2 layers
+            4,   // f32 = 4 bytes
         );
 
         // Should show significant memory reduction
@@ -370,7 +343,8 @@ mod tests {
 
         assert_eq!(manager.memory_saved_bytes(), 0);
 
-        let mut manager_with_saved: CheckpointManager<CpuBackend> = CheckpointManager::new(CheckpointConfig::default());
+        let mut manager_with_saved: CheckpointManager<CpuBackend> =
+            CheckpointManager::new(CheckpointConfig::default());
         manager_with_saved.add_memory_saved(1024 * 1024 * 100); // 100 MB
         assert_eq!(manager_with_saved.memory_saved_bytes(), 1024 * 1024 * 100);
 
@@ -400,12 +374,10 @@ mod tests {
         let input_id = TensorId::fresh();
         let output_id = TensorId::fresh();
 
-        let segment = CheckpointedSegment::<CpuBackend>::new(
-            input_id,
-            input.clone(),
-            output_id,
-            |tensor, _ctx| Ok(tensor.clone()),
-        );
+        let segment =
+            CheckpointedSegment::<CpuBackend>::new(input_id, input.clone(), output_id, |tensor, _ctx| {
+                Ok(tensor.clone())
+            });
 
         let mut ctx = mnr_core::ForwardCtx::new(&backend, mnr_core::Mode::Train);
         let recomputed = segment.recompute(&mut ctx).unwrap();
@@ -439,7 +411,7 @@ mod tests {
 
     #[test]
     fn test_checkpointed_transformer_layer() {
-        use mnr_core::{Module, Backend, ForwardCtx, Result};
+        use mnr_core::{Backend, ForwardCtx, Module, Result};
 
         struct DummyLayer;
 
@@ -492,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_checkpoint_model() {
-        use mnr_core::{Module, Backend, ForwardCtx, Result};
+        use mnr_core::{Backend, ForwardCtx, Module, Result};
 
         struct DummyLayer;
 
@@ -511,7 +483,7 @@ mod tests {
 
         assert_eq!(checkpointed.len(), 4);
         assert!(!checkpointed[0].uses_checkpointing()); // idx 0: 0 % 2 != 1
-        assert!(checkpointed[1].uses_checkpointing());  // idx 1: 1 % 2 == 1
+        assert!(checkpointed[1].uses_checkpointing()); // idx 1: 1 % 2 == 1
         assert!(!checkpointed[2].uses_checkpointing()); // idx 2: 2 % 2 != 1
         assert!(checkpointed[3].uses_checkpointing()); // idx 3: 3 % 2 == 1
     }

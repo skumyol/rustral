@@ -12,21 +12,11 @@ fn bench_matmul(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("matmul");
 
-    let sizes = vec![
-        (64, 64, 64),
-        (128, 128, 128),
-        (256, 256, 256),
-        (512, 512, 512),
-        (1024, 1024, 1024),
-    ];
+    let sizes = vec![(64, 64, 64), (128, 128, 128), (256, 256, 256), (512, 512, 512), (1024, 1024, 1024)];
 
     for &(m, k, n) in &sizes {
-        let a = backend
-            .tensor_from_vec(vec![1.0f32; m * k], &[m, k])
-            .unwrap();
-        let b = backend
-            .tensor_from_vec(vec![1.0f32; k * n], &[k, n])
-            .unwrap();
+        let a = backend.tensor_from_vec(vec![1.0f32; m * k], &[m, k]).unwrap();
+        let b = backend.tensor_from_vec(vec![1.0f32; k * n], &[k, n]).unwrap();
 
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("{}x{}x{}", m, k, n)),

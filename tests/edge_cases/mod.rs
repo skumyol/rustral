@@ -1,15 +1,10 @@
 //! Edge Cases and Boundary Condition Tests
 
 use mnr_core::{Backend, CoreError, ForwardCtx, Mode, Module};
-use mnr_nn::{
-    Conv2d, Conv2dConfig, Embedding, EmbeddingConfig, Linear, LinearConfig,
-    LayerNorm, LayerNormConfig,
-    SelfAttention, SelfAttentionConfig,
-    TransformerEncoder, TransformerEncoderConfig,
-};
 use mnr_ndarray_backend::CpuBackend;
+use mnr_nn::{Linear, LinearConfig, TransformerEncoder, TransformerEncoderConfig};
 
-use crate::common::{run_performance_test, PerfConfig, TestRunner};
+use crate::common::TestRunner;
 
 pub fn run_all(runner: &mut TestRunner) {
     test_zero_dimensions(runner);
@@ -27,7 +22,8 @@ pub fn run_all(runner: &mut TestRunner) {
 fn test_zero_dimensions(runner: &mut TestRunner) {
     runner.run_test("edge_zero_dim_batch", || {
         let backend = CpuBackend::default();
-        let empty = backend.tensor_from_vec(vec![], &[0, 10])
+        let empty = backend
+            .tensor_from_vec(vec![], &[0, 10])
             .map_err(|e| format!("Create zero batch failed: {}", e))?;
 
         let linear = Linear::new(&backend, LinearConfig::new(10, 5))
@@ -47,7 +43,8 @@ fn test_zero_dimensions(runner: &mut TestRunner) {
 
     runner.run_test("edge_zero_dim_features", || {
         let backend = CpuBackend::default();
-        let empty = backend.tensor_from_vec(vec![], &[5, 0])
+        let empty = backend
+            .tensor_from_vec(vec![], &[5, 0])
             .map_err(|e| format!("Create zero features failed: {}", e))?;
 
         let linear = Linear::new(&backend, LinearConfig::new(0, 5))
@@ -73,8 +70,7 @@ fn test_maximum_dimensions(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape[0], batch_size, "Large batch size not preserved");
@@ -94,8 +90,7 @@ fn test_maximum_dimensions(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, vec![2, out_features], "Large feature shape mismatch");
@@ -114,14 +109,10 @@ fn test_extreme_values(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let data: Vec<f32> = output.as_ref().to_vec();
-        assert!(
-            data.iter().all(|&v| !v.is_nan()),
-            "MAX input should not produce NaN"
-        );
+        assert!(data.iter().all(|&v| !v.is_nan()), "MAX input should not produce NaN");
         Ok(())
     });
 
@@ -135,14 +126,10 @@ fn test_extreme_values(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let data: Vec<f32> = output.as_ref().to_vec();
-        assert!(
-            data.iter().all(|&v| !v.is_nan()),
-            "MIN input should not produce NaN"
-        );
+        assert!(data.iter().all(|&v| !v.is_nan()), "MIN input should not produce NaN");
         Ok(())
     });
 
@@ -156,8 +143,7 @@ fn test_extreme_values(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let data: Vec<f32> = output.as_ref().to_vec();
         assert!(
@@ -171,10 +157,8 @@ fn test_extreme_values(runner: &mut TestRunner) {
 fn test_special_float_values(runner: &mut TestRunner) {
     runner.run_test("edge_special_values_mixed", || {
         let backend = CpuBackend::default();
-        let special_values = vec![
-            1.0f32, f32::NAN, 2.0, f32::INFINITY, 3.0,
-            f32::NEG_INFINITY, 4.0, f32::MAX, 5.0, f32::MIN,
-        ];
+        let special_values =
+            vec![1.0f32, f32::NAN, 2.0, f32::INFINITY, 3.0, f32::NEG_INFINITY, 4.0, f32::MAX, 5.0, f32::MIN];
 
         let input = backend
             .tensor_from_vec(special_values, &[2, 5])
@@ -184,8 +168,7 @@ fn test_special_float_values(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let _data: Vec<f32> = output.as_ref().to_vec();
         Ok(())
@@ -201,14 +184,10 @@ fn test_special_float_values(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let data: Vec<f32> = output.as_ref().to_vec();
-        assert!(
-            data.iter().all(|&v| v == 0.0 || v.is_nan()),
-            "Negative zero should produce zero output"
-        );
+        assert!(data.iter().all(|&v| v == 0.0 || v.is_nan()), "Negative zero should produce zero output");
         Ok(())
     });
 }
@@ -216,16 +195,14 @@ fn test_special_float_values(runner: &mut TestRunner) {
 fn test_boundary_sequence_lengths(runner: &mut TestRunner) {
     runner.run_test("edge_seq_length_1", || {
         let backend = CpuBackend::default();
-        let config = TransformerEncoderConfig::new(64, 4, 2, 256)
-            .with_max_seq_len(128);
+        let config = TransformerEncoderConfig::new(64, 4, 2, 256).with_max_seq_len(128);
 
         let encoder = TransformerEncoder::new(&backend, config, 1000, 42)
             .map_err(|e| format!("Create encoder failed: {}", e))?;
 
         let input = vec![100usize];
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = encoder.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = encoder.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape[1], 1, "Seq length 1 should be preserved");
@@ -235,16 +212,14 @@ fn test_boundary_sequence_lengths(runner: &mut TestRunner) {
     runner.run_test("edge_seq_length_exact_max", || {
         let backend = CpuBackend::default();
         let max_len = 16usize;
-        let config = TransformerEncoderConfig::new(64, 4, 2, 256)
-            .with_max_seq_len(max_len);
+        let config = TransformerEncoderConfig::new(64, 4, 2, 256).with_max_seq_len(max_len);
 
         let encoder = TransformerEncoder::new(&backend, config, 1000, 42)
             .map_err(|e| format!("Create encoder failed: {}", e))?;
 
         let input = vec![100usize; max_len];
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = encoder.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = encoder.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape[1], max_len, "Max seq length should work");
@@ -262,8 +237,7 @@ fn test_boundary_sequence_lengths(runner: &mut TestRunner) {
         let boundary_tokens = vec![0usize, 1, vocab_size / 2, vocab_size - 2, vocab_size - 1];
         let input = boundary_tokens.clone();
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = encoder.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = encoder.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape[1], boundary_tokens.len(), "Boundary vocab tokens should work");
@@ -300,8 +274,7 @@ fn test_single_element_tensors(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, vec![1, 1], "1x1 tensor shape mismatch");
@@ -313,16 +286,14 @@ fn test_very_deep_networks(runner: &mut TestRunner) {
     runner.run_test("edge_deep_transformer", || {
         let backend = CpuBackend::default();
         let num_layers = 24usize;
-        let config = TransformerEncoderConfig::new(64, 4, num_layers, 256)
-            .with_max_seq_len(128);
+        let config = TransformerEncoderConfig::new(64, 4, num_layers, 256).with_max_seq_len(128);
 
         let encoder = TransformerEncoder::new(&backend, config, 1000, 42)
             .map_err(|e| format!("Create deep encoder failed: {}", e))?;
 
         let input = vec![100usize; 16];
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = encoder.forward(input, &mut ctx)
-            .map_err(|e| format!("Deep forward failed: {}", e))?;
+        let output = encoder.forward(input, &mut ctx).map_err(|e| format!("Deep forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, vec![1, 16, 64], "Deep network output shape wrong");
@@ -334,16 +305,14 @@ fn test_very_deep_networks(runner: &mut TestRunner) {
         let d_model = 64usize;
         let num_heads = 4usize;
 
-        let config = TransformerEncoderConfig::new(d_model, num_heads, 2, 512)
-            .with_max_seq_len(128);
+        let config = TransformerEncoderConfig::new(d_model, num_heads, 2, 512).with_max_seq_len(128);
 
         let encoder = TransformerEncoder::new(&backend, config, 1000, 42)
             .map_err(|e| format!("Create wide encoder failed: {}", e))?;
 
         let input = vec![100usize; 16];
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = encoder.forward(input, &mut ctx)
-            .map_err(|e| format!("Wide forward failed: {}", e))?;
+        let output = encoder.forward(input, &mut ctx).map_err(|e| format!("Wide forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, vec![1, 16, d_model], "Wide attention output shape wrong");
@@ -363,8 +332,7 @@ fn test_wide_vs_narrow_tensors(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Wide forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Wide forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, vec![1, 128], "Wide tensor output shape wrong");
@@ -382,8 +350,7 @@ fn test_wide_vs_narrow_tensors(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Narrow forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Narrow forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, vec![batch, 128], "Narrow tensor output shape wrong");
@@ -402,14 +369,10 @@ fn test_non_contiguous_tensors(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let data: Vec<f32> = output.as_ref().to_vec();
-        assert!(
-            data.iter().all(|&v| v.is_finite()),
-            "Strided operations should produce finite output"
-        );
+        assert!(data.iter().all(|&v| v.is_finite()), "Strided operations should produce finite output");
         Ok(())
     });
 }
@@ -425,8 +388,7 @@ fn test_mixed_precision_boundaries(runner: &mut TestRunner) {
             .map_err(|e| format!("Create linear failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let shape = backend.ops().shape(&output);
         assert_eq!(shape, vec![10, 5], "Mixed precision boundary output shape wrong");

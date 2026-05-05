@@ -27,10 +27,7 @@
 use mnr_core::{Backend, CoreError, ForwardCtx, Module, Result};
 use mnr_nn::{Linear, LinearConfig};
 
-use crate::{
-    DeviceMesh, ParallelismConfig, PipelineParallelTrainer, PipelineStage, ProcessGroup,
-    TensorParallelLinear,
-};
+use crate::{DeviceMesh, ParallelismConfig, PipelineParallelTrainer, ProcessGroup, TensorParallelLinear};
 
 /// 3D Parallel Trainer combining DP, TP, and PP.
 pub struct Parallel3DTrainer<B: Backend> {
@@ -47,17 +44,14 @@ where
     B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
 {
     /// Create a new 3D parallel trainer.
-    pub fn new(
-        device_mesh: DeviceMesh,
-        pipeline_trainer: PipelineParallelTrainer<B>,
-    ) -> Result<Self> {
+    pub fn new(device_mesh: DeviceMesh, pipeline_trainer: PipelineParallelTrainer<B>) -> Result<Self> {
         let mut mesh = device_mesh;
-        
+
         // Get process groups for each parallelism dimension
         let dp_group = mesh.get_data_parallel_group()?;
         let tp_group = mesh.get_tensor_parallel_group()?;
         let pp_group = mesh.get_pipeline_parallel_group()?;
-        
+
         Ok(Self {
             device_mesh: mesh,
             pipeline_trainer,
@@ -69,29 +63,22 @@ where
     }
 
     /// Auto-configure parallelism strategy based on model size and GPU count.
-    pub fn auto_configure(
-        num_gpus: usize,
-        model_params: usize,
-        _num_layers: usize,
-    ) -> ParallelismConfig {
+    pub fn auto_configure(num_gpus: usize, model_params: usize, _num_layers: usize) -> ParallelismConfig {
         // Heuristic configuration
         let config = ParallelismConfig::auto_select(num_gpus, model_params);
-        
+
         println!("3D Parallelism Configuration:");
         println!("  GPUs: {}", num_gpus);
         println!("  Model Params: {}B", model_params / 1_000_000_000);
         println!("  Data Parallel: {}", config.data_parallel);
         println!("  Tensor Parallel: {}", config.tensor_parallel);
         println!("  Pipeline Parallel: {}", config.pipeline_parallel);
-        
+
         config
     }
 
     /// Execute a forward/backward step with 3D parallelism.
-    pub fn step<
-        M: Module<B>,
-        L: FnMut(&B::Tensor, &mut ForwardCtx<B>) -> Result<B::Tensor>,
-    >(
+    pub fn step<M: Module<B>, L: FnMut(&B::Tensor, &mut ForwardCtx<B>) -> Result<B::Tensor>>(
         &mut self,
         _model: &mut M,
         batch: &B::Tensor,
@@ -100,112 +87,103 @@ where
     ) -> Result<f32> {
         // Step 1: Split batch for data parallelism
         let local_batch = self.scatter_batch(batch, ctx)?;
-        
+
         // Step 2: Execute pipeline forward pass
         // Note: PipelineParallelTrainer::train_step has different signature.
         // Using forward pass for now.
         let _output = self.pipeline_trainer.forward(local_batch, ctx)?;
-        
+
         // Placeholder: compute loss and gradients
         let local_loss = 0.0f32;
-        
+
         // Step 3: All-reduce loss across data parallel group
         let global_loss = self.all_reduce_loss(local_loss)?;
-        
+
         // Step 4: All-reduce gradients across tensor parallel group
         self.all_reduce_tensor_parallel_gradients(_model)?;
-        
+
         // Step 5: All-reduce gradients across data parallel group
         self.all_reduce_data_parallel_gradients(_model)?;
-        
+
         Ok(global_loss)
     }
 
     /// Scatter batch across data parallel ranks.
-    fn scatter_batch(
-        &self,
-        batch: &B::Tensor,
-        ctx: &mut ForwardCtx<B>,
-    ) -> Result<B::Tensor> {
+    fn scatter_batch(&self, batch: &B::Tensor, ctx: &mut ForwardCtx<B>) -> Result<B::Tensor> {
         let dp_size = self.dp_group.world_size();
         let dp_rank = self.dp_group.rank();
-        
+
         if dp_size == 1 {
             return Ok(batch.clone());
         }
-        
+
         // Split batch along first dimension
         let shape = ctx.backend().ops().shape(batch);
         let batch_size = shape[0];
-        
+
         if batch_size % dp_size != 0 {
-            return Err(CoreError::InvalidArgument(
-                format!("Batch size {} not divisible by DP size {}", batch_size, dp_size)
-            ));
+            return Err(CoreError::InvalidArgument(format!(
+                "Batch size {} not divisible by DP size {}",
+                batch_size, dp_size
+            )));
         }
-        
+
         let local_size = batch_size / dp_size;
         let start = dp_rank * local_size;
-        
+
         // Extract local batch slice
         // In real impl: use proper slice operation
         let data: Vec<f32> = batch.as_ref().to_vec();
         let mut local_data = Vec::new();
-        
+
         let other_dims: usize = shape.iter().skip(1).product();
         let row_size = other_dims;
-        
+
         for i in start..(start + local_size) {
             let offset = i * row_size;
             local_data.extend_from_slice(&data[offset..offset + row_size]);
         }
-        
+
         let mut new_shape = shape.clone();
         new_shape[0] = local_size;
-        
+
         ctx.backend().ops().tensor_from_vec(local_data, &new_shape)
     }
 
     /// All-reduce loss across data parallel group.
     fn all_reduce_loss(&self, local_loss: f32) -> Result<f32> {
         let dp_size = self.dp_group.world_size();
-        
+
         if dp_size == 1 {
             return Ok(local_loss);
         }
-        
+
         // In real impl: use actual all-reduce
         // Simplified: return average (assuming all ranks have similar loss)
         Ok(local_loss)
     }
 
     /// All-reduce gradients across tensor parallel group.
-    fn all_reduce_tensor_parallel_gradients<M: Module<B>>(
-        &self,
-        _model: &mut M,
-    ) -> Result<()> {
+    fn all_reduce_tensor_parallel_gradients<M: Module<B>>(&self, _model: &mut M) -> Result<()> {
         let tp_size = self.tp_group.world_size();
-        
+
         if tp_size == 1 {
             return Ok(());
         }
-        
+
         // All-reduce gradients for tensor parallel layers
         // In real impl: iterate over parameters and all-reduce
         Ok(())
     }
 
     /// All-reduce gradients across data parallel group.
-    fn all_reduce_data_parallel_gradients<M: Module<B>>(
-        &self,
-        _model: &mut M,
-    ) -> Result<()> {
+    fn all_reduce_data_parallel_gradients<M: Module<B>>(&self, _model: &mut M) -> Result<()> {
         let dp_size = self.dp_group.world_size();
-        
+
         if dp_size == 1 {
             return Ok(());
         }
-        
+
         // All-reduce gradients for all parameters
         // In real impl: iterate over parameters and all-reduce
         Ok(())
@@ -242,24 +220,11 @@ impl<B: Backend> Parallel3DLayer<B>
 where
     B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
 {
-    pub fn new(
-        in_features: usize,
-        out_features: usize,
-        tp_group: ProcessGroup,
-        backend: &B,
-    ) -> Result<Self> {
-        let linear = TensorParallelLinear::column_parallel(
-            in_features,
-            out_features,
-            &tp_group,
-            backend,
-        )
-        .map_err(|e| CoreError::Other(format!("{:?}", e)))?;
-        
-        Ok(Self {
-            linear,
-            tp_group,
-        })
+    pub fn new(in_features: usize, out_features: usize, tp_group: ProcessGroup, backend: &B) -> Result<Self> {
+        let linear = TensorParallelLinear::column_parallel(in_features, out_features, &tp_group, backend)
+            .map_err(|e| CoreError::Other(format!("{:?}", e)))?;
+
+        Ok(Self { linear, tp_group })
     }
 }
 
@@ -271,8 +236,7 @@ where
     type Output = B::Tensor;
 
     fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
-        self.linear.forward(&input, ctx)
-            .map_err(|e| CoreError::Other(format!("{:?}", e)))
+        self.linear.forward(&input, ctx).map_err(|e| CoreError::Other(format!("{:?}", e)))
     }
 }
 
@@ -314,19 +278,18 @@ impl Parallel3DConfig {
     /// Validate configuration.
     pub fn validate(&self) -> Result<()> {
         let total = self.total_gpus();
-        
-        if self.data_parallel_size == 0 || self.tensor_parallel_size == 0 || self.pipeline_parallel_size == 0 {
-            return Err(CoreError::InvalidArgument(
-                "All parallelism dimensions must be > 0".to_string()
-            ));
+
+        if self.data_parallel_size == 0 || self.tensor_parallel_size == 0 || self.pipeline_parallel_size == 0
+        {
+            return Err(CoreError::InvalidArgument("All parallelism dimensions must be > 0".to_string()));
         }
-        
+
         println!("3D Parallelism Configuration Validated:");
         println!("  Total GPUs: {}", total);
         println!("  Data Parallel: {}", self.data_parallel_size);
         println!("  Tensor Parallel: {}", self.tensor_parallel_size);
         println!("  Pipeline Parallel: {}", self.pipeline_parallel_size);
-        
+
         Ok(())
     }
 }
@@ -341,21 +304,21 @@ where
     B::Tensor: 'static,
 {
     config.validate()?;
-    
+
     let mut stages = Vec::new();
-    
+
     // Get pipeline stage index
     let pp_rank = device_mesh.my_coord().get(2).copied().unwrap_or(0);
     let pp_size = config.pipeline_parallel_size;
-    
+
     // Calculate which layers this stage owns
     let total_layers = 12; // Example
     let layers_per_stage = total_layers / pp_size;
     let start_layer = pp_rank * layers_per_stage;
     let end_layer = start_layer + layers_per_stage;
-    
+
     println!("Pipeline Stage {}: layers {}-{} (of {})", pp_rank, start_layer, end_layer - 1, total_layers);
-    
+
     // Create layers for this stage
     // In real impl: create actual transformer layers with TP
     for _ in start_layer..end_layer {
@@ -363,29 +326,28 @@ where
         stages.push(Box::new(Linear::new(backend, LinearConfig::new(256, 256))?)
             as Box<dyn Module<B, Input = B::Tensor, Output = B::Tensor>>);
     }
-    
+
     Ok(stages)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
     use mnr_core::{ForwardCtx, Mode, Module};
+    use mnr_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_parallel_3d_config() {
-        let config = Parallel3DConfig::new(2, 4, 2)
-            .with_gradient_accumulation(4)
-            .with_pipeline_microbatches(8);
-        
+        let config =
+            Parallel3DConfig::new(2, 4, 2).with_gradient_accumulation(4).with_pipeline_microbatches(8);
+
         assert_eq!(config.total_gpus(), 16);
         assert_eq!(config.data_parallel_size, 2);
         assert_eq!(config.tensor_parallel_size, 4);
         assert_eq!(config.pipeline_parallel_size, 2);
         assert_eq!(config.gradient_accumulation_steps, 4);
         assert_eq!(config.pipeline_num_microbatches, 8);
-        
+
         config.validate().unwrap();
     }
 
@@ -401,7 +363,7 @@ mod tests {
     #[test]
     fn test_parallel_3d_auto_config() {
         let config = Parallel3DTrainer::<CpuBackend>::auto_configure(64, 100_000_000_000, 96);
-        
+
         assert_eq!(config.total_devices(), 64);
         assert!(config.tensor_parallel >= 1);
         assert!(config.data_parallel >= 1);
@@ -411,7 +373,7 @@ mod tests {
     #[test]
     fn test_device_mesh_integration() {
         let mesh = DeviceMesh::for_3d_parallelism(2, 2, 2, 0).unwrap();
-        
+
         assert_eq!(mesh.world_size(), 8);
         assert_eq!(mesh.dim_size(0), 2); // DP
         assert_eq!(mesh.dim_size(1), 2); // TP
@@ -451,7 +413,8 @@ mod tests {
         }
 
         let mut model = IdentityModule;
-        let mut loss_fn = |_output: &<CpuBackend as mnr_core::Backend>::Tensor, _ctx: &mut ForwardCtx<CpuBackend>| {
+        let mut loss_fn = |_output: &<CpuBackend as mnr_core::Backend>::Tensor,
+                           _ctx: &mut ForwardCtx<CpuBackend>| {
             backend.tensor_from_vec(vec![0.5f32], &[1])
         };
 

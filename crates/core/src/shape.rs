@@ -12,8 +12,11 @@ impl Shape {
         if dims.is_empty() {
             return Err(CoreError::InvalidShape { shape: dims, reason: "rank must be at least one".into() });
         }
-        if dims.iter().any(|&d| d == 0) {
-            return Err(CoreError::InvalidShape { shape: dims, reason: "dimensions must be non-zero".into() });
+        if dims.contains(&0) {
+            return Err(CoreError::InvalidShape {
+                shape: dims,
+                reason: "dimensions must be non-zero".into(),
+            });
         }
         Ok(Self(dims))
     }

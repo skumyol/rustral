@@ -31,10 +31,7 @@ impl CacheEntry {
             config,
             time_us,
             device_id,
-            timestamp: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            timestamp: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             num_samples: 1,
         }
@@ -42,10 +39,7 @@ impl CacheEntry {
 
     /// Check if this entry is still valid (not too old).
     pub fn is_fresh(&self, max_age_days: u64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs();
 
         let age_secs = now.saturating_sub(self.timestamp);
         let max_age_secs = max_age_days * 24 * 60 * 60;
@@ -56,8 +50,7 @@ impl CacheEntry {
     /// Merge with another entry (average times).
     pub fn merge(&mut self, other: &CacheEntry) {
         let total_samples = self.num_samples + other.num_samples;
-        self.time_us = (self.time_us * self.num_samples as f64
-            + other.time_us * other.num_samples as f64)
+        self.time_us = (self.time_us * self.num_samples as f64 + other.time_us * other.num_samples as f64)
             / total_samples as f64;
         self.num_samples = total_samples;
     }
@@ -83,10 +76,8 @@ fn make_cache_key(kernel_key: &str, input_sig: &[usize]) -> String {
 impl ConfigCache {
     /// Create a new cache with default location.
     pub fn new() -> Self {
-        let cache_dir = dirs::cache_dir()
-            .unwrap_or_else(|| PathBuf::from(".cache"))
-            .join("mnr")
-            .join("autotuner");
+        let cache_dir =
+            dirs::cache_dir().unwrap_or_else(|| PathBuf::from(".cache")).join("mnr").join("autotuner");
 
         let _ = fs::create_dir_all(&cache_dir);
 
@@ -94,12 +85,7 @@ impl ConfigCache {
 
         let device_id = Self::detect_device_id();
 
-        let mut cache = Self {
-            entries: HashMap::new(),
-            cache_path,
-            max_age_days: 30,
-            device_id,
-        };
+        let mut cache = Self { entries: HashMap::new(), cache_path, max_age_days: 30, device_id };
 
         // Load existing cache
         let _ = cache.load();
@@ -132,9 +118,7 @@ impl ConfigCache {
     pub fn get(&self, kernel_key: &str, input_sig: &[usize]) -> Option<&CacheEntry> {
         let key = make_cache_key(kernel_key, input_sig);
 
-        self.entries.get(&key).filter(|e| {
-            e.is_fresh(self.max_age_days) && e.device_id == self.device_id
-        })
+        self.entries.get(&key).filter(|e| e.is_fresh(self.max_age_days) && e.device_id == self.device_id)
     }
 
     /// Insert or update a cache entry.
@@ -153,8 +137,7 @@ impl ConfigCache {
         let json = serde_json::to_string_pretty(&self.entries)
             .map_err(|e| format!("Failed to serialize cache: {}", e))?;
 
-        fs::write(&self.cache_path, json)
-            .map_err(|e| format!("Failed to write cache: {}", e))?;
+        fs::write(&self.cache_path, json).map_err(|e| format!("Failed to write cache: {}", e))?;
 
         Ok(())
     }
@@ -165,18 +148,15 @@ impl ConfigCache {
             return Ok(());
         }
 
-        let json = fs::read_to_string(&self.cache_path)
-            .map_err(|e| format!("Failed to read cache: {}", e))?;
+        let json =
+            fs::read_to_string(&self.cache_path).map_err(|e| format!("Failed to read cache: {}", e))?;
 
-        self.entries = serde_json::from_str(&json)
-            .map_err(|e| format!("Failed to parse cache: {}", e))?;
+        self.entries = serde_json::from_str(&json).map_err(|e| format!("Failed to parse cache: {}", e))?;
 
         // Filter out stale entries
         let device_id = self.device_id.clone();
         let max_age = self.max_age_days;
-        self.entries.retain(|_, e| {
-            e.is_fresh(max_age) && e.device_id == device_id
-        });
+        self.entries.retain(|_, e| e.is_fresh(max_age) && e.device_id == device_id);
 
         Ok(())
     }
@@ -199,18 +179,12 @@ impl ConfigCache {
     /// Get cache statistics.
     pub fn stats(&self) -> CacheStats {
         let total = self.entries.len();
-        let by_device: HashMap<String, usize> = self.entries
-            .values()
-            .fold(HashMap::new(), |mut acc, e| {
-                *acc.entry(e.device_id.clone()).or_insert(0) += 1;
-                acc
-            });
+        let by_device: HashMap<String, usize> = self.entries.values().fold(HashMap::new(), |mut acc, e| {
+            *acc.entry(e.device_id.clone()).or_insert(0) += 1;
+            acc
+        });
 
-        CacheStats {
-            total_entries: total,
-            by_device,
-            cache_path: self.cache_path.clone(),
-        }
+        CacheStats { total_entries: total, by_device, cache_path: self.cache_path.clone() }
     }
 
     /// Detect GPU/device identifier.
@@ -278,9 +252,7 @@ pub struct TuningCache {
 impl TuningCache {
     /// Create a new tuning cache.
     pub fn new() -> Self {
-        Self {
-            cache: ConfigCache::new(),
-        }
+        Self { cache: ConfigCache::new() }
     }
 
     /// Get a configuration if cached.

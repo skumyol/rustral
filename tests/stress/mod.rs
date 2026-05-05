@@ -1,13 +1,8 @@
 //! Stress Tests and Load Tests
 
 use mnr_core::{Backend, ForwardCtx, Mode, Module, Trainable};
-use mnr_nn::{
-    Linear, LinearConfig,
-    TransformerEncoder, TransformerEncoderConfig,
-    TransformerDecoder, TransformerDecoderConfig,
-    Embedding, EmbeddingConfig,
-};
 use mnr_ndarray_backend::CpuBackend;
+use mnr_nn::{Linear, LinearConfig, TransformerEncoder, TransformerEncoderConfig};
 
 use crate::common::TestRunner;
 use std::time::{Duration, Instant};
@@ -41,8 +36,7 @@ fn test_sustained_forward_pressure(runner: &mut TestRunner) {
                 .map_err(|e| format!("Iteration {}: {}", i, e))?;
 
             let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-            let _output = linear.forward(input, &mut ctx)
-                .map_err(|e| format!("Iteration {}: {}", i, e))?;
+            let _output = linear.forward(input, &mut ctx).map_err(|e| format!("Iteration {}: {}", i, e))?;
 
             if i % 100 == 0 && start.elapsed() > timeout {
                 return Err(format!("Timeout at iteration {}", i));
@@ -108,8 +102,7 @@ fn test_memory_pressure_recovery(runner: &mut TestRunner) {
 fn test_large_model_load(runner: &mut TestRunner) {
     runner.run_test("stress_large_model", || {
         let backend = CpuBackend::default();
-        let config = TransformerEncoderConfig::new(128, 4, 4, 512)
-            .with_max_seq_len(256);
+        let config = TransformerEncoderConfig::new(128, 4, 4, 512).with_max_seq_len(256);
 
         let start = Instant::now();
         let encoder = TransformerEncoder::new(&backend, config, 5000, 42)
@@ -117,18 +110,15 @@ fn test_large_model_load(runner: &mut TestRunner) {
 
         let create_time = start.elapsed();
 
-        let num_params: usize = encoder
-            .parameters()
-            .len();
+        let num_params: usize = encoder.parameters().len();
 
-        println!("  Created large model with ~{}K params in {:?}",
-            num_params / 1_000, create_time);
+        println!("  Created large model with ~{}K params in {:?}", num_params / 1_000, create_time);
 
         let input = vec![100usize; 64];
         let fwd_start = Instant::now();
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let _output = encoder.forward(input, &mut ctx)
-            .map_err(|e| format!("Large model forward failed: {}", e))?;
+        let _output =
+            encoder.forward(input, &mut ctx).map_err(|e| format!("Large model forward failed: {}", e))?;
 
         println!("  Large model forward completed in {:?}", fwd_start.elapsed());
         Ok(())
@@ -138,8 +128,7 @@ fn test_large_model_load(runner: &mut TestRunner) {
 fn test_long_sequence_processing(runner: &mut TestRunner) {
     runner.run_test("stress_long_sequences", || {
         let backend = CpuBackend::default();
-        let config = TransformerEncoderConfig::new(256, 8, 4, 1024)
-            .with_max_seq_len(512);
+        let config = TransformerEncoderConfig::new(256, 8, 4, 1024).with_max_seq_len(512);
 
         let encoder = TransformerEncoder::new(&backend, config, 10000, 42)
             .map_err(|e| format!("Create encoder failed: {}", e))?;
@@ -150,7 +139,8 @@ fn test_long_sequence_processing(runner: &mut TestRunner) {
             let input = vec![100usize; 4 * seq_len];
             let start = Instant::now();
             let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-            let output = encoder.forward(input, &mut ctx)
+            let _output = encoder
+                .forward(input, &mut ctx)
                 .map_err(|e| format!("Forward (seq={}) failed: {}", seq_len, e))?;
 
             let elapsed = start.elapsed();
@@ -179,8 +169,8 @@ fn test_concurrent_model_usage(runner: &mut TestRunner) {
 
         for (i, model) in models.iter().enumerate() {
             let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-            let _output = model.forward(input.clone(), &mut ctx)
-                .map_err(|e| format!("Model {} forward: {}", i, e))?;
+            let _output =
+                model.forward(input.clone(), &mut ctx).map_err(|e| format!("Model {} forward: {}", i, e))?;
         }
 
         println!("  Successfully used {} concurrent models", model_count);
@@ -201,12 +191,14 @@ fn test_error_recovery_stability(runner: &mut TestRunner) {
         for _ in 0..iterations {
             toggle = !toggle;
             let result = if toggle {
-                let input = backend.tensor_from_vec(vec![1.0f32; 20], &[2, 10])
+                let input = backend
+                    .tensor_from_vec(vec![1.0f32; 20], &[2, 10])
                     .map_err(|e| format!("Create valid input: {}", e))?;
                 let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
                 linear.forward(input, &mut ctx)
             } else {
-                let input = backend.tensor_from_vec(vec![1.0f32; 30], &[2, 15])
+                let input = backend
+                    .tensor_from_vec(vec![1.0f32; 30], &[2, 15])
                     .map_err(|e| format!("Create invalid input: {}", e))?;
                 let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
                 linear.forward(input, &mut ctx)
@@ -225,8 +217,7 @@ fn test_error_recovery_stability(runner: &mut TestRunner) {
             .map_err(|e| format!("Create final input: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let _ = linear.forward(valid_input, &mut ctx)
-            .map_err(|e| format!("Final forward failed: {}", e))?;
+        let _ = linear.forward(valid_input, &mut ctx).map_err(|e| format!("Final forward failed: {}", e))?;
 
         println!("  Recovered from {} errors, model still functional", errors);
         Ok(())
@@ -244,14 +235,14 @@ fn test_repeated_serialization(runner: &mut TestRunner) {
             .map_err(|e| format!("Create input failed: {}", e))?;
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let original = linear.forward(input.clone(), &mut ctx)
-            .map_err(|e| format!("Original forward failed: {}", e))?;
+        let original =
+            linear.forward(input.clone(), &mut ctx).map_err(|e| format!("Original forward failed: {}", e))?;
 
         let iterations = 100usize;
         for i in 0..iterations {
             let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-            let output = linear.forward(input.clone(), &mut ctx)
-                .map_err(|e| format!("Iteration {}: {}", i, e))?;
+            let output =
+                linear.forward(input.clone(), &mut ctx).map_err(|e| format!("Iteration {}: {}", i, e))?;
 
             let orig_data: Vec<f32> = original.as_ref().to_vec();
             let out_data: Vec<f32> = output.as_ref().to_vec();
@@ -259,10 +250,7 @@ fn test_repeated_serialization(runner: &mut TestRunner) {
             for (j, (a, b)) in orig_data.iter().zip(out_data.iter()).enumerate() {
                 let diff = (a - b).abs();
                 if diff > 1e-5 {
-                    return Err(format!(
-                        "Iteration {}: element {} differs by {}",
-                        i, j, diff
-                    ));
+                    return Err(format!("Iteration {}: element {} differs by {}", i, j, diff));
                 }
             }
         }
@@ -275,8 +263,7 @@ fn test_repeated_serialization(runner: &mut TestRunner) {
 fn test_gradient_accumulation_pressure(runner: &mut TestRunner) {
     runner.run_test("stress_gradient_accumulation", || {
         let backend = CpuBackend::default();
-        let config = TransformerEncoderConfig::new(128, 4, 2, 512)
-            .with_max_seq_len(128);
+        let config = TransformerEncoderConfig::new(128, 4, 2, 512).with_max_seq_len(128);
 
         let encoder = TransformerEncoder::new(&backend, config, 5000, 42)
             .map_err(|e| format!("Create encoder failed: {}", e))?;
@@ -286,8 +273,8 @@ fn test_gradient_accumulation_pressure(runner: &mut TestRunner) {
         for i in 0..accumulation_steps {
             let input = vec![100usize; 8 * 32];
             let mut ctx = ForwardCtx::new(&backend, Mode::Train);
-            let _output = encoder.forward(input, &mut ctx)
-                .map_err(|e| format!("Step {} forward: {}", i, e))?;
+            let _output =
+                encoder.forward(input, &mut ctx).map_err(|e| format!("Step {} forward: {}", i, e))?;
         }
 
         println!("  Completed {} gradient accumulation steps", accumulation_steps);
@@ -309,17 +296,11 @@ fn test_timeout_handling(runner: &mut TestRunner) {
         let start = Instant::now();
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-        let _output = linear.forward(input, &mut ctx)
-            .map_err(|e| format!("Forward failed: {}", e))?;
+        let _output = linear.forward(input, &mut ctx).map_err(|e| format!("Forward failed: {}", e))?;
 
         let elapsed = start.elapsed();
 
-        assert!(
-            elapsed < timeout,
-            "Operation exceeded timeout: {:?} > {:?}",
-            elapsed,
-            timeout
-        );
+        assert!(elapsed < timeout, "Operation exceeded timeout: {:?} > {:?}", elapsed, timeout);
 
         println!("  Completed within timeout: {:?} < {:?}", elapsed, timeout);
         Ok(())

@@ -12,8 +12,8 @@
 //! - **Fallback**: Portable scalar implementation
 
 use mnr_core::{Backend, CoreError, Parameter, Result, ShapeExt, TensorOps};
-use rand::{rngs::StdRng, Rng, SeedableRng};
 use rand::thread_rng;
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 /// Dense row-major CPU tensor used by the reference backend.
@@ -63,10 +63,7 @@ impl mnr_core::TensorShape for CpuTensor {
 
 impl From<Vec<f32>> for CpuTensor {
     fn from(values: Vec<f32>) -> Self {
-        Self {
-            values: values.clone(),
-            shape: vec![values.len()],
-        }
+        Self { values: values.clone(), shape: vec![values.len()] }
     }
 }
 
@@ -85,7 +82,6 @@ impl CpuBackend {
     pub fn tensor_from_vec(&self, values: Vec<f32>, shape: &[usize]) -> Result<CpuTensor> {
         self.ops.tensor_from_vec(values, shape)
     }
-
 }
 
 impl Backend for CpuBackend {
@@ -111,21 +107,14 @@ impl Backend for CpuBackend {
     ) -> Result<Parameter<Self>> {
         let mut rng = StdRng::seed_from_u64(seed);
         let values = if scale > 0.0 {
-            (0..shape.elem_count())
-                .map(|_| rng.gen_range(-scale..scale))
-                .collect::<Vec<_>>()
+            (0..shape.elem_count()).map(|_| rng.gen_range(-scale..scale)).collect::<Vec<_>>()
         } else {
             vec![0.0; shape.elem_count()]
         };
         Ok(Parameter::new(name, CpuTensor::new(values, shape)?))
     }
 
-    fn parameter_from_vec(
-        &self,
-        name: &str,
-        values: Vec<f32>,
-        shape: &[usize],
-    ) -> Result<Parameter<Self>> {
+    fn parameter_from_vec(&self, name: &str, values: Vec<f32>, shape: &[usize]) -> Result<Parameter<Self>> {
         Ok(Parameter::new(name, CpuTensor::new(values, shape)?))
     }
 }
@@ -137,7 +126,10 @@ pub struct CpuOps;
 impl CpuOps {
     fn ensure_rank(shape: &[usize], rank: usize) -> Result<()> {
         if shape.len() != rank {
-            return Err(CoreError::InvalidShape { shape: shape.to_vec(), reason: format!("expected rank {rank}") });
+            return Err(CoreError::InvalidShape {
+                shape: shape.to_vec(),
+                reason: format!("expected rank {rank}"),
+            });
         }
         Ok(())
     }
@@ -183,18 +175,20 @@ impl TensorOps<CpuBackend> for CpuOps {
             // For row-major: stride between rows = k, between columns = 1
             unsafe {
                 sgemm(
-                    m, k, n,              // dimensions
-                    1.0,                  // alpha
-                    a.values.as_ptr(),    // A
-                    k as isize,           // rsa (row stride)
-                    1,                    // csa (col stride)
-                    b.values.as_ptr(),    // B
-                    n as isize,           // rsb
-                    1,                    // csb
-                    0.0,                  // beta (initialize C to 1.0 * C + 0.0)
-                    out.as_mut_ptr(),     // C
-                    n as isize,           // rsc
-                    1,                    // csc
+                    m,
+                    k,
+                    n,                 // dimensions
+                    1.0,               // alpha
+                    a.values.as_ptr(), // A
+                    k as isize,        // rsa (row stride)
+                    1,                 // csa (col stride)
+                    b.values.as_ptr(), // B
+                    n as isize,        // rsb
+                    1,                 // csb
+                    0.0,               // beta (initialize C to 1.0 * C + 0.0)
+                    out.as_mut_ptr(),  // C
+                    n as isize,        // rsc
+                    1,                 // csc
                 );
             }
 
@@ -324,7 +318,12 @@ impl TensorOps<CpuBackend> for CpuOps {
         let x = match input.shape.len() {
             1 => CpuTensor::new(input.values.clone(), &[1, input.shape[0]])?,
             2 => input.clone(),
-            _ => return Err(CoreError::InvalidShape { shape: input.shape.clone(), reason: "linear expects vector or matrix input".into() }),
+            _ => {
+                return Err(CoreError::InvalidShape {
+                    shape: input.shape.clone(),
+                    reason: "linear expects vector or matrix input".into(),
+                })
+            }
         };
         if x.shape[1] != w.shape[1] {
             return Err(CoreError::ShapeMismatch { expected: vec![w.shape[1]], actual: vec![x.shape[1]] });
@@ -340,7 +339,11 @@ impl TensorOps<CpuBackend> for CpuOps {
             }
         }
         let y = CpuTensor::new(out, &[x.shape[0], w.shape[0]])?;
-        if let Some(b) = bias { self.add_row_vector(&y, b.tensor()) } else { Ok(y) }
+        if let Some(b) = bias {
+            self.add_row_vector(&y, b.tensor())
+        } else {
+            Ok(y)
+        }
     }
 
     /// Apply sigmoid element-wise.
@@ -372,10 +375,8 @@ impl TensorOps<CpuBackend> for CpuOps {
         let scale = 1.0 / (1.0 - p);
         let mut rng = thread_rng();
         CpuTensor::new(
-            x.values.iter().map(|&v| {
-                if rng.gen::<f32>() < p { 0.0 } else { v * scale }
-            }).collect(),
-            &x.shape
+            x.values.iter().map(|&v| if rng.gen::<f32>() < p { 0.0 } else { v * scale }).collect(),
+            &x.shape,
         )
     }
 
@@ -390,11 +391,17 @@ impl TensorOps<CpuBackend> for CpuOps {
         let first_shape = &tensors[0].shape;
         for t in tensors.iter().skip(1) {
             if t.shape.len() != first_shape.len() {
-                return Err(CoreError::ShapeMismatch { expected: first_shape.clone(), actual: t.shape.clone() });
+                return Err(CoreError::ShapeMismatch {
+                    expected: first_shape.clone(),
+                    actual: t.shape.clone(),
+                });
             }
             for (i, (&expected, &actual)) in first_shape.iter().zip(t.shape.iter()).enumerate() {
                 if i != dim && expected != actual {
-                    return Err(CoreError::ShapeMismatch { expected: first_shape.clone(), actual: t.shape.clone() });
+                    return Err(CoreError::ShapeMismatch {
+                        expected: first_shape.clone(),
+                        actual: t.shape.clone(),
+                    });
                 }
             }
         }
@@ -411,7 +418,10 @@ impl TensorOps<CpuBackend> for CpuOps {
     /// Slice a tensor along dimension 0.
     fn slice(&self, x: &CpuTensor, start: usize, end: usize) -> Result<CpuTensor> {
         if start >= end || end > x.shape[0] {
-            return Err(CoreError::InvalidArgument(format!("invalid slice {}..{} for dim 0 of size {}", start, end, x.shape[0])));
+            return Err(CoreError::InvalidArgument(format!(
+                "invalid slice {}..{} for dim 0 of size {}",
+                start, end, x.shape[0]
+            )));
         }
         let slice_len = end - start;
         let elem_per_row: usize = x.shape.iter().skip(1).product();
@@ -428,7 +438,8 @@ impl TensorOps<CpuBackend> for CpuOps {
         if new_len != x.values.len() {
             return Err(CoreError::InvalidArgument(format!(
                 "reshape: total elements mismatch: {} vs {}",
-                x.values.len(), new_len
+                x.values.len(),
+                new_len
             )));
         }
         CpuTensor::new(x.values.clone(), shape)
@@ -460,9 +471,10 @@ impl TensorOps<CpuBackend> for CpuOps {
 
             // Check if broadcasting is possible: each dimension must be equal or 1
             if old_shape.len() > shape.len() {
-                return Err(CoreError::InvalidArgument(
-                    format!("broadcast: cannot broadcast from {:?} to {:?}", old_shape, shape)
-                ));
+                return Err(CoreError::InvalidArgument(format!(
+                    "broadcast: cannot broadcast from {:?} to {:?}",
+                    old_shape, shape
+                )));
             }
 
             // Pad old_shape with leading 1s to match target length
@@ -472,9 +484,10 @@ impl TensorOps<CpuBackend> for CpuOps {
             // Validate compatibility
             for (old_dim, new_dim) in padded_old.iter().zip(shape.iter()) {
                 if *old_dim != *new_dim && *old_dim != 1 {
-                    return Err(CoreError::InvalidArgument(
-                        format!("broadcast: cannot broadcast from {:?} to {:?}", old_shape, shape)
-                    ));
+                    return Err(CoreError::InvalidArgument(format!(
+                        "broadcast: cannot broadcast from {:?} to {:?}",
+                        old_shape, shape
+                    )));
                 }
             }
 
@@ -483,9 +496,10 @@ impl TensorOps<CpuBackend> for CpuOps {
             let expanded_len: usize = padded_old.iter().product();
             if expanded_len != old_len {
                 // The padded shape product should equal actual data length
-                return Err(CoreError::InvalidArgument(
-                    format!("broadcast: size mismatch {:?} vs {:?}", old_shape, shape)
-                ));
+                return Err(CoreError::InvalidArgument(format!(
+                    "broadcast: size mismatch {:?} vs {:?}",
+                    old_shape, shape
+                )));
             }
 
             // Perform broadcasting by repeating elements
@@ -508,9 +522,11 @@ impl TensorOps<CpuBackend> for CpuOps {
             }
 
             if result.len() != expected_new_len {
-                return Err(CoreError::InvalidArgument(
-                    format!("broadcast: result size mismatch {} vs {}", result.len(), expected_new_len)
-                ));
+                return Err(CoreError::InvalidArgument(format!(
+                    "broadcast: result size mismatch {} vs {}",
+                    result.len(),
+                    expected_new_len
+                )));
             }
 
             CpuTensor::new(result, shape)
@@ -527,10 +543,7 @@ impl TensorOps<CpuBackend> for CpuOps {
         if a.shape != b.shape {
             return Err(CoreError::ShapeMismatch { expected: a.shape.clone(), actual: b.shape.clone() });
         }
-        CpuTensor::new(
-            a.values.iter().zip(b.values.iter()).map(|(x, y)| x - y).collect(),
-            &a.shape,
-        )
+        CpuTensor::new(a.values.iter().zip(b.values.iter()).map(|(x, y)| x - y).collect(), &a.shape)
     }
 
     /// Element-wise square root.
@@ -551,10 +564,7 @@ impl TensorOps<CpuBackend> for CpuOps {
         if b.values.iter().any(|&v| v == 0.0) {
             return Err(CoreError::InvalidArgument("division by zero".into()));
         }
-        CpuTensor::new(
-            a.values.iter().zip(b.values.iter()).map(|(x, y)| x / y).collect(),
-            &a.shape,
-        )
+        CpuTensor::new(a.values.iter().zip(b.values.iter()).map(|(x, y)| x / y).collect(), &a.shape)
     }
 
     /// Element-wise exponential: `exp(x)`.
@@ -576,18 +586,12 @@ impl TensorOps<CpuBackend> for CpuOps {
         if a.shape != b.shape {
             return Err(CoreError::ShapeMismatch { expected: a.shape.clone(), actual: b.shape.clone() });
         }
-        CpuTensor::new(
-            a.values.iter().zip(b.values.iter()).map(|(x, y)| x.max(*y)).collect(),
-            &a.shape,
-        )
+        CpuTensor::new(a.values.iter().zip(b.values.iter()).map(|(x, y)| x.max(*y)).collect(), &a.shape)
     }
 
     /// Element-wise greater-than with scalar: returns 1.0 if x > scalar else 0.0.
     fn gt_scalar(&self, x: &CpuTensor, scalar: f32) -> Result<CpuTensor> {
-        CpuTensor::new(
-            x.values.iter().map(|&v| if v > scalar { 1.0 } else { 0.0 }).collect(),
-            &x.shape,
-        )
+        CpuTensor::new(x.values.iter().map(|&v| if v > scalar { 1.0 } else { 0.0 }).collect(), &x.shape)
     }
 
     /// Sum all elements of a tensor into a scalar.
@@ -598,8 +602,13 @@ impl TensorOps<CpuBackend> for CpuOps {
 
     /// Extract a single scalar element from a tensor at a flat index.
     fn tensor_element(&self, x: &CpuTensor, index: usize) -> Result<f32> {
-        x.values.get(index).copied()
-            .ok_or_else(|| CoreError::InvalidArgument(format!("index {} out of bounds for tensor with {} elements", index, x.values.len())))
+        x.values.get(index).copied().ok_or_else(|| {
+            CoreError::InvalidArgument(format!(
+                "index {} out of bounds for tensor with {} elements",
+                index,
+                x.values.len()
+            ))
+        })
     }
 }
 
@@ -632,10 +641,7 @@ impl mnr_core::TensorInPlaceOps<CpuBackend> for CpuOps {
 
     fn axpy(&self, y: &mut CpuTensor, a: f32, x: &CpuTensor) -> Result<()> {
         if y.shape != x.shape {
-            return Err(CoreError::ShapeMismatch {
-                expected: y.shape.clone(),
-                actual: x.shape.clone(),
-            });
+            return Err(CoreError::ShapeMismatch { expected: y.shape.clone(), actual: x.shape.clone() });
         }
         for (yi, xi) in y.values.iter_mut().zip(&x.values) {
             *yi += a * xi;

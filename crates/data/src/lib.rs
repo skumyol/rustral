@@ -3,11 +3,11 @@
 //! Provides traits and implementations for handling datasets of various sizes,
 //! from small in-memory datasets to large streaming datasets.
 
+use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
-use rand::rngs::StdRng;
 use std::fs::File;
-use std::io::{self, BufRead, Read};
+use std::io::{self, BufRead};
 use std::path::Path;
 
 /// Trait for datasets that can provide indexed access to elements.
@@ -63,9 +63,7 @@ impl<D: Clone + Send + Sync + 'static> Dataset<D> for InMemoryDataset<D> {
     }
 
     fn get_batch(&self, indices: &[usize]) -> Vec<D> {
-        indices.iter()
-            .filter_map(|&i| self.data.get(i).cloned())
-            .collect()
+        indices.iter().filter_map(|&i| self.data.get(i).cloned()).collect()
     }
 }
 
@@ -104,22 +102,12 @@ where
         let reader = io::BufReader::new(file);
         let len = reader.lines().count();
 
-        Ok(Self {
-            path,
-            len,
-            parser,
-            _phantom: std::marker::PhantomData,
-        })
+        Ok(Self { path, len, parser, _phantom: std::marker::PhantomData })
     }
 
     /// Create with known length (faster, skips line counting).
     pub fn from_file_with_len<P: AsRef<Path>>(path: P, len: usize, parser: F) -> Self {
-        Self {
-            path: path.as_ref().to_path_buf(),
-            len,
-            parser,
-            _phantom: std::marker::PhantomData,
-        }
+        Self { path: path.as_ref().to_path_buf(), len, parser, _phantom: std::marker::PhantomData }
     }
 }
 
@@ -140,9 +128,7 @@ where
         let file = File::open(&self.path).ok()?;
         let reader = io::BufReader::new(file);
 
-        reader.lines().nth(index).and_then(|line| {
-            line.ok().and_then(|l| (self.parser)(&l))
-        })
+        reader.lines().nth(index).and_then(|line| line.ok().and_then(|l| (self.parser)(&l)))
     }
 }
 
@@ -172,11 +158,7 @@ impl MmapDataset {
 
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
 
-        Ok(Self {
-            mmap,
-            element_size,
-            len,
-        })
+        Ok(Self { mmap, element_size, len })
     }
 
     /// Get raw bytes for an element.
@@ -202,9 +184,7 @@ impl MmapDataset {
         }
 
         let len = bytes.len() / 4;
-        Some(unsafe {
-            std::slice::from_raw_parts(bytes.as_ptr() as *const f32, len)
-        })
+        Some(unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const f32, len) })
     }
 }
 
@@ -232,12 +212,7 @@ pub struct DataLoaderConfig {
 
 impl Default for DataLoaderConfig {
     fn default() -> Self {
-        Self {
-            batch_size: 1,
-            shuffle: false,
-            seed: None,
-            num_workers: 0,
-        }
+        Self { batch_size: 1, shuffle: false, seed: None, num_workers: 0 }
     }
 }
 
@@ -265,13 +240,7 @@ impl<D: Clone + Send + Sync + 'static> DataLoader<D> {
             indices.shuffle(&mut rng);
         }
 
-        Self {
-            dataset,
-            config,
-            indices,
-            position: 0,
-            rng,
-        }
+        Self { dataset, config, indices, position: 0, rng }
     }
 
     /// Get the next batch of data.
@@ -333,25 +302,19 @@ impl<D: Clone + Send + Sync + 'static> Iterator for DataLoader<D> {
 pub fn simple_loader<D: Clone + Send + Sync + 'static>(dataset: Vec<D>, batch_size: usize) -> DataLoader<D> {
     DataLoader::new(
         Box::new(InMemoryDataset::new(dataset)),
-        DataLoaderConfig {
-            batch_size,
-            shuffle: false,
-            seed: None,
-            num_workers: 0,
-        },
+        DataLoaderConfig { batch_size, shuffle: false, seed: None, num_workers: 0 },
     )
 }
 
 /// Helper function to create a shuffled DataLoader.
-pub fn shuffled_loader<D: Clone + Send + Sync + 'static>(dataset: Vec<D>, batch_size: usize, seed: u64) -> DataLoader<D> {
+pub fn shuffled_loader<D: Clone + Send + Sync + 'static>(
+    dataset: Vec<D>,
+    batch_size: usize,
+    seed: u64,
+) -> DataLoader<D> {
     DataLoader::new(
         Box::new(InMemoryDataset::new(dataset)),
-        DataLoaderConfig {
-            batch_size,
-            shuffle: true,
-            seed: Some(seed),
-            num_workers: 0,
-        },
+        DataLoaderConfig { batch_size, shuffle: true, seed: Some(seed), num_workers: 0 },
     )
 }
 
@@ -376,12 +339,7 @@ mod tests {
         let dataset = InMemoryDataset::new(data);
         let mut loader = DataLoader::new(
             Box::new(dataset),
-            DataLoaderConfig {
-                batch_size: 3,
-                shuffle: false,
-                seed: None,
-                num_workers: 0,
-            },
+            DataLoaderConfig { batch_size: 3, shuffle: false, seed: None, num_workers: 0 },
         );
 
         // First batch: [0, 1, 2]
@@ -411,22 +369,12 @@ mod tests {
         // Create two loaders with same seed
         let mut loader1 = DataLoader::new(
             Box::new(InMemoryDataset::new(data.clone())),
-            DataLoaderConfig {
-                batch_size: 10,
-                shuffle: true,
-                seed: Some(42),
-                num_workers: 0,
-            },
+            DataLoaderConfig { batch_size: 10, shuffle: true, seed: Some(42), num_workers: 0 },
         );
 
         let mut loader2 = DataLoader::new(
             Box::new(InMemoryDataset::new(data)),
-            DataLoaderConfig {
-                batch_size: 10,
-                shuffle: true,
-                seed: Some(42),
-                num_workers: 0,
-            },
+            DataLoaderConfig { batch_size: 10, shuffle: true, seed: Some(42), num_workers: 0 },
         );
 
         // Both should produce the same shuffled order
@@ -445,12 +393,7 @@ mod tests {
         let dataset = InMemoryDataset::new(data);
         let mut loader = DataLoader::new(
             Box::new(dataset),
-            DataLoaderConfig {
-                batch_size: 3,
-                shuffle: false,
-                seed: None,
-                num_workers: 0,
-            },
+            DataLoaderConfig { batch_size: 3, shuffle: false, seed: None, num_workers: 0 },
         );
 
         // Consume first epoch
@@ -480,12 +423,7 @@ mod tests {
         let dataset = InMemoryDataset::new(data);
         let loader = DataLoader::new(
             Box::new(dataset),
-            DataLoaderConfig {
-                batch_size: 3,
-                shuffle: false,
-                seed: None,
-                num_workers: 0,
-            },
+            DataLoaderConfig { batch_size: 3, shuffle: false, seed: None, num_workers: 0 },
         );
 
         let batches: Vec<_> = loader.collect();
@@ -522,12 +460,7 @@ mod tests {
         let data: Vec<i32> = (0..10).collect();
         let loader = DataLoader::new(
             Box::new(InMemoryDataset::new(data)),
-            DataLoaderConfig {
-                batch_size: 3,
-                shuffle: false,
-                seed: None,
-                num_workers: 0,
-            },
+            DataLoaderConfig { batch_size: 3, shuffle: false, seed: None, num_workers: 0 },
         );
         assert_eq!(loader.num_batches(), 4);
     }

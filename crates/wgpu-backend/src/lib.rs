@@ -20,7 +20,7 @@ use wgpu::util::DeviceExt;
 
 pub mod profiler;
 
-pub use profiler::{GpuProfiler, ProfileEvent, ProfileSummary, ScopedEvent, BandwidthCalculator};
+pub use profiler::{BandwidthCalculator, GpuProfiler, ProfileEvent, ProfileSummary, ScopedEvent};
 
 /// Maximum workgroup size for compute shaders.
 const WORKGROUP_SIZE: u32 = 256;
@@ -205,48 +205,29 @@ impl ComputeKernel {
             entry_point,
         });
 
-        Ok(Self {
-            pipeline,
-            bind_group_layout,
-            workgroup_size,
-        })
+        Ok(Self { pipeline, bind_group_layout, workgroup_size })
     }
 
     /// Create a binary operation kernel (add, mul, sub, div).
-    fn binary_op(
-        device: &wgpu::Device,
-        shader_code: &str,
-        entry_point: &str,
-    ) -> CoreResult<Self> {
+    fn binary_op(device: &wgpu::Device, shader_code: &str, entry_point: &str) -> CoreResult<Self> {
         let layout = create_binary_bind_group_layout(device);
         Self::new(device, shader_code, entry_point, layout, WORKGROUP_SIZE)
     }
 
     /// Create a unary operation kernel (relu, sigmoid, tanh, etc).
-    fn unary_op(
-        device: &wgpu::Device,
-        shader_code: &str,
-        entry_point: &str,
-    ) -> CoreResult<Self> {
+    fn unary_op(device: &wgpu::Device, shader_code: &str, entry_point: &str) -> CoreResult<Self> {
         let layout = create_unary_bind_group_layout(device);
         Self::new(device, shader_code, entry_point, layout, WORKGROUP_SIZE)
     }
 
     /// Create a scalar operation kernel (add_scalar, mul_scalar, gt_scalar).
-    fn scalar_op(
-        device: &wgpu::Device,
-        shader_code: &str,
-        entry_point: &str,
-    ) -> CoreResult<Self> {
+    fn scalar_op(device: &wgpu::Device, shader_code: &str, entry_point: &str) -> CoreResult<Self> {
         let layout = create_scalar_bind_group_layout(device);
         Self::new(device, shader_code, entry_point, layout, WORKGROUP_SIZE)
     }
 
     /// Create a dropout operation kernel with uniform params.
-    fn dropout_op(
-        device: &wgpu::Device,
-        shader_code: &str,
-    ) -> CoreResult<Self> {
+    fn dropout_op(device: &wgpu::Device, shader_code: &str) -> CoreResult<Self> {
         // Dropout uses same layout as scalar: input, output, uniform params
         let layout = create_dropout_bind_group_layout(device);
         Self::new(device, shader_code, "dropout", layout, WORKGROUP_SIZE)
@@ -266,26 +247,16 @@ impl ComputeKernel {
             label: Some("dropout_bind_group"),
             layout: &self.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: input.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: output.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: params_buffer.as_entire_binding(),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: input.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: output.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: params_buffer.as_entire_binding() },
             ],
         });
 
         let workgroups = ((num_elements as u32) + self.workgroup_size - 1) / self.workgroup_size;
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("dropout_encoder"),
-        });
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("dropout_encoder") });
 
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -314,26 +285,16 @@ impl ComputeKernel {
             label: Some("binary_bind_group"),
             layout: &self.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: input_a.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: input_b.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: output.as_entire_binding(),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: input_a.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: input_b.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: output.as_entire_binding() },
             ],
         });
 
         let workgroups = ((num_elements as u32) + self.workgroup_size - 1) / self.workgroup_size;
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("compute_encoder"),
-        });
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("compute_encoder") });
 
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -361,22 +322,15 @@ impl ComputeKernel {
             label: Some("unary_bind_group"),
             layout: &self.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: input.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: output.as_entire_binding(),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: input.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: output.as_entire_binding() },
             ],
         });
 
         let workgroups = ((num_elements as u32) + self.workgroup_size - 1) / self.workgroup_size;
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("compute_encoder"),
-        });
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("compute_encoder") });
 
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -405,26 +359,16 @@ impl ComputeKernel {
             label: Some("scalar_bind_group"),
             layout: &self.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: input.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: output.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: scalar_buffer.as_entire_binding(),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: input.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: output.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: scalar_buffer.as_entire_binding() },
             ],
         });
 
         let workgroups = ((num_elements as u32) + self.workgroup_size - 1) / self.workgroup_size;
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("compute_encoder"),
-        });
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("compute_encoder") });
 
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -452,12 +396,7 @@ impl ComputeKernelCache {
     /// Create a new kernel cache with pre-loaded shader code.
     fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
         let shader_code = include_str!("shaders.wgsl").to_string();
-        Self {
-            device,
-            queue,
-            kernels: HashMap::new(),
-            shader_code,
-        }
+        Self { device, queue, kernels: HashMap::new(), shader_code }
     }
 
     /// Get or create a binary operation kernel.
@@ -497,28 +436,13 @@ impl ComputeKernelCache {
         let device = self.device.clone();
         let queue = self.queue.clone();
         let kernel = self.get_binary_kernel(entry_point)?;
-        kernel.dispatch_binary(
-            &device,
-            &queue,
-            &a.buffer,
-            &b.buffer,
-            &output_buffer,
-            num_elements,
-        );
+        kernel.dispatch_binary(&device, &queue, &a.buffer, &b.buffer, &output_buffer, num_elements);
 
-        Ok(GpuTensor {
-            buffer: Arc::new(output_buffer),
-            shape: output_shape.to_vec(),
-            size: num_elements,
-        })
+        Ok(GpuTensor { buffer: Arc::new(output_buffer), shape: output_shape.to_vec(), size: num_elements })
     }
 
     /// Execute a unary operation (relu, sigmoid, tanh, etc).
-    fn execute_unary(
-        &mut self,
-        x: &GpuTensor,
-        entry_point: &str,
-    ) -> CoreResult<GpuTensor> {
+    fn execute_unary(&mut self, x: &GpuTensor, entry_point: &str) -> CoreResult<GpuTensor> {
         let num_elements = x.size;
         let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("output_buffer"),
@@ -530,19 +454,9 @@ impl ComputeKernelCache {
         let device = self.device.clone();
         let queue = self.queue.clone();
         let kernel = self.get_unary_kernel(entry_point)?;
-        kernel.dispatch_unary(
-            &device,
-            &queue,
-            &x.buffer,
-            &output_buffer,
-            num_elements,
-        );
+        kernel.dispatch_unary(&device, &queue, &x.buffer, &output_buffer, num_elements);
 
-        Ok(GpuTensor {
-            buffer: Arc::new(output_buffer),
-            shape: x.shape.clone(),
-            size: num_elements,
-        })
+        Ok(GpuTensor { buffer: Arc::new(output_buffer), shape: x.shape.clone(), size: num_elements })
     }
 
     /// Get or create a scalar operation kernel.
@@ -555,12 +469,7 @@ impl ComputeKernelCache {
     }
 
     /// Execute a scalar operation (add_scalar, mul_scalar, gt_scalar).
-    fn execute_scalar(
-        &mut self,
-        x: &GpuTensor,
-        scalar: f32,
-        entry_point: &str,
-    ) -> CoreResult<GpuTensor> {
+    fn execute_scalar(&mut self, x: &GpuTensor, scalar: f32, entry_point: &str) -> CoreResult<GpuTensor> {
         let num_elements = x.size;
         let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("output_buffer"),
@@ -579,20 +488,9 @@ impl ComputeKernelCache {
         let device = self.device.clone();
         let queue = self.queue.clone();
         let kernel = self.get_scalar_kernel(entry_point)?;
-        kernel.dispatch_scalar(
-            &device,
-            &queue,
-            &x.buffer,
-            &output_buffer,
-            &scalar_buffer,
-            num_elements,
-        );
+        kernel.dispatch_scalar(&device, &queue, &x.buffer, &output_buffer, &scalar_buffer, num_elements);
 
-        Ok(GpuTensor {
-            buffer: Arc::new(output_buffer),
-            shape: x.shape.clone(),
-            size: num_elements,
-        })
+        Ok(GpuTensor { buffer: Arc::new(output_buffer), shape: x.shape.clone(), size: num_elements })
     }
 
     /// Execute dropout with GPU RNG.
@@ -618,7 +516,12 @@ impl ComputeKernelCache {
         // Uniform buffer with dropout params: [probability, scale, seed, training]
         let params_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("dropout_params"),
-            contents: bytemuck::cast_slice(&[probability, scale, f32::from_bits(seed), f32::from_bits(training_flag)]),
+            contents: bytemuck::cast_slice(&[
+                probability,
+                scale,
+                f32::from_bits(seed),
+                f32::from_bits(training_flag),
+            ]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -632,20 +535,9 @@ impl ComputeKernelCache {
 
         let device = self.device.clone();
         let queue = self.queue.clone();
-        kernel.dispatch_dropout(
-            &device,
-            &queue,
-            &x.buffer,
-            &output_buffer,
-            &params_buffer,
-            num_elements,
-        );
+        kernel.dispatch_dropout(&device, &queue, &x.buffer, &output_buffer, &params_buffer, num_elements);
 
-        Ok(GpuTensor {
-            buffer: Arc::new(output_buffer),
-            shape: x.shape.clone(),
-            size: num_elements,
-        })
+        Ok(GpuTensor { buffer: Arc::new(output_buffer), shape: x.shape.clone(), size: num_elements })
     }
 
     /// Execute a tiled matrix multiplication using the GPU compute shader.
@@ -740,31 +632,19 @@ impl ComputeKernelCache {
             label: Some("matmul_bind_group"),
             layout: &kernel.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: a.buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: b.buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: output_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: params_buffer.as_entire_binding(),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: a.buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: b.buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: output_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: params_buffer.as_entire_binding() },
             ],
         });
 
         let workgroups_x = ((n as u32) + 15) / 16;
         let workgroups_y = ((m as u32) + 15) / 16;
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("matmul_encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("matmul_encoder") });
 
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -778,11 +658,7 @@ impl ComputeKernelCache {
 
         self.queue.submit(Some(encoder.finish()));
 
-        Ok(GpuTensor {
-            buffer: Arc::new(output_buffer),
-            shape: vec![m, n],
-            size: output_size,
-        })
+        Ok(GpuTensor { buffer: Arc::new(output_buffer), shape: vec![m, n], size: output_size })
     }
 }
 
@@ -832,11 +708,7 @@ impl GpuTensor {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
         });
 
-        Ok(Self {
-            buffer: Arc::new(buffer),
-            shape: shape.to_vec(),
-            size,
-        })
+        Ok(Self { buffer: Arc::new(buffer), shape: shape.to_vec(), size })
     }
 
     /// Read tensor data back to CPU (blocking).
@@ -927,10 +799,7 @@ impl WgpuBackend {
         let ops = WgpuOps {
             device: device.clone(),
             queue: queue.clone(),
-            kernel_cache: std::sync::RwLock::new(ComputeKernelCache::new(
-                device.clone(),
-                queue.clone(),
-            )),
+            kernel_cache: std::sync::RwLock::new(ComputeKernelCache::new(device.clone(), queue.clone())),
         };
 
         Ok(Self { device, queue, ops })
@@ -965,9 +834,7 @@ impl WgpuBackend {
 
         let mut rng = StdRng::seed_from_u64(seed);
         let values: Vec<f32> = if scale > 0.0 {
-            (0..shape.iter().product::<usize>())
-                .map(|_| rng.gen_range(-scale..scale))
-                .collect()
+            (0..shape.iter().product::<usize>()).map(|_| rng.gen_range(-scale..scale)).collect()
         } else {
             vec![0.0; shape.iter().product()]
         };
@@ -1003,12 +870,7 @@ impl Backend for WgpuBackend {
         WgpuBackend::normal_parameter(self, name, shape, seed, scale)
     }
 
-    fn parameter_from_vec(
-        &self,
-        name: &str,
-        values: Vec<f32>,
-        shape: &[usize],
-    ) -> CoreResult<Parameter<Self>>
+    fn parameter_from_vec(&self, name: &str, values: Vec<f32>, shape: &[usize]) -> CoreResult<Parameter<Self>>
     where
         Self: Sized,
     {
@@ -1068,10 +930,7 @@ impl TensorOps<WgpuBackend> for WgpuOps {
         let n = b.shape[1];
 
         if k != b.shape[0] {
-            return Err(CoreError::ShapeMismatch {
-                expected: vec![k],
-                actual: vec![b.shape[0]],
-            });
+            return Err(CoreError::ShapeMismatch { expected: vec![k], actual: vec![b.shape[0]] });
         }
 
         // Use GPU compute shader for matrix multiplication
@@ -1099,11 +958,7 @@ impl TensorOps<WgpuBackend> for WgpuOps {
 
     fn add_row_vector(&self, a: &GpuTensor, _row: &GpuTensor) -> CoreResult<GpuTensor> {
         // Simplified: just clone for now
-        Ok(GpuTensor {
-            buffer: a.buffer.clone(),
-            shape: a.shape.clone(),
-            size: a.size,
-        })
+        Ok(GpuTensor { buffer: a.buffer.clone(), shape: a.shape.clone(), size: a.size })
     }
 
     fn relu(&self, x: &GpuTensor) -> CoreResult<GpuTensor> {
@@ -1122,11 +977,8 @@ impl TensorOps<WgpuBackend> for WgpuOps {
 
     fn argmax(&self, x: &GpuTensor) -> CoreResult<usize> {
         let data = x.to_vec(&self.device, &self.queue);
-        let (idx, _) = data
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-            .unwrap_or((0, &0.0));
+        let (idx, _) =
+            data.iter().enumerate().max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap_or((0, &0.0));
         Ok(idx)
     }
 
@@ -1159,9 +1011,10 @@ impl TensorOps<WgpuBackend> for WgpuOps {
         // Validate indices
         for &id in ids {
             if id >= num_rows {
-                return Err(CoreError::InvalidArgument(
-                    format!("Index {} out of bounds for table with {} rows", id, num_rows)
-                ));
+                return Err(CoreError::InvalidArgument(format!(
+                    "Index {} out of bounds for table with {} rows",
+                    id, num_rows
+                )));
             }
         }
 
@@ -1237,11 +1090,7 @@ impl TensorOps<WgpuBackend> for WgpuOps {
     }
 
     fn reshape(&self, x: &GpuTensor, shape: &[usize]) -> CoreResult<GpuTensor> {
-        Ok(GpuTensor {
-            buffer: x.buffer.clone(),
-            shape: shape.to_vec(),
-            size: x.size,
-        })
+        Ok(GpuTensor { buffer: x.buffer.clone(), shape: shape.to_vec(), size: x.size })
     }
 
     fn add_scalar(&self, x: &GpuTensor, scalar: f32) -> CoreResult<GpuTensor> {
@@ -1258,16 +1107,9 @@ impl TensorOps<WgpuBackend> for WgpuOps {
         // For now, return the tensor as-is if element count matches
         let new_len: usize = shape.iter().product();
         if x.size == new_len {
-            Ok(GpuTensor {
-                buffer: x.buffer.clone(),
-                shape: shape.to_vec(),
-                size: x.size,
-            })
+            Ok(GpuTensor { buffer: x.buffer.clone(), shape: shape.to_vec(), size: x.size })
         } else {
-            Err(CoreError::Backend(format!(
-                "broadcast: cannot broadcast from {:?} to {:?}",
-                x.shape, shape
-            )))
+            Err(CoreError::Backend(format!("broadcast: cannot broadcast from {:?} to {:?}", x.shape, shape)))
         }
     }
 
@@ -1309,15 +1151,35 @@ impl TensorOps<WgpuBackend> for WgpuOps {
 
     fn tensor_element(&self, x: &GpuTensor, index: usize) -> CoreResult<f32> {
         let data = x.to_vec(&self.device, &self.queue);
-        data.get(index).copied()
-            .ok_or_else(|| CoreError::InvalidArgument(format!("index {} out of bounds for tensor with {} elements", index, data.len())))
+        data.get(index).copied().ok_or_else(|| {
+            CoreError::InvalidArgument(format!(
+                "index {} out of bounds for tensor with {} elements",
+                index,
+                data.len()
+            ))
+        })
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_wgpu_error_display() {
+        let err = WgpuError::NoAdapter;
+        assert_eq!(err.to_string(), "no suitable GPU adapter found");
+
+        let err = WgpuError::Shader("syntax error".to_string());
+        assert_eq!(err.to_string(), "shader compilation failed: syntax error");
+    }
+
+    #[test]
+    fn test_wgpu_error_debug() {
+        let err = WgpuError::NoAdapter;
+        let debug = format!("{:?}", err);
+        assert!(debug.contains("NoAdapter"));
+    }
 
     fn get_backend() -> Option<WgpuBackend> {
         match WgpuBackend::new_sync() {
@@ -1355,8 +1217,11 @@ mod tests {
         let output_data = backend.to_vec(&output);
 
         // In inference mode, output should equal input (inverted dropout scales during training)
-        assert_eq!(output_data, vec![1.0, 2.0, 3.0, 4.0, 5.0],
-            "Dropout in inference mode should be identity");
+        assert_eq!(
+            output_data,
+            vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            "Dropout in inference mode should be identity"
+        );
     }
 
     #[test]
@@ -1368,7 +1233,7 @@ mod tests {
 
         // Large tensor for statistical test
         let size = 10000usize;
-        let input_data: Vec<f32> = (0..size).map(|i| 1.0f32).collect();
+        let input_data: Vec<f32> = (0..size).map(|_i| 1.0f32).collect();
         let input = backend.tensor_from_vec(input_data.clone(), &[size]).unwrap();
 
         // Apply dropout with p=0.5
@@ -1389,10 +1254,11 @@ mod tests {
         let expected_zeros = size / 2;
         let tolerance = size / 10;
         assert!(
-            zeros >= expected_zeros.saturating_sub(tolerance) &&
-            zeros <= expected_zeros + tolerance,
+            zeros >= expected_zeros.saturating_sub(tolerance) && zeros <= expected_zeros + tolerance,
             "Expected ~{} zeros, got {} (p=0.5, n={})",
-            expected_zeros, zeros, size
+            expected_zeros,
+            zeros,
+            size
         );
 
         println!("Dropout test: {} zeros, {} scaled (of {} total)", zeros, scaled, size);
@@ -1412,8 +1278,7 @@ mod tests {
         let output_data = backend.to_vec(&output);
 
         // With p=0, scale=1.0, so output equals input
-        assert_eq!(output_data, vec![1.0, 2.0, 3.0, 4.0, 5.0],
-            "Dropout with p=0 should be identity");
+        assert_eq!(output_data, vec![1.0, 2.0, 3.0, 4.0, 5.0], "Dropout with p=0 should be identity");
     }
 
     #[test]
@@ -1430,7 +1295,6 @@ mod tests {
         let output_data = backend.to_vec(&output);
 
         // With p=1, everything is zeroed (or undefined, but should be finite)
-        assert!(output_data.iter().all(|&v| v.is_finite()),
-            "All values should be finite");
+        assert!(output_data.iter().all(|&v| v.is_finite()), "All values should be finite");
     }
 }

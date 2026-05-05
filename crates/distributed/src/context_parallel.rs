@@ -25,7 +25,6 @@
 //! ```
 
 use mnr_core::{Backend, CoreError, ForwardCtx, Module, Result, TensorOps};
-use mnr_nn::SelfAttentionConfig;
 
 use crate::ProcessGroup;
 
@@ -90,17 +89,18 @@ impl ContextParallelConfig {
     /// Validate configuration.
     pub fn validate(&self) -> Result<()> {
         if self.sequence_length % self.num_devices != 0 {
-            return Err(CoreError::InvalidArgument(
-                format!("Sequence length {} must be divisible by num_devices {}",
-                    self.sequence_length, self.num_devices)
-            ));
+            return Err(CoreError::InvalidArgument(format!(
+                "Sequence length {} must be divisible by num_devices {}",
+                self.sequence_length, self.num_devices
+            )));
         }
 
         if self.tokens_per_device() % self.block_size != 0 {
-            return Err(CoreError::InvalidArgument(
-                format!("Tokens per device ({}) must be divisible by block_size {}",
-                    self.tokens_per_device(), self.block_size)
-            ));
+            return Err(CoreError::InvalidArgument(format!(
+                "Tokens per device ({}) must be divisible by block_size {}",
+                self.tokens_per_device(),
+                self.block_size
+            )));
         }
 
         Ok(())
@@ -137,18 +137,13 @@ where
         let world_size = process_group.world_size();
 
         if world_size != config.num_devices {
-            return Err(CoreError::InvalidArgument(
-                format!("Process group size {} doesn't match config {}",
-                    world_size, config.num_devices)
-            ));
+            return Err(CoreError::InvalidArgument(format!(
+                "Process group size {} doesn't match config {}",
+                world_size, config.num_devices
+            )));
         }
 
-        Ok(Self {
-            config,
-            process_group,
-            my_rank,
-            _backend: std::marker::PhantomData,
-        })
+        Ok(Self { config, process_group, my_rank, _backend: std::marker::PhantomData })
     }
 
     /// Forward pass with context parallelism.
@@ -184,7 +179,7 @@ where
 
         if shape.len() < 2 {
             return Err(CoreError::Shape(
-                "Input must have at least 2 dimensions [batch, seq, ...]".to_string()
+                "Input must have at least 2 dimensions [batch, seq, ...]".to_string(),
             ));
         }
 
@@ -192,16 +187,17 @@ where
         let seq_len = shape[1];
 
         if seq_len != self.config.sequence_length {
-            return Err(CoreError::InvalidArgument(
-                format!("Input seq len {} doesn't match config {}",
-                    seq_len, self.config.sequence_length)
-            ));
+            return Err(CoreError::InvalidArgument(format!(
+                "Input seq len {} doesn't match config {}",
+                seq_len, self.config.sequence_length
+            )));
         }
 
         // Extract local portion
         let data: Vec<f32> = input.as_ref().to_vec();
         let tokens_per_device = self.config.tokens_per_device();
-        let mut local_data = Vec::with_capacity(batch_size * tokens_per_device * shape[2..].iter().product::<usize>());
+        let mut local_data =
+            Vec::with_capacity(batch_size * tokens_per_device * shape[2..].iter().product::<usize>());
 
         if self.config.striped {
             // Striped pattern: device i gets tokens i, i+num_devices, i+2*num_devices, ...
@@ -287,12 +283,7 @@ where
     }
 
     /// Compute attention scores Q @ K^T.
-    fn compute_attention_scores(
-        &self,
-        q: &[f32],
-        k: &[f32],
-        _ops: &dyn TensorOps<B>,
-    ) -> Result<Vec<f32>> {
+    fn compute_attention_scores(&self, q: &[f32], k: &[f32], _ops: &dyn TensorOps<B>) -> Result<Vec<f32>> {
         // Simplified attention score computation
         // In real impl: proper matrix multiply with scaling
         let len = q.len().min(k.len());
@@ -332,12 +323,7 @@ where
     }
 
     /// Finalize output by dividing by sum_exp.
-    fn finalize_output(
-        &self,
-        output: &mut [f32],
-        sum_exp: &[f32],
-        _ops: &dyn TensorOps<B>,
-    ) -> Result<()> {
+    fn finalize_output(&self, output: &mut [f32], sum_exp: &[f32], _ops: &dyn TensorOps<B>) -> Result<()> {
         for i in 0..output.len().min(sum_exp.len()) {
             if sum_exp[i] > 0.0 {
                 output[i] /= sum_exp[i];
@@ -425,10 +411,7 @@ pub struct DynamicLoadBalancer {
 
 impl DynamicLoadBalancer {
     pub fn new(target_tokens: usize, num_devices: usize) -> Self {
-        Self {
-            target_tokens,
-            assignments: vec![target_tokens; num_devices],
-        }
+        Self { target_tokens, assignments: vec![target_tokens; num_devices] }
     }
 
     /// Rebalance based on actual token distribution.
@@ -455,8 +438,8 @@ impl DynamicLoadBalancer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
     use mnr_core::{ForwardCtx, Mode, Module};
+    use mnr_ndarray_backend::CpuBackend;
 
     /// Mock module that returns input unchanged (identity).
     struct IdentityModule;
@@ -493,37 +476,30 @@ mod tests {
     #[test]
     fn test_config_validation_errors() {
         // Sequence not divisible by num_devices
-        let config = ContextParallelConfig::new(3)
-            .with_sequence_length(10);
+        let config = ContextParallelConfig::new(3).with_sequence_length(10);
         assert!(config.validate().is_err());
 
         // Tokens per device not divisible by block_size
-        let config = ContextParallelConfig::new(2)
-            .with_sequence_length(8)
-            .with_block_size(3);
+        let config = ContextParallelConfig::new(2).with_sequence_length(8).with_block_size(3);
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_config_print_summary() {
-        let config = ContextParallelConfig::new(4)
-            .with_sequence_length(8192)
-            .with_block_size(1024);
+        let config = ContextParallelConfig::new(4).with_sequence_length(8192).with_block_size(1024);
         config.print_summary();
     }
 
     #[test]
     fn test_context_parallel_striped_vs_contiguous() {
-        let config = ContextParallelConfig::new(4)
-            .with_sequence_length(1_048_576);
+        let config = ContextParallelConfig::new(4).with_sequence_length(1_048_576);
 
         assert_eq!(config.tokens_per_device(), 262_144);
     }
 
     #[test]
     fn test_context_parallel_new_mismatch() {
-        let config = ContextParallelConfig::new(8)
-            .with_sequence_length(8192);
+        let config = ContextParallelConfig::new(8).with_sequence_length(8192);
         let pg = ProcessGroup::new_threaded(4, 0).unwrap();
         assert!(ContextParallel::<CpuBackend>::new(config, pg).is_err());
     }
@@ -594,9 +570,7 @@ mod tests {
     #[test]
     fn test_forward_bad_input_shape() {
         let backend = CpuBackend::default();
-        let config = ContextParallelConfig::new(1)
-            .with_sequence_length(8)
-            .with_block_size(4);
+        let config = ContextParallelConfig::new(1).with_sequence_length(8).with_block_size(4);
         let pg = ProcessGroup::new_threaded(1, 0).unwrap();
         let ctx_parallel = ContextParallel::<CpuBackend>::new(config, pg).unwrap();
 
@@ -611,9 +585,7 @@ mod tests {
     #[test]
     fn test_forward_wrong_seq_len() {
         let backend = CpuBackend::default();
-        let config = ContextParallelConfig::new(1)
-            .with_sequence_length(8)
-            .with_block_size(4);
+        let config = ContextParallelConfig::new(1).with_sequence_length(8).with_block_size(4);
         let pg = ProcessGroup::new_threaded(1, 0).unwrap();
         let ctx_parallel = ContextParallel::<CpuBackend>::new(config, pg).unwrap();
 
@@ -627,13 +599,11 @@ mod tests {
 
     #[test]
     fn test_communication_stats() {
-        let config = ContextParallelConfig::new(8)
-            .with_sequence_length(1_048_576);
+        let config = ContextParallelConfig::new(8).with_sequence_length(1_048_576);
 
-        let stats = ContextParallel::<CpuBackend>::new(
-            config,
-            ProcessGroup::new_threaded(8, 0).unwrap()
-        ).unwrap().communication_stats();
+        let stats = ContextParallel::<CpuBackend>::new(config, ProcessGroup::new_threaded(8, 0).unwrap())
+            .unwrap()
+            .communication_stats();
 
         assert_eq!(stats.tokens_per_device, 131_072);
         assert_eq!(stats.num_ring_iterations, 8);
@@ -669,9 +639,7 @@ mod tests {
 
     #[test]
     fn test_ring_attention_equivalent() {
-        let config = ContextParallelConfig::new(2)
-            .with_sequence_length(8192)
-            .with_ring_attention(true);
+        let config = ContextParallelConfig::new(2).with_sequence_length(8192).with_ring_attention(true);
 
         assert!(config.use_ring_attention);
         config.validate().unwrap();

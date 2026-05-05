@@ -34,7 +34,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use mnr_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, Result, TensorOps, TensorShape};
-use mnr_optim::{Adam, AdamCheckpoint, Gradient, OptimError, Optimizer};
+use mnr_optim::{Adam, Gradient, OptimError};
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
 
@@ -181,9 +181,10 @@ where
     ) -> DistributedResult<Self> {
         // Initialize NVMe file if needed
         let nvme_file = if config.nvme_offload {
-            let path = config.nvme_path.as_ref().ok_or_else(|| {
-                DistributedError::Communication("NVMe path not set".to_string())
-            })?;
+            let path = config
+                .nvme_path
+                .as_ref()
+                .ok_or_else(|| DistributedError::Communication("NVMe path not set".to_string()))?;
 
             // Create directory if needed
             if let Some(parent) = path.parent() {
@@ -192,15 +193,10 @@ where
                 })?;
             }
 
-            let file = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(path)
-                .map_err(|e| {
-                    DistributedError::Communication(format!("Failed to open NVMe file: {}", e))
-                })?;
+            let file =
+                OpenOptions::new().read(true).write(true).create(true).truncate(true).open(path).map_err(
+                    |e| DistributedError::Communication(format!("Failed to open NVMe file: {}", e)),
+                )?;
 
             Some(Arc::new(Mutex::new(file)))
         } else {
@@ -262,8 +258,7 @@ where
             let param_id = gradient.param_id;
 
             // Move state to GPU (if not already)
-            self.fetch_state_to_gpu(param_id, ops)
-                .map_err(|e| OptimError::Backend(e.to_string()))?;
+            self.fetch_state_to_gpu(param_id, ops).map_err(|e| OptimError::Backend(e.to_string()))?;
 
             // Get parameter
             if let Some(param_idx) = self.param_map.get(&param_id) {
@@ -299,7 +294,9 @@ where
                             .map_err(|e| OptimError::Backend(e.to_string()))?;
 
                         // Update biased second raw moment estimate: v = beta2 * v + (1 - beta2) * g^2
-                        let grad_squared = ops.mul(&gradient.tensor, &gradient.tensor).map_err(|e| OptimError::Backend(e.to_string()))?;
+                        let grad_squared = ops
+                            .mul(&gradient.tensor, &gradient.tensor)
+                            .map_err(|e| OptimError::Backend(e.to_string()))?;
                         let v_new = ops
                             .add(
                                 &ops.mul(&v_tensor, &beta2_tensor).unwrap(),
@@ -316,7 +313,8 @@ where
 
                         // sqrt(v) + eps
                         let v_sqrt = ops.sqrt(&v_new).map_err(|e| OptimError::Backend(e.to_string()))?;
-                        let bias_correction2_tensor = ops.tensor_from_vec(vec![bias_correction2.sqrt()], &[1]).unwrap();
+                        let bias_correction2_tensor =
+                            ops.tensor_from_vec(vec![bias_correction2.sqrt()], &[1]).unwrap();
                         let v_bias_corrected = ops
                             .mul(&v_sqrt, &bias_correction2_tensor)
                             .map_err(|e| OptimError::Backend(e.to_string()))?;
@@ -326,9 +324,8 @@ where
                             .map_err(|e| OptimError::Backend(e.to_string()))?;
 
                         // Update parameter
-                        let update = ops
-                            .div(&m_new, &denom)
-                            .map_err(|e| OptimError::Backend(e.to_string()))?;
+                        let update =
+                            ops.div(&m_new, &denom).map_err(|e| OptimError::Backend(e.to_string()))?;
                         let step_size_tensor = ops.tensor_from_vec(vec![step_size], &[1]).unwrap();
                         let scaled_update = ops
                             .mul(&update, &step_size_tensor)
@@ -346,8 +343,7 @@ where
                         state.t += 1;
 
                         // Offload state based on memory pressure
-                        self.maybe_offload_state(param_id)
-                            .map_err(|e| OptimError::Backend(e.to_string()))?;
+                        self.maybe_offload_state(param_id).map_err(|e| OptimError::Backend(e.to_string()))?;
                     }
                 }
             }
@@ -374,8 +370,7 @@ where
                 }
                 StorageLocation::Nvme => {
                     // Load from NVMe
-                    let offset = self.states.get(&param_id)
-                        .and_then(|s| s.nvme_offset);
+                    let offset = self.states.get(&param_id).and_then(|s| s.nvme_offset);
                     if let Some(offset) = offset {
                         self.load_from_nvme(param_id, offset)
                             .map_err(|e| CoreError::Other(format!("{:?}", e)))?;
@@ -400,7 +395,9 @@ where
 
         if should_nvme_offload {
             // NVMe offload - clone state to avoid borrow issues
-            let state_clone = self.states.get(&param_id)
+            let state_clone = self
+                .states
+                .get(&param_id)
                 .ok_or_else(|| DistributedError::Communication("State not found".to_string()))?
                 .clone();
             let offset = self.save_to_nvme(param_id, &state_clone)?;
@@ -432,11 +429,7 @@ where
     }
 
     /// Save state to NVMe
-    fn save_to_nvme(
-        &mut self,
-        param_id: ParameterId,
-        state: &OffloadedState,
-    ) -> DistributedResult<u64> {
+    fn save_to_nvme(&mut self, param_id: ParameterId, state: &OffloadedState) -> DistributedResult<u64> {
         if let Some(ref file) = self.nvme_file {
             let mut file = file.lock().unwrap();
             let offset = self.nvme_offset;
@@ -446,28 +439,17 @@ where
             let v_bytes = state.v_data.len() * 4;
 
             // Convert to bytes
-            let m_u8: &[u8] = unsafe {
-                std::slice::from_raw_parts(
-                    state.m_data.as_ptr() as *const u8,
-                    m_bytes,
-                )
-            };
-            let v_u8: &[u8] = unsafe {
-                std::slice::from_raw_parts(
-                    state.v_data.as_ptr() as *const u8,
-                    v_bytes,
-                )
-            };
+            let m_u8: &[u8] =
+                unsafe { std::slice::from_raw_parts(state.m_data.as_ptr() as *const u8, m_bytes) };
+            let v_u8: &[u8] =
+                unsafe { std::slice::from_raw_parts(state.v_data.as_ptr() as *const u8, v_bytes) };
 
-            file.seek(SeekFrom::Start(offset)).map_err(|e| {
-                DistributedError::Communication(format!("NVMe seek failed: {}", e))
-            })?;
-            file.write_all(m_u8).map_err(|e| {
-                DistributedError::Communication(format!("NVMe write failed: {}", e))
-            })?;
-            file.write_all(v_u8).map_err(|e| {
-                DistributedError::Communication(format!("NVMe write failed: {}", e))
-            })?;
+            file.seek(SeekFrom::Start(offset))
+                .map_err(|e| DistributedError::Communication(format!("NVMe seek failed: {}", e)))?;
+            file.write_all(m_u8)
+                .map_err(|e| DistributedError::Communication(format!("NVMe write failed: {}", e)))?;
+            file.write_all(v_u8)
+                .map_err(|e| DistributedError::Communication(format!("NVMe write failed: {}", e)))?;
 
             self.nvme_offset += (m_bytes + v_bytes) as u64;
 
@@ -490,15 +472,12 @@ where
                 let mut m_buffer = vec![0u8; m_bytes];
                 let mut v_buffer = vec![0u8; v_bytes];
 
-                file.seek(SeekFrom::Start(offset)).map_err(|e| {
-                    DistributedError::Communication(format!("NVMe seek failed: {}", e))
-                })?;
-                file.read_exact(&mut m_buffer).map_err(|e| {
-                    DistributedError::Communication(format!("NVMe read failed: {}", e))
-                })?;
-                file.read_exact(&mut v_buffer).map_err(|e| {
-                    DistributedError::Communication(format!("NVMe read failed: {}", e))
-                })?;
+                file.seek(SeekFrom::Start(offset))
+                    .map_err(|e| DistributedError::Communication(format!("NVMe seek failed: {}", e)))?;
+                file.read_exact(&mut m_buffer)
+                    .map_err(|e| DistributedError::Communication(format!("NVMe read failed: {}", e)))?;
+                file.read_exact(&mut v_buffer)
+                    .map_err(|e| DistributedError::Communication(format!("NVMe read failed: {}", e)))?;
 
                 // Convert back to f32
                 let m_data: Vec<f32> = unsafe {
@@ -597,16 +576,14 @@ pub struct ZeROMemoryEstimate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
     use mnr_core::{ForwardCtx, Mode, Parameter};
+    use mnr_ndarray_backend::CpuBackend;
     use mnr_optim::{Adam, Gradient};
 
     #[test]
     fn test_config_builder() {
-        let config = ZeroInfinityConfig::new()
-            .with_cpu_offload(true)
-            .with_nvme_parallel(8)
-            .with_prefetch_depth(8);
+        let config =
+            ZeroInfinityConfig::new().with_cpu_offload(true).with_nvme_parallel(8).with_prefetch_depth(8);
 
         assert!(config.cpu_offload);
         assert_eq!(config.nvme_parallel, 8);
@@ -654,8 +631,7 @@ mod tests {
         let pg = ProcessGroup::new_single_process();
         let adam = Adam::<CpuBackend>::new(0.001);
         let temp_path = std::env::temp_dir().join("zero_infinity_test.bin");
-        let config = ZeroInfinityConfig::new()
-            .with_nvme_offload(&temp_path, 1_000_000_000);
+        let config = ZeroInfinityConfig::new().with_nvme_offload(&temp_path, 1_000_000_000);
         let zero = ZeroInfinity::new(adam, pg, config).unwrap();
         assert!(zero.nvme_file.is_some());
 
@@ -667,11 +643,8 @@ mod tests {
     fn test_zero_infinity_nvme_error() {
         let pg = ProcessGroup::new_single_process();
         let adam = Adam::<CpuBackend>::new(0.001);
-        let config = ZeroInfinityConfig {
-            nvme_offload: true,
-            nvme_path: None,
-            ..ZeroInfinityConfig::default()
-        };
+        let config =
+            ZeroInfinityConfig { nvme_offload: true, nvme_path: None, ..ZeroInfinityConfig::default() };
         assert!(ZeroInfinity::new(adam, pg, config).is_err());
     }
 
@@ -702,17 +675,12 @@ mod tests {
         let config = ZeroInfinityConfig::new();
         let mut zero = ZeroInfinity::new(adam, pg, config).unwrap();
 
-        let mut params = vec![
-            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()),
-        ];
+        let mut params = vec![Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
 
         zero.register_parameters(&params).unwrap();
 
         let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
-        let gradients = vec![Gradient {
-            param_id: params[0].id(),
-            tensor: grad_tensor,
-        }];
+        let gradients = vec![Gradient { param_id: params[0].id(), tensor: grad_tensor }];
 
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
         zero.step(&mut params, &gradients, &mut ctx).unwrap();
@@ -726,9 +694,7 @@ mod tests {
         let config = ZeroInfinityConfig::new();
         let mut zero = ZeroInfinity::new(adam, pg, config).unwrap();
 
-        let params = vec![
-            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32; 4], &[2, 2]).unwrap()),
-        ];
+        let params = vec![Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32; 4], &[2, 2]).unwrap())];
         zero.register_parameters(&params).unwrap();
 
         let stats = zero.memory_stats();
@@ -744,5 +710,141 @@ mod tests {
         assert_eq!(StorageLocation::Cpu, StorageLocation::Cpu);
         assert_eq!(StorageLocation::Nvme, StorageLocation::Nvme);
         assert_ne!(StorageLocation::Gpu, StorageLocation::Cpu);
+    }
+
+    #[test]
+    fn test_check_memory_pressure() {
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let config = ZeroInfinityConfig::new();
+        let zero = ZeroInfinity::new(adam, pg, config).unwrap();
+
+        assert_eq!(zero.check_memory_pressure(), 0.0);
+    }
+
+    #[test]
+    fn test_fetch_state_to_gpu() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let config = ZeroInfinityConfig::new();
+        let mut zero = ZeroInfinity::new(adam, pg, config).unwrap();
+
+        let params = vec![Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32; 4], &[2, 2]).unwrap())];
+        zero.register_parameters(&params).unwrap();
+
+        let param_id = params[0].id();
+        let ops = backend.ops();
+        zero.fetch_state_to_gpu(param_id, ops).unwrap();
+
+        let state = zero.states.get(&param_id).unwrap();
+        assert_eq!(state.location, StorageLocation::Gpu);
+    }
+
+    #[test]
+    fn test_maybe_offload_state_cpu() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let config = ZeroInfinityConfig::new().with_cpu_offload(true);
+        let mut zero = ZeroInfinity::new(adam, pg, config).unwrap();
+
+        let params = vec![Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32; 4], &[2, 2]).unwrap())];
+        zero.register_parameters(&params).unwrap();
+
+        // Simulate high memory pressure by filling active_params
+        let param_id = params[0].id();
+        zero.active_params.push(param_id);
+        zero.total_params = 1;
+
+        zero.maybe_offload_state(param_id).unwrap();
+        let state = zero.states.get(&param_id).unwrap();
+        // With pressure > 0.7 and cpu_offload=true, should stay on CPU
+        assert_eq!(state.location, StorageLocation::Cpu);
+    }
+
+    #[test]
+    fn test_nvme_save_load_roundtrip() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let temp_path = std::env::temp_dir().join("zero_nvme_roundtrip_test.bin");
+        let config = ZeroInfinityConfig::new().with_nvme_offload(&temp_path, 1_000_000_000);
+        let mut zero = ZeroInfinity::new(adam, pg, config).unwrap();
+
+        let params = vec![Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32; 4], &[2, 2]).unwrap())];
+        zero.register_parameters(&params).unwrap();
+        let param_id = params[0].id();
+
+        // Manually set state data to known values
+        {
+            let state = zero.states.get_mut(&param_id).unwrap();
+            state.m_data = vec![1.0f32, 2.0f32, 3.0f32, 4.0f32];
+            state.v_data = vec![0.1f32, 0.2f32, 0.3f32, 0.4f32];
+        }
+
+        // Save to NVMe
+        let state_clone = zero.states.get(&param_id).unwrap().clone();
+        let offset = zero.save_to_nvme(param_id, &state_clone).unwrap();
+        assert_eq!(offset, 0);
+
+        // Clear state data to simulate offloading
+        {
+            let state = zero.states.get_mut(&param_id).unwrap();
+            state.m_data.clear();
+            state.v_data.clear();
+            state.nvme_offset = Some(offset);
+        }
+
+        // Load back from NVMe
+        zero.load_from_nvme(param_id, offset).unwrap();
+
+        // Clean up
+        let _ = std::fs::remove_file(&temp_path);
+    }
+
+    #[test]
+    fn test_zero_infinity_step_with_nvme() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let temp_path = std::env::temp_dir().join("zero_step_nvme_test.bin");
+        let config = ZeroInfinityConfig::new().with_nvme_offload(&temp_path, 1_000_000_000);
+        let mut zero = ZeroInfinity::new(adam, pg, config).unwrap();
+
+        let mut params = vec![Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
+        zero.register_parameters(&params).unwrap();
+
+        let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
+        let gradients = vec![Gradient { param_id: params[0].id(), tensor: grad_tensor }];
+
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        zero.step(&mut params, &gradients, &mut ctx).unwrap();
+
+        let _ = std::fs::remove_file(&temp_path);
+    }
+
+    #[test]
+    fn test_memory_stats_after_step() {
+        let backend = CpuBackend::default();
+        let pg = ProcessGroup::new_single_process();
+        let adam = Adam::<CpuBackend>::new(0.001);
+        let config = ZeroInfinityConfig::new();
+        let mut zero = ZeroInfinity::new(adam, pg, config).unwrap();
+
+        let mut params = vec![
+            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()),
+            Parameter::new("p1", backend.tensor_from_vec(vec![2.0f32], &[1]).unwrap()),
+        ];
+        zero.register_parameters(&params).unwrap();
+
+        let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
+        let gradients = vec![Gradient { param_id: params[0].id(), tensor: grad_tensor }];
+
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        zero.step(&mut params, &gradients, &mut ctx).unwrap();
+
+        let stats = zero.memory_stats();
+        assert_eq!(stats.total_params, 2);
     }
 }

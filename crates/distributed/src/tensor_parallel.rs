@@ -3,9 +3,7 @@
 //! Tensor parallelism splits individual layers across multiple GPUs.
 //! This is essential for training very large models that don't fit on a single GPU.
 
-use std::sync::Arc;
-
-use mnr_core::{Backend, CoreError, ForwardCtx, Module, Parameter, Result, TensorOps, Trainable};
+use mnr_core::{Backend, CoreError, ForwardCtx, Module, Result, TensorOps, Trainable};
 use mnr_nn::Linear;
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
@@ -67,15 +65,15 @@ where
         // Split output dimension
         let local_out = out_features / world_size;
         if local_out * world_size != out_features {
-            return Err(DistributedError::Communication(
-                format!("out_features {} not divisible by world_size {}", out_features, world_size)
-            ));
+            return Err(DistributedError::Communication(format!(
+                "out_features {} not divisible by world_size {}",
+                out_features, world_size
+            )));
         }
 
         // Each GPU owns [local_out, in_features] of the weight
         let config = mnr_nn::LinearConfig::new(in_features, local_out);
-        let local_linear = Linear::new(backend, config)
-            .map_err(|e| DistributedError::Backend(e.into()))?;
+        let local_linear = Linear::new(backend, config).map_err(|e| DistributedError::Backend(e.into()))?;
 
         Ok(Self {
             local_linear,
@@ -100,15 +98,15 @@ where
         // Split input dimension
         let local_in = in_features / world_size;
         if local_in * world_size != in_features {
-            return Err(DistributedError::Communication(
-                format!("in_features {} not divisible by world_size {}", in_features, world_size)
-            ));
+            return Err(DistributedError::Communication(format!(
+                "in_features {} not divisible by world_size {}",
+                in_features, world_size
+            )));
         }
 
         // Each GPU owns [out_features, local_in] of the weight
         let config = mnr_nn::LinearConfig::new(local_in, out_features);
-        let local_linear = Linear::new(backend, config)
-            .map_err(|e| DistributedError::Backend(e.into()))?;
+        let local_linear = Linear::new(backend, config).map_err(|e| DistributedError::Backend(e.into()))?;
 
         Ok(Self {
             local_linear,
@@ -122,7 +120,9 @@ where
         match self.parallel_style {
             ParallelStyle::ColumnParallel => {
                 // Each GPU computes partial output
-                let local_output = self.local_linear.forward(input.clone(), ctx)
+                let local_output = self
+                    .local_linear
+                    .forward(input.clone(), ctx)
                     .map_err(|e| DistributedError::Backend(e.into()))?;
 
                 // All-gather: collect partial outputs from all GPUs
@@ -133,7 +133,9 @@ where
             ParallelStyle::RowParallel => {
                 // Split input (in practice, input would already be split)
                 // Each GPU computes partial result
-                let local_output = self.local_linear.forward(input.clone(), ctx)
+                let local_output = self
+                    .local_linear
+                    .forward(input.clone(), ctx)
                     .map_err(|e| DistributedError::Backend(e.into()))?;
 
                 // All-reduce: sum partial results from all GPUs
@@ -143,7 +145,10 @@ where
 
                 // Convert back to tensor
                 let shape = ctx.backend().ops().shape(&local_output);
-                let output = ctx.backend().ops().tensor_from_vec(data, &shape)
+                let output = ctx
+                    .backend()
+                    .ops()
+                    .tensor_from_vec(data, &shape)
                     .map_err(|e| DistributedError::Backend(e.into()))?;
 
                 Ok(output)
@@ -183,12 +188,7 @@ pub struct PipelineStage<B: Backend> {
 impl<B: Backend> PipelineStage<B> {
     /// Create a new pipeline stage.
     pub fn new(stage_id: usize, num_stages: usize, micro_batch_size: usize) -> Self {
-        Self {
-            layers: Vec::new(),
-            stage_id,
-            num_stages,
-            micro_batch_size,
-        }
+        Self { layers: Vec::new(), stage_id, num_stages, micro_batch_size }
     }
 
     /// Add a layer to this stage.
@@ -229,10 +229,7 @@ pub struct PipelineParallelTrainer<B: Backend> {
 impl<B: Backend> PipelineParallelTrainer<B> {
     /// Create a new pipeline parallel trainer.
     pub fn new(num_stages: usize) -> Self {
-        Self {
-            stages: Vec::new(),
-            num_stages,
-        }
+        Self { stages: Vec::new(), num_stages }
     }
 
     /// Add a stage.
@@ -252,12 +249,7 @@ impl<B: Backend> PipelineParallelTrainer<B> {
     /// Train with pipeline parallelism.
     ///
     /// Uses interleaved micro-batches to reduce pipeline bubbles.
-    pub fn train_step<D, L>(
-        &mut self,
-        batch: &[D],
-        loss_fn: &mut L,
-        ctx: &mut ForwardCtx<B>,
-    ) -> Result<f32>
+    pub fn train_step<D, L>(&mut self, batch: &[D], loss_fn: &mut L, ctx: &mut ForwardCtx<B>) -> Result<f32>
     where
         D: Clone,
         L: FnMut(&D, &mut ForwardCtx<B>) -> Result<(f32, B::Tensor)>,
@@ -289,16 +281,9 @@ impl<B: Backend> PipelineParallelTrainer<B> {
     where
         D: Clone,
     {
-        let micro_batch_size = if let Some(stage) = self.stages.first() {
-            stage.micro_batch_size
-        } else {
-            1
-        };
+        let micro_batch_size = if let Some(stage) = self.stages.first() { stage.micro_batch_size } else { 1 };
 
-        batch
-            .chunks(micro_batch_size)
-            .map(|chunk| chunk.to_vec())
-            .collect()
+        batch.chunks(micro_batch_size).map(|chunk| chunk.to_vec()).collect()
     }
 }
 
@@ -314,11 +299,7 @@ pub struct AllGatherOp<B: Backend> {
 impl<B: Backend> AllGatherOp<B> {
     /// Create a new all-gather operation.
     pub fn new(process_group: ProcessGroup, concat_dim: usize) -> Self {
-        Self {
-            process_group,
-            concat_dim,
-            _phantom: std::marker::PhantomData,
-        }
+        Self { process_group, concat_dim, _phantom: std::marker::PhantomData }
     }
 
     /// Perform all-gather.
@@ -378,8 +359,8 @@ impl AllReduceOp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
     use mnr_core::{ForwardCtx, Mode, Module};
+    use mnr_ndarray_backend::CpuBackend;
     use mnr_nn::{Linear, LinearConfig};
 
     #[test]
@@ -388,11 +369,12 @@ mod tests {
         let pg = ProcessGroup::new_single_process();
 
         let linear = TensorParallelLinear::column_parallel(
-            64,   // in_features
-            128,  // out_features
-            &pg,  // single process
+            64,  // in_features
+            128, // out_features
+            &pg, // single process
             &backend,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(linear.parallel_style(), ParallelStyle::ColumnParallel);
     }
@@ -403,11 +385,11 @@ mod tests {
         let pg = ProcessGroup::new_single_process();
 
         let linear = TensorParallelLinear::row_parallel(
-            128,  // in_features
-            64,   // out_features
-            &pg,
-            &backend,
-        ).unwrap();
+            128, // in_features
+            64,  // out_features
+            &pg, &backend,
+        )
+        .unwrap();
 
         assert_eq!(linear.parallel_style(), ParallelStyle::RowParallel);
     }
@@ -525,8 +507,10 @@ mod tests {
         let batch = vec![backend.tensor_from_vec(vec![1.0f32; 64], &[1, 64]).unwrap()];
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
 
-        let mut loss_fn = |_item: &<CpuBackend as mnr_core::Backend>::Tensor, _ctx: &mut ForwardCtx<CpuBackend>| {
-            backend.tensor_from_vec(vec![0.5f32], &[1])
+        let mut loss_fn = |_item: &<CpuBackend as mnr_core::Backend>::Tensor,
+                           _ctx: &mut ForwardCtx<CpuBackend>| {
+            backend
+                .tensor_from_vec(vec![0.5f32], &[1])
                 .map(|t| (0.5f32, t))
                 .map_err(|e| CoreError::Other(format!("{:?}", e)))
         };

@@ -63,12 +63,7 @@ impl AllocationTracker {
             p.record_allocation_internal(size, tag);
         }
 
-        Self {
-            size,
-            tag: tag.to_string(),
-            profiler: Some(profiler),
-            freed: false,
-        }
+        Self { size, tag: tag.to_string(), profiler: Some(profiler), freed: false }
     }
 
     /// Get allocation size.
@@ -146,11 +141,7 @@ impl MemoryProfiler {
     }
 
     /// Create an allocation tracker (RAII guard).
-    pub fn track_allocation(
-        self_arc: &Arc<Mutex<Self>>,
-        tag: &str,
-        size: usize,
-    ) -> AllocationTracker {
+    pub fn track_allocation(self_arc: &Arc<Mutex<Self>>, tag: &str, size: usize) -> AllocationTracker {
         AllocationTracker::new(self_arc.clone(), size, tag)
     }
 
@@ -172,10 +163,7 @@ impl MemoryProfiler {
             self.peak_allocated = self.current_allocated;
         }
 
-        self.active_allocations
-            .entry(tag.to_string())
-            .or_default()
-            .push(size);
+        self.active_allocations.entry(tag.to_string()).or_default().push(size);
 
         self.total_allocations += 1;
     }
@@ -261,10 +249,7 @@ impl MemoryProfiler {
 
     /// Get memory usage by tag.
     pub fn usage_by_tag(&self) -> HashMap<String, usize> {
-        self.active_allocations
-            .iter()
-            .map(|(tag, sizes)| (tag.clone(), sizes.iter().sum()))
-            .collect()
+        self.active_allocations.iter().map(|(tag, sizes)| (tag.clone(), sizes.iter().sum())).collect()
     }
 
     /// Print memory report.
@@ -284,15 +269,11 @@ impl MemoryProfiler {
         if !self.active_allocations.is_empty() {
             println!("\nActive Allocations by Tag:");
             let mut tags: Vec<_> = self.active_allocations.iter().collect();
-            tags.sort_by(|a, b| b.1.iter().sum::<usize>().cmp(&a.1.iter().sum::<usize>()));
+            tags.sort_by_key(|b| std::cmp::Reverse(b.1.iter().sum::<usize>()));
 
             for (tag, sizes) in tags.iter().take(10) {
                 let total: usize = sizes.iter().sum();
-                println!("  {:30} {:10.2} MB ({} allocations)",
-                    tag,
-                    total as f64 / 1e6,
-                    sizes.len()
-                );
+                println!("  {:30} {:10.2} MB ({} allocations)", tag, total as f64 / 1e6, sizes.len());
             }
         }
 
@@ -390,7 +371,6 @@ pub struct MemorySummary {
     pub duration: Duration,
 }
 
-/// Global memory profiler instance.
 lazy_static::lazy_static! {
     static ref GLOBAL_PROFILER: Arc<Mutex<MemoryProfiler>> = Arc::new(Mutex::new(MemoryProfiler::new()));
 }
@@ -453,9 +433,9 @@ mod tests {
         let mut profiler = MemoryProfiler::new();
         profiler.record_allocation_internal(40, "test");
 
-        assert_eq!(profiler.predict_oom_risk(100), OomRisk::Low);    // 40% < 0.5
-        assert_eq!(profiler.predict_oom_risk(60), OomRisk::Medium);  // 66.7% < 0.75
-        assert_eq!(profiler.predict_oom_risk(50), OomRisk::High);    // 80% >= 0.75, < 0.9
+        assert_eq!(profiler.predict_oom_risk(100), OomRisk::Low); // 40% < 0.5
+        assert_eq!(profiler.predict_oom_risk(60), OomRisk::Medium); // 66.7% < 0.75
+        assert_eq!(profiler.predict_oom_risk(50), OomRisk::High); // 80% >= 0.75, < 0.9
         assert_eq!(profiler.predict_oom_risk(40), OomRisk::Critical); // 100% >= 0.9
     }
 

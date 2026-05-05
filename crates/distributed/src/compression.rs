@@ -18,7 +18,7 @@
 //! comm.all_reduce_sum(&mut gradients)?; // 2x faster
 //! ```
 
-use crate::{DistributedError, DistributedResult, ProcessGroup};
+use crate::{DistributedResult, ProcessGroup};
 use mnr_core::{Backend, Parameter};
 use std::collections::HashMap;
 
@@ -76,12 +76,7 @@ pub struct CompressedCommunicator {
 impl CompressedCommunicator {
     /// Create new compressed communicator
     pub fn new(process_group: ProcessGroup, compression: CompressionType) -> Self {
-        Self {
-            inner: process_group,
-            compression,
-            error_feedback: Vec::new(),
-            seed: 42,
-        }
+        Self { inner: process_group, compression, error_feedback: Vec::new(), seed: 42 }
     }
 
     /// Set error feedback buffer size
@@ -103,24 +98,12 @@ impl CompressedCommunicator {
         }
 
         match self.compression {
-            CompressionType::None => {
-                self.inner.all_reduce_sum("", data)
-            }
-            CompressionType::Fp16 => {
-                self.fp16_all_reduce(data, true)
-            }
-            CompressionType::Bf16 => {
-                self.bf16_all_reduce(data, true)
-            }
-            CompressionType::Fp8 => {
-                self.fp8_all_reduce(data, true)
-            }
-            CompressionType::OneBit => {
-                self.one_bit_all_reduce(data, true)
-            }
-            CompressionType::FourBit => {
-                self.four_bit_all_reduce(data, true)
-            }
+            CompressionType::None => self.inner.all_reduce_sum("", data),
+            CompressionType::Fp16 => self.fp16_all_reduce(data, true),
+            CompressionType::Bf16 => self.bf16_all_reduce(data, true),
+            CompressionType::Fp8 => self.fp8_all_reduce(data, true),
+            CompressionType::OneBit => self.one_bit_all_reduce(data, true),
+            CompressionType::FourBit => self.four_bit_all_reduce(data, true),
         }
     }
 
@@ -137,12 +120,10 @@ impl CompressedCommunicator {
     /// FP16 all-reduce
     fn fp16_all_reduce(&self, data: &mut [f32], _sum: bool) -> DistributedResult<()> {
         // Compress to FP16
-        let compressed: Vec<u16> = data.iter()
-            .map(|&v| Self::f32_to_f16(v))
-            .collect();
+        let compressed: Vec<u16> = data.iter().map(|&v| Self::f32_to_f16(v)).collect();
 
         // All-reduce compressed data (in real impl, would use NCCL FP16)
-        let mut compressed_mut = compressed;
+        let compressed_mut = compressed;
         // Would do actual all-reduce here
 
         // Decompress
@@ -157,11 +138,9 @@ impl CompressedCommunicator {
     fn bf16_all_reduce(&self, data: &mut [f32], _sum: bool) -> DistributedResult<()> {
         // Similar to FP16 but with BF16 format
         // BF16 has same exponent range as FP32, only mantissa is truncated
-        let compressed: Vec<u16> = data.iter()
-            .map(|&v| Self::f32_to_bf16(v))
-            .collect();
+        let compressed: Vec<u16> = data.iter().map(|&v| Self::f32_to_bf16(v)).collect();
 
-        let mut compressed_mut = compressed;
+        let compressed_mut = compressed;
         // Would do actual all-reduce here
 
         for (i, &c) in compressed_mut.iter().enumerate() {
@@ -192,7 +171,7 @@ impl CompressedCommunicator {
         let compressed: Vec<u8> = Self::one_bit_compress(data);
 
         // 3. All-reduce the compressed data (would use bitwise OR for 1-bit)
-        let mut compressed_mut = compressed;
+        let compressed_mut = compressed;
         // Would do actual all-reduce here
 
         // 4. Decompress
@@ -330,17 +309,9 @@ pub struct OneBitAdam<B: Backend> {
 }
 
 impl<B: Backend> OneBitAdam<B> {
-    pub fn new(
-        adam: mnr_optim::Adam<B>,
-        process_group: ProcessGroup,
-    ) -> Self {
+    pub fn new(adam: mnr_optim::Adam<B>, process_group: ProcessGroup) -> Self {
         let compression = CompressedCommunicator::new(process_group, CompressionType::OneBit);
-        Self {
-            inner: adam,
-            compression,
-            momentum_error: HashMap::new(),
-            variance_error: HashMap::new(),
-        }
+        Self { inner: adam, compression, momentum_error: HashMap::new(), variance_error: HashMap::new() }
     }
 
     /// All-reduce optimizer states with 1-bit compression
@@ -365,10 +336,7 @@ pub struct ErrorFeedbackCompression {
 
 impl ErrorFeedbackCompression {
     pub fn new(compression: CompressionType, size: usize) -> Self {
-        Self {
-            compression,
-            error: vec![0.0f32; size],
-        }
+        Self { compression, error: vec![0.0f32; size] }
     }
 
     /// Compress with error feedback
@@ -380,9 +348,7 @@ impl ErrorFeedbackCompression {
 
         // Compress based on type
         let compressed = match self.compression {
-            CompressionType::OneBit => {
-                CompressedCommunicator::one_bit_compress(gradient)
-            }
+            CompressionType::OneBit => CompressedCommunicator::one_bit_compress(gradient),
             _ => gradient.iter().map(|&v| (v * 255.0) as u8).collect(),
         };
 
@@ -434,8 +400,8 @@ impl BandwidthStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mnr_ndarray_backend::CpuBackend;
     use mnr_core::Parameter;
+    use mnr_ndarray_backend::CpuBackend;
 
     #[test]
     fn test_compression_ratios() {
@@ -466,13 +432,14 @@ mod tests {
             let back = CompressedCommunicator::f16_to_f32(f16);
 
             // FP16 has ~3-4 decimal digits of precision
-            let relative_error = if v != 0.0 {
-                ((back - v) / v).abs()
-            } else {
-                back.abs()
-            };
-            assert!(relative_error < 0.01 || back.is_infinite(),
-                "Conversion failed for {}: got {} (error: {})", v, back, relative_error);
+            let relative_error = if v != 0.0 { ((back - v) / v).abs() } else { back.abs() };
+            assert!(
+                relative_error < 0.01 || back.is_infinite(),
+                "Conversion failed for {}: got {} (error: {})",
+                v,
+                back,
+                relative_error
+            );
         }
     }
 
@@ -485,13 +452,14 @@ mod tests {
             let back = CompressedCommunicator::bf16_to_f32(bf16);
 
             // BF16 preserves exponent, so range is same as FP32
-            let relative_error = if v != 0.0 {
-                ((back - v) / v).abs()
-            } else {
-                back.abs()
-            };
-            assert!(relative_error < 0.01,
-                "BF16 conversion failed for {}: got {} (error: {})", v, back, relative_error);
+            let relative_error = if v != 0.0 { ((back - v) / v).abs() } else { back.abs() };
+            assert!(
+                relative_error < 0.01,
+                "BF16 conversion failed for {}: got {} (error: {})",
+                v,
+                back,
+                relative_error
+            );
         }
     }
 
@@ -517,9 +485,9 @@ mod tests {
         assert_eq!(decompressed.len(), 4);
         // 0b1010_1010: bits 0,2,4,6 = 0 -> -1.0; bits 1,3,5,7 = 1 -> 1.0
         assert!(decompressed[0] < 0.0); // bit 0 = 0
-        assert!(decompressed[1] > 0.0);  // bit 1 = 1
+        assert!(decompressed[1] > 0.0); // bit 1 = 1
         assert!(decompressed[2] < 0.0); // bit 2 = 0
-        assert!(decompressed[3] > 0.0);  // bit 3 = 1
+        assert!(decompressed[3] > 0.0); // bit 3 = 1
     }
 
     #[test]
@@ -587,8 +555,7 @@ mod tests {
     #[test]
     fn test_all_reduce_sum_one_bit() {
         let pg = ProcessGroup::new_single_process();
-        let mut comm = CompressedCommunicator::new(pg, CompressionType::OneBit)
-            .with_error_feedback(3);
+        let mut comm = CompressedCommunicator::new(pg, CompressionType::OneBit).with_error_feedback(3);
         let mut data = vec![1.0f32, -1.0, 0.5];
         comm.all_reduce_sum(&mut data).unwrap();
     }
@@ -627,9 +594,7 @@ mod tests {
         let pg = ProcessGroup::new_single_process();
         let mut one_bit_adam = OneBitAdam::new(adam, pg);
 
-        let params = vec![
-            Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()),
-        ];
+        let params = vec![Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
         one_bit_adam.all_reduce_states(&params).unwrap();
     }
 

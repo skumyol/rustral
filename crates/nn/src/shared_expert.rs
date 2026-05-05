@@ -34,7 +34,7 @@
 //! let output = layer.forward(input, &mut ctx)?;
 //! ```
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Module, Result, TensorOps};
+use mnr_core::{Backend, ForwardCtx, Module, Result, TensorOps};
 use serde::{Deserialize, Serialize};
 
 use crate::{Linear, LinearConfig};
@@ -120,8 +120,8 @@ pub struct SharedExpertStats {
 
 /// Hybrid routing combining shared and routed experts.
 pub struct HybridRouting {
-    pub shared_gate: Vec<f32>,  // [num_tokens]
-    pub routed_gates: Vec<f32>, // [num_tokens, num_routed]
+    pub shared_gate: Vec<f32>,          // [num_tokens]
+    pub routed_gates: Vec<f32>,         // [num_tokens, num_routed]
     pub top_k_indices: Vec<Vec<usize>>, // [num_tokens, top_k]
     pub top_k_weights: Vec<Vec<f32>>,   // [num_tokens, top_k]
 }
@@ -172,7 +172,7 @@ impl<B: Backend> SharedExpertLayer<B>
 where
     B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
 {
-    pub fn new(backend: &B, config: SharedExpertConfig, seed: u64) -> Result<Self> {
+    pub fn new(backend: &B, config: SharedExpertConfig, _seed: u64) -> Result<Self> {
         let mut shared_experts = Vec::with_capacity(config.num_shared);
         for _ in 0..config.num_shared {
             shared_experts.push(ExpertMLP::new(backend, config.d_model, config.expert_hidden_dim)?);
@@ -183,23 +183,12 @@ where
             routed_experts.push(ExpertMLP::new(backend, config.d_model, config.expert_hidden_dim)?);
         }
 
-        let router = Linear::new(
-            backend,
-            LinearConfig::new(config.d_model, config.num_routed).with_bias(false),
-        )?;
+        let router =
+            Linear::new(backend, LinearConfig::new(config.d_model, config.num_routed).with_bias(false))?;
 
-        let output_proj = Linear::new(
-            backend,
-            LinearConfig::new(config.d_model, config.d_model),
-        )?;
+        let output_proj = Linear::new(backend, LinearConfig::new(config.d_model, config.d_model))?;
 
-        Ok(Self {
-            config,
-            shared_experts,
-            routed_experts,
-            router,
-            output_proj,
-        })
+        Ok(Self { config, shared_experts, routed_experts, router, output_proj })
     }
 
     /// Forward pass with hybrid routing.
@@ -216,7 +205,7 @@ where
         let flat_input = self.flatten(&input, ops)?;
 
         // 1. Compute shared expert output (always active)
-        let mut shared_output = self.compute_shared(&flat_input, ctx)?;
+        let shared_output = self.compute_shared(&flat_input, ctx)?;
 
         // 2. Route to selected experts
         let routing = self.compute_routing(&flat_input, ctx)?;
@@ -303,16 +292,12 @@ where
 
             // Softmax
             let max_logit = logits_data[start..end].iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-            let mut exps: Vec<f32> = logits_data[start..end].iter()
-                .map(|&x| (x - max_logit).exp())
-                .collect();
+            let exps: Vec<f32> = logits_data[start..end].iter().map(|&x| (x - max_logit).exp()).collect();
             let sum_exp: f32 = exps.iter().sum();
             let probs: Vec<f32> = exps.iter().map(|&x| x / sum_exp).collect();
 
             // Select top-k
-            let mut indexed: Vec<(usize, f32)> = probs.iter().enumerate()
-                .map(|(i, &p)| (i, p))
-                .collect();
+            let mut indexed: Vec<(usize, f32)> = probs.iter().enumerate().map(|(i, &p)| (i, p)).collect();
             indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
             let k = self.config.top_k.min(self.config.num_routed);
@@ -327,12 +312,7 @@ where
         // Shared gate: learnable or fixed
         let shared_gate = vec![self.config.shared_weight; num_tokens];
 
-        Ok(HybridRouting {
-            shared_gate,
-            routed_gates,
-            top_k_indices,
-            top_k_weights,
-        })
+        Ok(HybridRouting { shared_gate, routed_gates, top_k_indices, top_k_weights })
     }
 
     fn compute_routed(
@@ -343,20 +323,21 @@ where
     ) -> Result<B::Tensor> {
         let ops = ctx.backend().ops();
         let shape = ops.shape(input);
-        let num_tokens = shape[0];
+        let _num_tokens = shape[0];
 
         let mut output_data: Vec<f32> = vec![0.0f32; shape.iter().product::<usize>()];
         let input_data: Vec<f32> = input.as_ref().to_vec();
         let d_model = self.config.d_model;
 
         // For each token, compute selected experts
-        for (token_idx, (indices, weights)) in routing.top_k_indices.iter()
-            .zip(routing.top_k_weights.iter())
-            .enumerate()
+        for (token_idx, (indices, weights)) in
+            routing.top_k_indices.iter().zip(routing.top_k_weights.iter()).enumerate()
         {
             let mut token_output = vec![0.0f32; d_model];
 
-            for (expert_idx_local, (&expert_global_idx, &weight)) in indices.iter().zip(weights.iter()).enumerate() {
+            for (_expert_idx_local, (&expert_global_idx, &weight)) in
+                indices.iter().zip(weights.iter()).enumerate()
+            {
                 if expert_global_idx >= self.routed_experts.len() {
                     continue;
                 }
@@ -401,9 +382,8 @@ where
         let max_load = expert_counts.iter().cloned().max().unwrap_or(0) as f32;
         let balance_score = if avg_load > 0.0 { avg_load / max_load } else { 1.0 };
 
-        let avg_scores: f32 = routing.top_k_weights.iter()
-            .flat_map(|w| w.iter())
-            .sum::<f32>() / (num_tokens * self.config.top_k).max(1) as f32;
+        let avg_scores: f32 = routing.top_k_weights.iter().flat_map(|w| w.iter()).sum::<f32>()
+            / (num_tokens * self.config.top_k).max(1) as f32;
 
         SharedExpertStats {
             num_tokens,
@@ -422,15 +402,9 @@ pub struct SharedAndRoutedConfig {
 }
 
 impl SharedAndRoutedConfig {
-    pub fn from_moe_config(
-        d_model: usize,
-        num_shared: usize,
-        num_routed: usize,
-        expert_dim: usize,
-    ) -> Self {
+    pub fn from_moe_config(d_model: usize, num_shared: usize, num_routed: usize, expert_dim: usize) -> Self {
         Self {
-            shared: SharedExpertConfig::new(d_model, num_shared, expert_dim)
-                .with_routed_experts(num_routed),
+            shared: SharedExpertConfig::new(d_model, num_shared, expert_dim).with_routed_experts(num_routed),
             use_expert_choice: false,
         }
     }
@@ -444,10 +418,8 @@ mod tests {
 
     #[test]
     fn test_shared_expert_config() {
-        let config = SharedExpertConfig::new(512, 1, 2048)
-            .with_routed_experts(7)
-            .with_top_k(2)
-            .with_weights(0.3, 0.7);
+        let config =
+            SharedExpertConfig::new(512, 1, 2048).with_routed_experts(7).with_top_k(2).with_weights(0.3, 0.7);
 
         assert_eq!(config.total_experts(), 8);
         assert_eq!(config.top_k, 2);
@@ -457,9 +429,7 @@ mod tests {
     #[test]
     fn test_shared_expert_layer() {
         let backend = CpuBackend::default();
-        let config = SharedExpertConfig::new(64, 1, 256)
-            .with_routed_experts(4)
-            .with_top_k(2);
+        let config = SharedExpertConfig::new(64, 1, 256).with_routed_experts(4).with_top_k(2);
 
         let layer = SharedExpertLayer::new(&backend, config, 42).unwrap();
 
@@ -492,17 +462,14 @@ mod tests {
 
     #[test]
     fn test_shared_expert_config_with_weights() {
-        let config = SharedExpertConfig::new(64, 2, 256)
-            .with_weights(0.4, 0.6);
+        let config = SharedExpertConfig::new(64, 2, 256).with_weights(0.4, 0.6);
         assert!((config.shared_weight - 0.4).abs() < 1e-5);
         assert!((config.routed_weight - 0.6).abs() < 1e-5);
     }
 
     #[test]
     fn test_shared_expert_config_active_fraction() {
-        let config = SharedExpertConfig::new(64, 2, 256)
-            .with_routed_experts(6)
-            .with_top_k(3);
+        let config = SharedExpertConfig::new(64, 2, 256).with_routed_experts(6).with_top_k(3);
         // (2 + 3) / 8 = 0.625
         assert!((config.active_fraction() - 0.625).abs() < 0.01);
     }
@@ -510,9 +477,7 @@ mod tests {
     #[test]
     fn test_shared_expert_layer_from_config() {
         let backend = CpuBackend::default();
-        let config = SharedExpertConfig::new(64, 1, 256)
-            .with_routed_experts(4)
-            .with_top_k(2);
+        let config = SharedExpertConfig::new(64, 1, 256).with_routed_experts(4).with_top_k(2);
         let _layer = SharedExpertLayer::new(&backend, config, 42).unwrap();
         // Layer created successfully
     }
@@ -537,9 +502,7 @@ mod tests {
     #[test]
     fn test_routing_stats() {
         let backend = CpuBackend::default();
-        let config = SharedExpertConfig::new(64, 1, 256)
-            .with_routed_experts(8)
-            .with_top_k(2);
+        let config = SharedExpertConfig::new(64, 1, 256).with_routed_experts(8).with_top_k(2);
 
         let layer = SharedExpertLayer::new(&backend, config, 42).unwrap();
 
@@ -559,17 +522,14 @@ mod tests {
 
     #[test]
     fn test_shared_expert_config_with_residual() {
-        let config = SharedExpertConfig::new(64, 1, 256)
-            .with_residual(false);
+        let config = SharedExpertConfig::new(64, 1, 256).with_residual(false);
         assert!(!config.use_residual);
     }
 
     #[test]
     fn test_shared_expert_layer_no_routed() {
         let backend = CpuBackend::default();
-        let config = SharedExpertConfig::new(64, 1, 256)
-            .with_routed_experts(0)
-            .with_top_k(2);
+        let config = SharedExpertConfig::new(64, 1, 256).with_routed_experts(0).with_top_k(2);
 
         let layer = SharedExpertLayer::new(&backend, config, 42).unwrap();
         let input = backend.tensor_from_vec(vec![0.5f32; 4 * 64], &[2, 2, 64]).unwrap();
@@ -584,10 +544,8 @@ mod tests {
     #[test]
     fn test_shared_expert_layer_no_residual() {
         let backend = CpuBackend::default();
-        let config = SharedExpertConfig::new(64, 1, 256)
-            .with_routed_experts(4)
-            .with_top_k(2)
-            .with_residual(false);
+        let config =
+            SharedExpertConfig::new(64, 1, 256).with_routed_experts(4).with_top_k(2).with_residual(false);
 
         let layer = SharedExpertLayer::new(&backend, config, 42).unwrap();
         let input = backend.tensor_from_vec(vec![0.5f32; 4 * 64], &[2, 2, 64]).unwrap();
@@ -601,9 +559,7 @@ mod tests {
     #[test]
     fn test_shared_expert_layer_multiple_shared() {
         let backend = CpuBackend::default();
-        let config = SharedExpertConfig::new(64, 2, 256)
-            .with_routed_experts(4)
-            .with_top_k(2);
+        let config = SharedExpertConfig::new(64, 2, 256).with_routed_experts(4).with_top_k(2);
 
         let layer = SharedExpertLayer::new(&backend, config, 42).unwrap();
         let input = backend.tensor_from_vec(vec![0.5f32; 4 * 64], &[2, 2, 64]).unwrap();
