@@ -660,6 +660,78 @@ impl ComputeKernelCache {
 
         Ok(GpuTensor { buffer: Arc::new(output_buffer), shape: vec![m, n], size: output_size })
     }
+
+    /// Execute a transpose operation using the GPU compute shader.
+    fn execute_transpose(
+        &mut self,
+        x: &GpuTensor,
+        rows: usize,
+        cols: usize,
+    ) -> CoreResult<GpuTensor> {
+        let output_size = rows * cols;
+        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("transpose_output"),
+            size: (output_size * 4) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+
+        // Uniform buffer with transpose params
+        let params_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("transpose_params"),
+            contents: bytemuck::cast_slice(&[rows as u32, cols as u32]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let entry_point = "transpose";
+        if !self.kernels.contains_key(entry_point) {
+            let layout = create_scalar_bind_group_layout(&self.device);
+            let kernel = ComputeKernel::new(
+                &self.device,
+                &self.shader_code,
+                entry_point,
+                layout,
+                16, // 16x16 workgroup for transpose
+            )?;
+            self.kernels.insert(entry_point.to_string(), kernel);
+        }
+        let kernel = self.kernels.get(entry_point).unwrap();
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("transpose_bind_group"),
+            layout: &kernel.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: x.buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: output_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: params_buffer.as_entire_binding() },
+            ],
+        });
+
+        let workgroups_x = ((cols as u32) + 15) / 16;
+        let workgroups_y = ((rows as u32) + 15) / 16;
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("transpose_encoder") });
+
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("transpose_pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&kernel.pipeline);
+            compute_pass.set_bind_group(0, &bind_group, &[]);
+            compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+        }
+
+        self.queue.submit(Some(encoder.finish()));
+
+        Ok(GpuTensor {
+            buffer: Arc::new(output_buffer),
+            shape: vec![cols, rows],
+            size: output_size,
+        })
+    }
 }
 
 /// Errors specific to the wgpu backend.
@@ -938,17 +1010,8 @@ impl TensorOps<WgpuBackend> for WgpuOps {
     }
 
     fn transpose(&self, x: &GpuTensor) -> CoreResult<GpuTensor> {
-        // Roundtrip through CPU for now
-        let data = x.to_vec(&self.device, &self.queue);
         let (m, n) = (x.shape[0], x.shape[1]);
-        let mut result = vec![0.0; m * n];
-        for i in 0..m {
-            for j in 0..n {
-                result[j * m + i] = data[i * n + j];
-            }
-        }
-        let new_shape = vec![n, m];
-        GpuTensor::from_data(&self.device, &self.queue, &result, &new_shape)
+        self.kernel_cache.write().unwrap().execute_transpose(x, m, n)
     }
 
     fn add(&self, a: &GpuTensor, b: &GpuTensor) -> CoreResult<GpuTensor> {
@@ -1296,5 +1359,123 @@ mod tests {
 
         // With p=1, everything is zeroed (or undefined, but should be finite)
         assert!(output_data.iter().all(|&v| v.is_finite()), "All values should be finite");
+    }
+
+    #[test]
+    fn test_wgpu_matmul() {
+        let backend = match get_backend() {
+            Some(b) => b,
+            None => return,
+        };
+
+        let a = backend
+            .tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0], &[2, 2])
+            .unwrap();
+        let b = backend
+            .tensor_from_vec(vec![5.0f32, 6.0, 7.0, 8.0], &[2, 2])
+            .unwrap();
+
+        let c = backend.ops().matmul(&a, &b).unwrap();
+        let data = backend.to_vec(&c);
+
+        // [1 2; 3 4] * [5 6; 7 8] = [19 22; 43 50]
+        assert_eq!(data, vec![19.0, 22.0, 43.0, 50.0]);
+    }
+
+    #[test]
+    fn test_wgpu_element_wise_ops() {
+        let backend = match get_backend() {
+            Some(b) => b,
+            None => return,
+        };
+
+        let a = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0], &[4]).unwrap();
+        let b = backend.tensor_from_vec(vec![5.0f32, 4.0, 3.0, 2.0], &[4]).unwrap();
+
+        // add
+        let c = backend.ops().add(&a, &b).unwrap();
+        assert_eq!(backend.to_vec(&c), vec![6.0, 6.0, 6.0, 6.0]);
+
+        // mul
+        let c = backend.ops().mul(&a, &b).unwrap();
+        assert_eq!(backend.to_vec(&c), vec![5.0, 8.0, 9.0, 8.0]);
+
+        // sub
+        let c = backend.ops().sub(&a, &b).unwrap();
+        assert_eq!(backend.to_vec(&c), vec![-4.0, -2.0, 0.0, 2.0]);
+
+        // div
+        let c = backend.ops().div(&a, &b).unwrap();
+        assert_eq!(backend.to_vec(&c), vec![0.2, 0.5, 1.0, 2.0]);
+
+        // maximum
+        let c = backend.ops().maximum(&a, &b).unwrap();
+        assert_eq!(backend.to_vec(&c), vec![5.0, 4.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_wgpu_unary_ops() {
+        let backend = match get_backend() {
+            Some(b) => b,
+            None => return,
+        };
+
+        let a = backend.tensor_from_vec(vec![-1.0f32, 0.0, 1.0, 2.0], &[4]).unwrap();
+
+        // relu
+        let c = backend.ops().relu(&a).unwrap();
+        assert_eq!(backend.to_vec(&c), vec![0.0, 0.0, 1.0, 2.0]);
+
+        // neg
+        let c = backend.ops().neg(&a).unwrap();
+        assert_eq!(backend.to_vec(&c), vec![1.0, 0.0, -1.0, -2.0]);
+
+        // sigmoid at 0 should be 0.5
+        let c = backend.ops().sigmoid(&backend.tensor_from_vec(vec![0.0f32], &[1]).unwrap()).unwrap();
+        assert!((backend.to_vec(&c)[0] - 0.5).abs() < 1e-5);
+
+        // tanh at 0 should be 0
+        let c = backend.ops().tanh(&backend.tensor_from_vec(vec![0.0f32], &[1]).unwrap()).unwrap();
+        assert!(backend.to_vec(&c)[0].abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_wgpu_scalar_ops() {
+        let backend = match get_backend() {
+            Some(b) => b,
+            None => return,
+        };
+
+        let a = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0], &[4]).unwrap();
+
+        // add_scalar
+        let c = backend.ops().add_scalar(&a, 10.0).unwrap();
+        assert_eq!(backend.to_vec(&c), vec![11.0, 12.0, 13.0, 14.0]);
+
+        // mul_scalar
+        let c = backend.ops().mul_scalar(&a, 2.0).unwrap();
+        assert_eq!(backend.to_vec(&c), vec![2.0, 4.0, 6.0, 8.0]);
+
+        // gt_scalar
+        let c = backend.ops().gt_scalar(&a, 2.5).unwrap();
+        assert_eq!(backend.to_vec(&c), vec![0.0, 0.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn test_wgpu_transpose() {
+        let backend = match get_backend() {
+            Some(b) => b,
+            None => return,
+        };
+
+        let a = backend
+            .tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3])
+            .unwrap();
+
+        let c = backend.ops().transpose(&a).unwrap();
+        let data = backend.to_vec(&c);
+
+        // [1 2 3; 4 5 6] transposed = [1 4; 2 5; 3 6]
+        assert_eq!(data, vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
     }
 }
