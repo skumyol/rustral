@@ -132,6 +132,55 @@ fn create_scalar_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayo
     })
 }
 
+/// Bind group layout for gather_rows (input, indices, output, uniform params).
+fn create_gather_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("gather_layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    })
+}
+
 /// Bind group layout for dropout operation (same as scalar: input, output, uniform params).
 fn create_dropout_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -538,6 +587,93 @@ impl ComputeKernelCache {
         kernel.dispatch_dropout(&device, &queue, &x.buffer, &output_buffer, &params_buffer, num_elements);
 
         Ok(GpuTensor { buffer: Arc::new(output_buffer), shape: x.shape.clone(), size: num_elements })
+    }
+
+    /// Execute gather_rows using the GPU compute shader.
+    fn execute_gather_rows(
+        &mut self,
+        table: &GpuTensor,
+        ids: &[usize],
+    ) -> CoreResult<GpuTensor> {
+        let (input_dim0, input_dim1) = (table.shape[0], table.shape[1]);
+        let num_indices = ids.len();
+        let output_size = num_indices * input_dim1;
+
+        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("gather_output"),
+            size: (output_size * 4) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+
+        // Indices buffer (u32)
+        let indices_u32: Vec<u32> = ids.iter().map(|&id| id as u32).collect();
+        let indices_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("gather_indices"),
+            contents: bytemuck::cast_slice(&indices_u32),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Uniform buffer with gather params: [num_indices, index_dim=1, input_dim0, input_dim1]
+        let params_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("gather_params"),
+            contents: bytemuck::cast_slice(&[
+                num_indices as u32,
+                1u32,
+                input_dim0 as u32,
+                input_dim1 as u32,
+            ]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let entry_point = "gather_rows";
+        if !self.kernels.contains_key(entry_point) {
+            let layout = create_gather_bind_group_layout(&self.device);
+            let kernel = ComputeKernel::new(
+                &self.device,
+                &self.shader_code,
+                entry_point,
+                layout,
+                WORKGROUP_SIZE,
+            )?;
+            self.kernels.insert(entry_point.to_string(), kernel);
+        }
+        let kernel = self.kernels.get(entry_point).unwrap();
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("gather_bind_group"),
+            layout: &kernel.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: table.buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: indices_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: output_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: params_buffer.as_entire_binding() },
+            ],
+        });
+
+        let workgroups = ((output_size as u32) + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("gather_encoder") });
+
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("gather_pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&kernel.pipeline);
+            compute_pass.set_bind_group(0, &bind_group, &[]);
+            compute_pass.dispatch_workgroups(workgroups, 1, 1);
+        }
+
+        self.queue.submit(Some(encoder.finish()));
+
+        Ok(GpuTensor {
+            buffer: Arc::new(output_buffer),
+            shape: vec![num_indices, input_dim1],
+            size: output_size,
+        })
     }
 
     /// Execute a tiled matrix multiplication using the GPU compute shader.
@@ -1056,9 +1192,7 @@ impl TensorOps<WgpuBackend> for WgpuOps {
     }
 
     fn gather_rows(&self, table: &Parameter<WgpuBackend>, ids: &[usize]) -> CoreResult<GpuTensor> {
-        // Roundtrip through CPU for now
         let table_tensor = table.tensor();
-        let table_data = table_tensor.to_vec(&self.device, &self.queue);
         let table_shape = &table_tensor.shape;
 
         if table_shape.len() != 2 {
@@ -1069,7 +1203,6 @@ impl TensorOps<WgpuBackend> for WgpuOps {
         }
 
         let num_rows = table_shape[0];
-        let num_cols = table_shape[1];
 
         // Validate indices
         for &id in ids {
@@ -1081,17 +1214,8 @@ impl TensorOps<WgpuBackend> for WgpuOps {
             }
         }
 
-        // Gather rows
-        let mut result = Vec::with_capacity(ids.len() * num_cols);
-        for &id in ids {
-            let row_start = id * num_cols;
-            for j in 0..num_cols {
-                result.push(table_data[row_start + j]);
-            }
-        }
-
-        let output_shape = vec![ids.len(), num_cols];
-        GpuTensor::from_data(&self.device, &self.queue, &result, &output_shape)
+        // Use GPU compute shader for gather_rows
+        self.kernel_cache.write().unwrap().execute_gather_rows(table_tensor, ids)
     }
 
     fn linear(
@@ -1477,5 +1601,35 @@ mod tests {
 
         // [1 2 3; 4 5 6] transposed = [1 4; 2 5; 3 6]
         assert_eq!(data, vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
+    }
+
+    #[test]
+    fn test_wgpu_gather_rows() {
+        let backend = match get_backend() {
+            Some(b) => b,
+            None => return,
+        };
+
+        // Table: 4 rows x 3 cols
+        let table_data = vec![
+            1.0f32, 2.0, 3.0,   // row 0
+            4.0, 5.0, 6.0,      // row 1
+            7.0, 8.0, 9.0,      // row 2
+            10.0, 11.0, 12.0,  // row 3
+        ];
+        let table_tensor = backend.tensor_from_vec(table_data, &[4, 3]).unwrap();
+        let table_param = mnr_core::Parameter::new("table", table_tensor);
+
+        // Gather rows [0, 2, 1]
+        let gathered = backend.ops().gather_rows(&table_param, &[0, 2, 1]).unwrap();
+        let data = backend.to_vec(&gathered);
+
+        // Expected: row0, row2, row1
+        assert_eq!(data, vec![
+            1.0, 2.0, 3.0,
+            7.0, 8.0, 9.0,
+            4.0, 5.0, 6.0,
+        ]);
+        assert_eq!(gathered.shape, vec![3, 3]);
     }
 }
