@@ -14,9 +14,14 @@ description = "Neural network layers (CNN, RNN, Transformer, MoE, …) for Rustr
 [lints]
 workspace = true
 
+[features]
+default = []
+autodiff = ["dep:rustral-autodiff"]
+
 [dependencies]
 rustral-core = { path = "../core", version = "0.1.0" }
 rustral-symbolic = { path = "../symbolic", version = "0.1.0" }
+rustral-autodiff = { path = "../autodiff", optional = true, version = "0.1.0" }
 serde.workspace = true
 rand.workspace = true
 rayon.workspace = true

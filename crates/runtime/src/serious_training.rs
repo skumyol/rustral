@@ -188,13 +188,8 @@ fn build_synthetic_dataset(seed: u64, n: usize, input_dim: usize, num_classes: u
 }
 
 fn flatten_tensor<B: Backend>(ops: &dyn TensorOps<B>, t: &B::Tensor) -> Result<Vec<f32>, CoreError> {
-    let shape = ops.shape(t);
-    let n: usize = shape.iter().product();
-    let mut out = Vec::with_capacity(n);
-    for i in 0..n {
-        out.push(ops.tensor_element(t, i)?);
-    }
-    Ok(out)
+    // Prefer a single bulk readback when supported (GPU: one transfer; CPU: often a copy).
+    ops.tensor_to_vec(t)
 }
 
 #[cfg(test)]

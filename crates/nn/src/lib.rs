@@ -31,6 +31,9 @@ mod sequential;
 mod shared_expert;
 mod transformer;
 
+#[cfg(feature = "autodiff")]
+pub mod tape;
+
 pub use attention::{
     causal_mask, FlashAttention, MultiHeadAttention, SelfAttention, SelfAttentionConfig,
     TransformerEncoderBlock,

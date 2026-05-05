@@ -215,6 +215,39 @@ impl<B: Backend> Tape<B> {
         }))
     }
 
+    /// Transpose a rank-2 tensor.
+    ///
+    /// Forward: `out = x^T`
+    /// Backward: `dL/dx = (dL/dout)^T`
+    pub fn transpose_tape(&mut self, x: TensorId, ctx: &mut ForwardCtx<B>) -> Result<TensorId>
+    where
+        B::Tensor: Clone,
+    {
+        let x_val = self.get_value(x)?.clone();
+        let out = ctx.backend().ops().transpose(&x_val)?;
+        Ok(self.record(&[x], out, move |grad_out, _store, ops| {
+            let grad_x = ops.transpose(grad_out)?;
+            Ok(vec![grad_x])
+        }))
+    }
+
+    /// Reduce a tensor into a scalar by summing all elements.
+    ///
+    /// Backward: broadcast the upstream scalar gradient back to the input shape.
+    pub fn sum_all_tape(&mut self, x: TensorId, ctx: &mut ForwardCtx<B>) -> Result<TensorId>
+    where
+        B::Tensor: Clone,
+    {
+        let x_val = self.get_value(x)?.clone();
+        let ops = ctx.backend().ops();
+        let shape = ops.shape(&x_val);
+        let out = ops.sum_all(&x_val)?;
+        Ok(self.record(&[x], out, move |grad_out, _store, ops| {
+            let grad_x = ops.broadcast(grad_out, &shape)?;
+            Ok(vec![grad_x])
+        }))
+    }
+
     /// Linear layer forward pass using the tape.
     ///
     /// Note: For now, this delegates to matmul + add_row_vector.
