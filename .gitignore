@@ -106,5 +106,6 @@ coverage/
 # ============================================================================
 legacy/
 docs/legacy-mapping.md
+rustral_logo_assets.zip
 scripts/publish_crates_io.sh
 vendor/*

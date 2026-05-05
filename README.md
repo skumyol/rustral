@@ -2,6 +2,10 @@
 
 > **A Rust neural network framework for learning, research, and experiments**
 
+<p align="center">
+  <img src="docs/assets/rustral-logo-full.svg" alt="MNR logo" width="720" />
+</p>
+
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/License-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
 
@@ -399,7 +403,22 @@ cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warni
 | [`docs/api-signatures.md`](docs/api-signatures.md) | Public function signatures |
 | [`docs/master-plan.md`](docs/master-plan.md) | Feature roadmap |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Security guidelines |
-| API Docs (rustdoc) | `cargo doc --workspace --open` |
+| API Docs (rustdoc) | `cargo doc --open` |
+
+### Rust API docs (rustdoc)
+
+Rust documentation is generated using **rustdoc** (via `cargo doc`), which converts `///` comments in source code into HTML.
+
+- **Generate and open (includes deps)**: `cargo doc --open`
+- **Document private items**: `cargo doc --document-private-items`
+- **All features**: `cargo doc --all-features`
+
+#### Writing documentation
+
+- **Outer doc comments (`///`)**: placed above items (functions, structs, etc.)
+- **Inner doc comments (`//!`)**: placed inside a file/module to document the crate or module
+- **Markdown**: use Markdown in comments for formatting, including code blocks
+- **Examples**: include `/// Examples` blocks; rustdoc can run them as doctests
 
 ---
 

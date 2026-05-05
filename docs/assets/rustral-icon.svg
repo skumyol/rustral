@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">rustral icon</title>
+  <desc id="desc">A minimal Bauhaus-inspired geometric icon for rustral.</desc>
+
+  <!-- Transparent background intentionally omitted -->
+
+  <circle fill="#E94A2A" cx="126" cy="126" r="72"/>
+  <path fill="#111111" d="M250 194C250 106.634 320.634 36 408 36H476V194H250Z"/>
+  <path fill="#E94A2A" d="M44 308C44 256.638 85.638 215 137 215H476V308H44Z"/>
+  <path fill="#111111" d="M44 348H476V418C476 434.569 462.569 448 446 448H44V348Z"/>
+</svg>

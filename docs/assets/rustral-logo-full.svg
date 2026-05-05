@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1600" height="600" viewBox="0 0 1600 600" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">rustral logo</title>
+  <desc id="desc">A minimal Bauhaus-inspired geometric logo for the rustral Rust deep learning framework.</desc>
+
+  <defs>
+    <style>
+      .charcoal { fill: #111111; }
+      .rust { fill: #E94A2A; }
+      .wordmark {
+        fill: #111111;
+        font-family: "Futura", "Avenir Next", "Montserrat", "Inter", "Helvetica Neue", Arial, sans-serif;
+        font-size: 178px;
+        font-weight: 650;
+        letter-spacing: -8px;
+      }
+    </style>
+  </defs>
+
+  <!-- Transparent background intentionally omitted -->
+
+  <!-- Icon group -->
+  <g id="rustral-mark" transform="translate(120 140)">
+    <!-- Top accent circle: explicit run / signal -->
+    <circle class="rust" cx="70" cy="70" r="58"/>
+
+    <!-- Top arc block: expressive module / lowercase r shoulder -->
+    <path class="charcoal" d="M170 128C170 57.3076 227.308 0 298 0H360V128H170Z"/>
+
+    <!-- Middle rust layer: forward context / flow -->
+    <path class="rust" d="M0 220C0 178.026 34.0264 144 76 144H360V220H0Z"/>
+
+    <!-- Bottom charcoal layer: runtime / backend base -->
+    <path class="charcoal" d="M0 250H360V310C360 323.255 349.255 334 336 334H0V250Z"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text class="wordmark" x="620" y="365">rustral</text>
+</svg>
