@@ -24,15 +24,12 @@ where
         let w_t = tape.transpose_tape(w_id, ctx)?;
         let out = tape.matmul(input, w_t, ctx)?;
 
-        // Bias support will require an `add_row_vector_tape` op (needs batch-wise reduce for bias grad).
-        // For now, disallow bias to avoid silently incorrect gradients.
-        if self.config().bias {
-            return Err(rustral_core::CoreError::InvalidArgument(
-                "Linear::forward_tape currently requires bias=false".to_string(),
-            ));
+        if let Some(bias) = self.bias() {
+            let b_id = tape.watch_parameter(bias);
+            tape.add_row_vector_tape(out, b_id, ctx)
+        } else {
+            Ok(out)
         }
-
-        Ok(out)
     }
 }
 

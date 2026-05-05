@@ -248,6 +248,60 @@ impl<B: Backend> Tape<B> {
         }))
     }
 
+    /// Add a row vector to every row of a rank-2 tensor.
+    ///
+    /// Forward: `out = a + row` (row broadcast across batch dimension).
+    ///
+    /// Backward:
+    /// - `dL/da = grad_out`
+    /// - `dL/drow = sum_rows(grad_out)` (sum across batch dimension)
+    pub fn add_row_vector_tape(
+        &mut self,
+        a: TensorId,
+        row: TensorId,
+        ctx: &mut ForwardCtx<B>,
+    ) -> Result<TensorId>
+    where
+        B::Tensor: Clone,
+    {
+        let a_val = self.get_value(a)?.clone();
+        let row_val = self.get_value(row)?.clone();
+        let ops = ctx.backend().ops();
+
+        let a_shape = ops.shape(&a_val);
+        let row_shape = ops.shape(&row_val);
+        if a_shape.len() != 2 || row_shape.len() != 1 || row_shape[0] != a_shape[1] {
+            return Err(rustral_core::CoreError::InvalidArgument(format!(
+                "add_row_vector_tape expects a:[batch, features] and row:[features], got a:{:?}, row:{:?}",
+                a_shape, row_shape
+            )));
+        }
+        let batch = a_shape[0];
+        let features = a_shape[1];
+
+        let out = ops.add_row_vector(&a_val, &row_val)?;
+        Ok(self.record(&[a, row], out, move |grad_out, _store, ops| {
+            // dL/da = grad_out
+            let grad_a = grad_out.clone();
+
+            // dL/drow = sum over batch dimension.
+            //
+            // NOTE: We do a correctness-first implementation by reading back grad_out and reducing on host.
+            // A future improvement should add a backend reduction op (sum along axis) to avoid host transfer.
+            let flat = ops.tensor_to_vec(grad_out)?;
+            let mut row_grad = vec![0.0f32; features];
+            for b in 0..batch {
+                let offset = b * features;
+                for j in 0..features {
+                    row_grad[j] += flat[offset + j];
+                }
+            }
+            let grad_row = ops.tensor_from_vec(row_grad, &[features])?;
+
+            Ok(vec![grad_a, grad_row])
+        }))
+    }
+
     /// Linear layer forward pass using the tape.
     ///
     /// Note: For now, this delegates to matmul + add_row_vector.
