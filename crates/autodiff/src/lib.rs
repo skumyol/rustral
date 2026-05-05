@@ -648,133 +648,157 @@ impl<B: Backend> Tape<B> {
     /// Layer normalization with gradient tracking.
     ///
     /// Forward: y = (x - mean) / sqrt(var + eps) * gamma + beta
-    /// Backward: Computes gradients w.r.t. input, gamma, and beta
+    ///
+    /// Normalizes over the last `feature_count` elements of the flattened input (row-major),
+    /// matching `LayerNorm` when `normalized_shape` is a single dimension or its product equals
+    /// `feature_count` and the input is contiguous in that layout.
+    ///
+    /// Uses bulk `tensor_to_vec` for forward/backward (no per-element reads in the hot path).
+    ///
+    /// Backward: gradients w.r.t. input, gamma, and beta (gamma/beta must be registered via
+    /// `watch_parameter` inside this call).
     pub fn layer_norm_tape(
         &mut self,
         input: TensorId,
         gamma: &rustral_core::Parameter<B>,
         beta: &rustral_core::Parameter<B>,
         eps: f32,
+        feature_count: usize,
         ctx: &mut ForwardCtx<B>,
     ) -> Result<TensorId>
     where
         B::Tensor: Clone,
     {
+        let gamma_id = self.watch_parameter(gamma);
+        let beta_id = self.watch_parameter(beta);
+
         let input_val = self.get_value(input)?.clone();
         let ops = ctx.backend().ops();
         let input_shape = ops.shape(&input_val);
+        let total_elems: usize = input_shape.iter().product();
 
-        // Get gamma and beta values
+        if feature_count == 0 {
+            return Err(rustral_core::CoreError::InvalidArgument(
+                "layer_norm_tape: feature_count must be > 0".into(),
+            ));
+        }
+        if total_elems % feature_count != 0 {
+            return Err(rustral_core::CoreError::InvalidShape {
+                shape: input_shape.clone(),
+                reason: format!(
+                    "layer_norm_tape: input element count {} not divisible by feature_count {}",
+                    total_elems, feature_count
+                ),
+            });
+        }
+        let num_groups = total_elems / feature_count;
+
         let gamma_tensor = gamma.tensor();
         let beta_tensor = beta.tensor();
+        let gamma_shape = ops.shape(gamma_tensor);
+        let beta_shape = ops.shape(beta_tensor);
+        let gamma_elems: usize = gamma_shape.iter().product();
+        let beta_elems: usize = beta_shape.iter().product();
+        if gamma_elems != feature_count || beta_elems != feature_count {
+            return Err(rustral_core::CoreError::InvalidArgument(format!(
+                "layer_norm_tape: gamma shape {:?}, beta shape {:?}, expected {} elements each",
+                gamma_shape, beta_shape, feature_count
+            )));
+        }
 
-        // Forward pass: compute normalized values
-        // For simplicity, assume input is [..., features] and we normalize over last dim
-        let num_features = input_shape.last().copied().unwrap_or(1);
-        let num_groups = input_shape.iter().product::<usize>() / num_features;
+        let input_values = ops.tensor_to_vec(&input_val)?;
+        if input_values.len() != total_elems {
+            return Err(rustral_core::CoreError::InvalidArgument(
+                "layer_norm_tape: input tensor_to_vec length mismatch".into(),
+            ));
+        }
+        let gamma_values = ops.tensor_to_vec(gamma_tensor)?;
+        let beta_values = ops.tensor_to_vec(beta_tensor)?;
 
-        // Extract values for computation
-        let total_elems = input_shape.iter().product();
-        let input_values: Vec<f32> =
-            (0..total_elems).filter_map(|i| ops.tensor_element(&input_val, i).ok()).collect();
-
-        let gamma_values: Vec<f32> =
-            (0..num_features).filter_map(|i| ops.tensor_element(&gamma_tensor, i).ok()).collect();
-
-        let beta_values: Vec<f32> =
-            (0..num_features).filter_map(|i| ops.tensor_element(&beta_tensor, i).ok()).collect();
-
-        // Compute mean, var, and normalized values for each group
         let mut output_values = vec![0.0f32; total_elems];
-        let mut means = vec![0.0f32; num_groups];
-        let mut vars = vec![0.0f32; num_groups];
         let mut stds = vec![0.0f32; num_groups];
         let mut normalized_values = vec![0.0f32; total_elems];
 
         for g in 0..num_groups {
-            let group_start = g * num_features;
+            let group_start = g * feature_count;
 
-            // Compute mean
-            let sum: f32 = input_values[group_start..group_start + num_features].iter().sum();
-            let mean = sum / num_features as f32;
-            means[g] = mean;
+            let sum: f32 = input_values[group_start..group_start + feature_count].iter().sum();
+            let mean = sum / feature_count as f32;
 
-            // Compute variance
-            let var_sum: f32 = input_values[group_start..group_start + num_features]
+            let var_sum: f32 = input_values[group_start..group_start + feature_count]
                 .iter()
                 .map(|&x| (x - mean).powi(2))
                 .sum();
-            let var = var_sum / num_features as f32;
-            vars[g] = var;
+            let var = var_sum / feature_count as f32;
             let std = (var + eps).sqrt();
             stds[g] = std;
 
-            // Normalize and apply affine transform
-            for i in 0..num_features {
+            for i in 0..feature_count {
                 let idx = group_start + i;
                 let normalized = (input_values[idx] - mean) / std;
                 normalized_values[idx] = normalized;
-                let gamma = gamma_values.get(i).copied().unwrap_or(1.0);
-                let beta = beta_values.get(i).copied().unwrap_or(0.0);
-                output_values[idx] = normalized * gamma + beta;
+                let gv = gamma_values[i];
+                let bv = beta_values[i];
+                output_values[idx] = normalized * gv + bv;
             }
         }
 
         let output = ops.tensor_from_vec(output_values, &input_shape)?;
 
-        // Clone for backward closure
         let input_shape_for_grad = input_shape.clone();
         let gamma_values_for_grad = gamma_values.clone();
-        let means_for_grad = means.clone();
         let stds_for_grad = stds.clone();
         let normalized_values_for_grad = normalized_values.clone();
-        let num_features_for_grad = num_features;
+        let feature_count_for_grad = feature_count;
         let num_groups_for_grad = num_groups;
 
-        Ok(self.record(&[input], output, move |grad_out, _store, ops| {
-            // Extract grad_out values
+        Ok(self.record(&[input, gamma_id, beta_id], output, move |grad_out, _store, ops| {
             let total_elems = input_shape_for_grad.iter().product();
-            let grad_out_values: Vec<f32> =
-                (0..total_elems).filter_map(|i| ops.tensor_element(grad_out, i).ok()).collect();
+            let grad_out_values = ops.tensor_to_vec(grad_out)?;
+            if grad_out_values.len() != total_elems {
+                return Err(rustral_core::CoreError::InvalidArgument(
+                    "layer_norm_tape backward: grad_out length mismatch".into(),
+                ));
+            }
 
-            // Compute gradients for LayerNorm
-            // Based on: https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/layer_norm.cpp
             let mut grad_input = vec![0.0f32; total_elems];
+            let mut grad_gamma = vec![0.0f32; feature_count_for_grad];
+            let mut grad_beta = vec![0.0f32; feature_count_for_grad];
 
             for g in 0..num_groups_for_grad {
-                let group_start = g * num_features_for_grad;
-                let _mean = means_for_grad[g];
+                let group_start = g * feature_count_for_grad;
                 let std = stds_for_grad[g];
                 let inv_std = 1.0 / std;
 
-                // Compute gradients w.r.t. normalized values
-                // grad_normalized = grad_out * gamma
-                let mut grad_normalized = vec![0.0f32; num_features_for_grad];
-                for i in 0..num_features_for_grad {
-                    let gamma = gamma_values_for_grad.get(i).copied().unwrap_or(1.0);
+                let mut grad_normalized = vec![0.0f32; feature_count_for_grad];
+                for i in 0..feature_count_for_grad {
+                    let gamma = gamma_values_for_grad[i];
                     grad_normalized[i] = grad_out_values[group_start + i] * gamma;
+                    grad_gamma[i] +=
+                        grad_out_values[group_start + i] * normalized_values_for_grad[group_start + i];
+                    grad_beta[i] += grad_out_values[group_start + i];
                 }
 
-                // Compute statistics for gradient
                 let grad_normalized_sum: f32 = grad_normalized.iter().sum();
-                let grad_normalized_dot_x: f32 = (0..num_features_for_grad)
+                let grad_normalized_dot_n: f32 = (0..feature_count_for_grad)
                     .map(|i| grad_normalized[i] * normalized_values_for_grad[group_start + i])
                     .sum();
 
-                // Compute grad_input for this group
-                // grad_input = (1/std) * (grad_normalized - mean(grad_normalized) - normalized * mean(grad_normalized * normalized))
-                for i in 0..num_features_for_grad {
+                let n = feature_count_for_grad as f32;
+                for i in 0..feature_count_for_grad {
                     let normalized = normalized_values_for_grad[group_start + i];
                     let grad = inv_std
                         * (grad_normalized[i]
-                            - grad_normalized_sum / num_features_for_grad as f32
-                            - normalized * grad_normalized_dot_x / num_features_for_grad as f32);
+                            - grad_normalized_sum / n
+                            - normalized * grad_normalized_dot_n / n);
                     grad_input[group_start + i] = grad;
                 }
             }
 
             let grad_input_tensor = ops.tensor_from_vec(grad_input, &input_shape_for_grad)?;
-            Ok(vec![grad_input_tensor])
+            let grad_gamma_tensor = ops.tensor_from_vec(grad_gamma, &[feature_count_for_grad])?;
+            let grad_beta_tensor = ops.tensor_from_vec(grad_beta, &[feature_count_for_grad])?;
+            Ok(vec![grad_input_tensor, grad_gamma_tensor, grad_beta_tensor])
         }))
     }
 
@@ -1144,13 +1168,16 @@ mod tests {
         let gamma = Parameter::new("gamma", backend.tensor_from_vec(vec![1.0, 1.0], &[2]).unwrap());
         let beta = Parameter::new("beta", backend.tensor_from_vec(vec![0.0, 0.0], &[2]).unwrap());
 
-        let output = tape.layer_norm_tape(input, &gamma, &beta, 1e-5, &mut ctx).unwrap();
+        let output = tape.layer_norm_tape(input, &gamma, &beta, 1e-5, 2, &mut ctx).unwrap();
         let out_vals: Vec<f32> = tape.value(output).unwrap().values().to_vec();
         assert_eq!(out_vals.len(), 4);
 
+        let param_map = tape.param_map().clone();
         let grads =
             tape.backward(output, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
         assert!(grads.contains_key(&input));
+        assert!(gamma.gradient_from_store(&grads, &param_map).is_some());
+        assert!(beta.gradient_from_store(&grads, &param_map).is_some());
     }
 
     #[test]

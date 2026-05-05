@@ -54,6 +54,16 @@ impl<B: Backend> LayerNorm<B> {
     pub fn config(&self) -> &LayerNormConfig {
         &self.config
     }
+
+    /// Learnable scale (gamma), shape `[product(normalized_shape)]`.
+    pub fn weight(&self) -> &Parameter<B> {
+        &self.weight
+    }
+
+    /// Learnable shift (beta), shape `[product(normalized_shape)]`.
+    pub fn bias(&self) -> &Parameter<B> {
+        &self.bias
+    }
 }
 
 impl<B: Backend> Module<B> for LayerNorm<B> {

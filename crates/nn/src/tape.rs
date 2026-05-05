@@ -6,7 +6,7 @@
 use rustral_autodiff::{Tape, TensorId};
 use rustral_core::{Backend, ForwardCtx, Result};
 
-use crate::{Embedding, Linear};
+use crate::{Embedding, LayerNorm, Linear};
 
 /// A module that can execute its forward pass while recording into an autodiff [`Tape`].
 ///
@@ -39,5 +39,15 @@ where
 {
     fn forward_tape(&self, input: TensorId, tape: &mut Tape<B>, ctx: &mut ForwardCtx<B>) -> Result<TensorId> {
         tape.gather_rows_tape(self.table(), input, ctx)
+    }
+}
+
+impl<B: Backend> TapeModule<B> for LayerNorm<B>
+where
+    B::Tensor: Clone,
+{
+    fn forward_tape(&self, input: TensorId, tape: &mut Tape<B>, ctx: &mut ForwardCtx<B>) -> Result<TensorId> {
+        let feature_count: usize = self.config().normalized_shape.iter().product();
+        tape.layer_norm_tape(input, self.weight(), self.bias(), self.config().eps, feature_count, ctx)
     }
 }
