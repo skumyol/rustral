@@ -1157,9 +1157,32 @@ impl TensorOps<WgpuBackend> for WgpuOps {
         self.kernel_cache.write().unwrap().execute_binary(a, b, &a.shape, "add")
     }
 
-    fn add_row_vector(&self, a: &GpuTensor, _row: &GpuTensor) -> CoreResult<GpuTensor> {
-        // Simplified: just clone for now
-        Ok(GpuTensor { buffer: a.buffer.clone(), shape: a.shape.clone(), size: a.size })
+    fn add_row_vector(&self, a: &GpuTensor, row: &GpuTensor) -> CoreResult<GpuTensor> {
+        if a.shape.len() != 2 {
+            return Err(CoreError::InvalidShape {
+                shape: a.shape.clone(),
+                reason: "add_row_vector expects rank-2 tensor".into(),
+            });
+        }
+        if row.shape.len() != 1 {
+            return Err(CoreError::InvalidShape {
+                shape: row.shape.clone(),
+                reason: "add_row_vector expects rank-1 row vector".into(),
+            });
+        }
+        let (batch, n) = (a.shape[0], a.shape[1]);
+        if row.shape[0] != n {
+            return Err(CoreError::ShapeMismatch {
+                expected: vec![n],
+                actual: row.shape.clone(),
+            });
+        }
+
+        // Read the small row vector once, then broadcast it on the GPU and add.
+        let row_data = row.to_vec(&self.device, &self.queue);
+        let broadcasted: Vec<f32> = (0..batch).flat_map(|_| row_data.iter().copied()).collect();
+        let broadcasted_tensor = GpuTensor::from_data(&self.device, &self.queue, &broadcasted, &a.shape)?;
+        self.kernel_cache.write().unwrap().execute_binary(a, &broadcasted_tensor, &a.shape, "add")
     }
 
     fn relu(&self, x: &GpuTensor) -> CoreResult<GpuTensor> {
@@ -1169,10 +1192,33 @@ impl TensorOps<WgpuBackend> for WgpuOps {
 
     fn softmax(&self, x: &GpuTensor) -> CoreResult<GpuTensor> {
         let data = x.to_vec(&self.device, &self.queue);
-        let max = data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        let exp: Vec<f32> = data.iter().map(|&v| (v - max).exp()).collect();
-        let sum: f32 = exp.iter().sum();
-        let result: Vec<f32> = exp.iter().map(|&v| v / sum).collect();
+        let result = match x.shape.len() {
+            1 => {
+                let max = data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                let exp: Vec<f32> = data.iter().map(|&v| (v - max).exp()).collect();
+                let sum: f32 = exp.iter().sum();
+                exp.iter().map(|&v| v / sum).collect()
+            }
+            2 => {
+                let rows = x.shape[0];
+                let cols = x.shape[1];
+                let mut result = Vec::with_capacity(data.len());
+                for r in 0..rows {
+                    let row = &data[r * cols..(r + 1) * cols];
+                    let max = row.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                    let exp: Vec<f32> = row.iter().map(|&v| (v - max).exp()).collect();
+                    let sum: f32 = exp.iter().sum();
+                    result.extend(exp.iter().map(|&v| v / sum));
+                }
+                result
+            }
+            _ => {
+                return Err(CoreError::InvalidShape {
+                    shape: x.shape.clone(),
+                    reason: "softmax expects rank-1 or rank-2 tensor".into(),
+                });
+            }
+        };
         GpuTensor::from_data(&self.device, &self.queue, &result, &x.shape)
     }
 
@@ -1185,11 +1231,35 @@ impl TensorOps<WgpuBackend> for WgpuOps {
 
     fn log_softmax(&self, x: &GpuTensor) -> CoreResult<GpuTensor> {
         let data = x.to_vec(&self.device, &self.queue);
-        let max = data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        let exp: Vec<f32> = data.iter().map(|&v| (v - max).exp()).collect();
-        let sum: f32 = exp.iter().sum();
-        let log_sum = sum.ln();
-        let result: Vec<f32> = data.iter().map(|&v| v - max - log_sum).collect();
+        let result = match x.shape.len() {
+            1 => {
+                let max = data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                let exp: Vec<f32> = data.iter().map(|&v| (v - max).exp()).collect();
+                let sum: f32 = exp.iter().sum();
+                let log_sum = sum.ln();
+                data.iter().map(|&v| v - max - log_sum).collect()
+            }
+            2 => {
+                let rows = x.shape[0];
+                let cols = x.shape[1];
+                let mut result = Vec::with_capacity(data.len());
+                for r in 0..rows {
+                    let row = &data[r * cols..(r + 1) * cols];
+                    let max = row.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+                    let exp: Vec<f32> = row.iter().map(|&v| (v - max).exp()).collect();
+                    let sum: f32 = exp.iter().sum();
+                    let log_sum = sum.ln();
+                    result.extend(row.iter().map(|&v| v - max - log_sum));
+                }
+                result
+            }
+            _ => {
+                return Err(CoreError::InvalidShape {
+                    shape: x.shape.clone(),
+                    reason: "log_softmax expects rank-1 or rank-2 tensor".into(),
+                });
+            }
+        };
         GpuTensor::from_data(&self.device, &self.queue, &result, &x.shape)
     }
 
@@ -1222,11 +1292,41 @@ impl TensorOps<WgpuBackend> for WgpuOps {
 
     fn linear(
         &self,
-        _input: &GpuTensor,
-        _weight: &Parameter<WgpuBackend>,
-        _bias: Option<&Parameter<WgpuBackend>>,
+        input: &GpuTensor,
+        weight: &Parameter<WgpuBackend>,
+        bias: Option<&Parameter<WgpuBackend>>,
     ) -> CoreResult<GpuTensor> {
-        Err(CoreError::Backend("GPU linear".into()))
+        let w = weight.tensor();
+        if w.shape.len() != 2 {
+            return Err(CoreError::InvalidShape {
+                shape: w.shape.clone(),
+                reason: "linear weight must be rank-2 [out_dim, in_dim]".into(),
+            });
+        }
+
+        // Ensure input is rank-2: [batch, in_dim]
+        let x = match input.shape.len() {
+            1 => {
+                // Treat as [1, in_dim]
+                GpuTensor::from_data(&self.device, &self.queue, &input.to_vec(&self.device, &self.queue), &[1, input.shape[0]])?
+            }
+            2 => input.clone(),
+            _ => {
+                return Err(CoreError::InvalidShape {
+                    shape: input.shape.clone(),
+                    reason: "linear expects rank-1 or rank-2 input".into(),
+                });
+            }
+        };
+
+        // weight is [out_dim, in_dim]; transpose to [in_dim, out_dim] for matmul
+        let w_t = self.transpose(w)?;
+        let output = self.matmul(&x, &w_t)?;
+
+        match bias {
+            Some(b) => self.add_row_vector(&output, b.tensor()),
+            None => Ok(output),
+        }
     }
 
     fn sigmoid(&self, x: &GpuTensor) -> CoreResult<GpuTensor> {
@@ -1338,15 +1438,42 @@ impl TensorOps<WgpuBackend> for WgpuOps {
         GpuTensor::from_data(&self.device, &self.queue, &[sum], &[1])
     }
 
+    fn tensor_to_vec(&self, x: &GpuTensor) -> CoreResult<Vec<f32>> {
+        Ok(x.to_vec(&self.device, &self.queue))
+    }
+
     fn tensor_element(&self, x: &GpuTensor, index: usize) -> CoreResult<f32> {
-        let data = x.to_vec(&self.device, &self.queue);
-        data.get(index).copied().ok_or_else(|| {
-            CoreError::InvalidArgument(format!(
+        if index >= x.size {
+            return Err(CoreError::InvalidArgument(format!(
                 "index {} out of bounds for tensor with {} elements",
-                index,
-                data.len()
-            ))
-        })
+                index, x.size
+            )));
+        }
+        let offset = (index * 4) as u64;
+        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("element_staging"),
+            size: 4,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        encoder.copy_buffer_to_buffer(&x.buffer, offset, &staging_buffer, 0, 4);
+        self.queue.submit(Some(encoder.finish()));
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let slice = staging_buffer.slice(..);
+        slice.map_async(wgpu::MapMode::Read, move |_| {
+            let _ = tx.send(());
+        });
+        self.device.poll(wgpu::Maintain::Wait);
+        rx.recv().expect("GPU buffer mapping failed");
+
+        let data = slice.get_mapped_range();
+        let result = bytemuck::cast_slice(&data)[0];
+        drop(data);
+        staging_buffer.unmap();
+        Ok(result)
     }
 }
 
@@ -1633,5 +1760,127 @@ mod tests {
             4.0, 5.0, 6.0,
         ]);
         assert_eq!(gathered.shape, vec![3, 3]);
+    }
+
+    #[test]
+    fn test_wgpu_linear() {
+        let backend = match get_backend() {
+            Some(b) => b,
+            None => return,
+        };
+
+        // input: [2, 3]
+        let input = backend.tensor_from_vec(vec![
+            1.0f32, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+        ], &[2, 3]).unwrap();
+        // weight: [2, 3] -> out=2, in=3
+        let weight = backend.tensor_from_vec(vec![
+            1.0f32, 0.0, 1.0,
+            0.0, 1.0, 1.0,
+        ], &[2, 3]).unwrap();
+        let weight_param = mnr_core::Parameter::new("w", weight);
+        // bias: [2]
+        let bias = backend.tensor_from_vec(vec![1.0f32, 2.0], &[2]).unwrap();
+        let bias_param = mnr_core::Parameter::new("b", bias);
+
+        let output = backend.ops().linear(&input, &weight_param, Some(&bias_param)).unwrap();
+        let data = backend.to_vec(&output);
+
+        // row0: [1,2,3] dot [1,0,1]=4, [0,1,1]=5 -> +bias [1,2] = [5,7]
+        // row1: [4,5,6] dot [1,0,1]=10, [0,1,1]=11 -> +bias [1,2] = [11,13]
+        assert_eq!(data, vec![5.0, 7.0, 11.0, 13.0]);
+        assert_eq!(output.shape, vec![2, 2]);
+    }
+
+    #[test]
+    fn test_wgpu_add_row_vector() {
+        let backend = match get_backend() {
+            Some(b) => b,
+            None => return,
+        };
+
+        let a = backend.tensor_from_vec(vec![
+            1.0f32, 2.0, 3.0,
+            4.0, 5.0, 6.0,
+        ], &[2, 3]).unwrap();
+        let row = backend.tensor_from_vec(vec![10.0f32, 20.0, 30.0], &[3]).unwrap();
+
+        let c = backend.ops().add_row_vector(&a, &row).unwrap();
+        let data = backend.to_vec(&c);
+
+        assert_eq!(data, vec![11.0, 22.0, 33.0, 14.0, 25.0, 36.0]);
+    }
+
+    #[test]
+    fn test_wgpu_softmax_2d() {
+        let backend = match get_backend() {
+            Some(b) => b,
+            None => return,
+        };
+
+        let a = backend.tensor_from_vec(vec![
+            1.0f32, 2.0, 3.0,
+            1.0, 2.0, 3.0,
+        ], &[2, 3]).unwrap();
+
+        let c = backend.ops().softmax(&a).unwrap();
+        let data = backend.to_vec(&c);
+
+        // Each row should sum to 1
+        let row0_sum: f32 = data[0..3].iter().sum();
+        let row1_sum: f32 = data[3..6].iter().sum();
+        assert!((row0_sum - 1.0).abs() < 1e-5, "row0 sum = {}", row0_sum);
+        assert!((row1_sum - 1.0).abs() < 1e-5, "row1 sum = {}", row1_sum);
+        // Both rows are identical input, so output should match
+        assert_eq!(data[0..3], data[3..6]);
+    }
+
+    #[test]
+    fn test_wgpu_log_softmax_2d() {
+        let backend = match get_backend() {
+            Some(b) => b,
+            None => return,
+        };
+
+        let a = backend.tensor_from_vec(vec![
+            1.0f32, 2.0, 3.0,
+            1.0, 2.0, 3.0,
+        ], &[2, 3]).unwrap();
+
+        let c = backend.ops().log_softmax(&a).unwrap();
+        let data = backend.to_vec(&c);
+
+        // exp(log_softmax) should sum to 1 per row
+        let row0_sum: f32 = data[0..3].iter().map(|&v| v.exp()).sum();
+        let row1_sum: f32 = data[3..6].iter().map(|&v| v.exp()).sum();
+        assert!((row0_sum - 1.0).abs() < 1e-5, "row0 sum = {}", row0_sum);
+        assert!((row1_sum - 1.0).abs() < 1e-5, "row1 sum = {}", row1_sum);
+    }
+
+    #[test]
+    fn test_wgpu_tensor_element() {
+        let backend = match get_backend() {
+            Some(b) => b,
+            None => return,
+        };
+
+        let a = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0], &[4]).unwrap();
+
+        assert_eq!(backend.ops().tensor_element(&a, 0).unwrap(), 1.0);
+        assert_eq!(backend.ops().tensor_element(&a, 2).unwrap(), 3.0);
+        assert_eq!(backend.ops().tensor_element(&a, 3).unwrap(), 4.0);
+    }
+
+    #[test]
+    fn test_wgpu_tensor_to_vec() {
+        let backend = match get_backend() {
+            Some(b) => b,
+            None => return,
+        };
+
+        let a = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0], &[2, 2]).unwrap();
+        let data = backend.ops().tensor_to_vec(&a).unwrap();
+        assert_eq!(data, vec![1.0, 2.0, 3.0, 4.0]);
     }
 }

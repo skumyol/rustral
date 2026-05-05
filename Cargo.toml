@@ -22,6 +22,7 @@ mnr-metrics = { path = "crates/metrics" }
 mnr-autotuner = { path = "crates/autotuner" }
 mnr-io = { path = "crates/io" }
 mnr-hf = { path = "crates/hf" }
+mnr-candle-backend = { path = "crates/candle-backend" }
 
 [dev-dependencies]
 rand = { workspace = true }

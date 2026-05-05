@@ -19,3 +19,5 @@ thiserror = { workspace = true }
 rand = { workspace = true }
 
 [dev-dependencies]
+mnr-ndarray-backend = { path = "../ndarray-backend" }
+mnr-nn = { path = "../nn" }

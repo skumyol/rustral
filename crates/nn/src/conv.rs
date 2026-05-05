@@ -1,7 +1,7 @@
 //! Convolutional layers for neural networks.
 
 use mnr_core::{
-    Backend, CoreError, ForwardCtx, Module, Parameter, ParameterRef, Result, ShapeExt, Trainable,
+    Backend, CoreError, ForwardCtx, Module, Parameter, ParameterRef, Result, Trainable,
 };
 use serde::{Deserialize, Serialize};
 
@@ -138,14 +138,20 @@ impl<B: Backend> Module<B> for Conv2d<B> {
         let stride_w = self.config.stride_w;
         let padding = !self.config.no_padding;
 
-        // Extract input values - this is O(n) scalar extraction
-        // For production use, backends should implement Conv2d via specialized kernels
-        let input_values: Vec<f32> =
-            (0..input_shape.elem_count()).filter_map(|i| ops.tensor_element(&input, i).ok()).collect();
-
-        // Extract filter values
-        let filter_values: Vec<f32> =
-            (0..filter_shape.elem_count()).filter_map(|i| ops.tensor_element(filter, i).ok()).collect();
+        // Extract input, filter and (optional) bias values in a single bulk read per tensor.
+        // This avoids O(n) roundtrips on GPU backends.
+        let input_values = ops.tensor_to_vec(&input).map_err(|e| {
+            CoreError::Backend(format!("Conv2d failed to read input: {e}"))
+        })?;
+        let filter_values = ops.tensor_to_vec(filter).map_err(|e| {
+            CoreError::Backend(format!("Conv2d failed to read filter: {e}"))
+        })?;
+        let bias_values: Option<Vec<f32>> = match self.bias {
+            Some(ref b) => Some(ops.tensor_to_vec(b.tensor()).map_err(|e| {
+                CoreError::Backend(format!("Conv2d failed to read bias: {e}"))
+            })?),
+            None => None,
+        };
 
         // Perform convolution
         let total_outputs = batch * out_channels * out_h * out_w;
@@ -180,8 +186,8 @@ impl<B: Backend> Module<B> for Conv2d<B> {
                 }
             }
             // Add bias if present
-            if let Some(ref bias) = self.bias {
-                sum += ops.tensor_element(bias.tensor(), oc).unwrap_or(0.0);
+            if let Some(ref bias) = bias_values {
+                sum += bias.get(oc).copied().unwrap_or(0.0);
             }
             sum
         };
@@ -263,9 +269,10 @@ pub fn max_pool2d<B: Backend>(
     let out_h = if no_padding { (in_h - window_h) / stride_h + 1 } else { (in_h + stride_h - 1) / stride_h };
     let out_w = if no_padding { (in_w - window_w) / stride_w + 1 } else { (in_w + stride_w - 1) / stride_w };
 
-    // Extract input values
-    let input_values: Vec<f32> =
-        (0..input_shape.elem_count()).filter_map(|i| ops.tensor_element(input, i).ok()).collect();
+    // Extract input values in a single bulk read.
+    let input_values = ops.tensor_to_vec(input).map_err(|e| {
+        CoreError::Backend(format!("max_pool2d failed to read input: {e}"))
+    })?;
 
     let mut output_values = vec![f32::NEG_INFINITY; batch * channels * out_h * out_w];
 

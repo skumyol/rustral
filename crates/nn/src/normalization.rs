@@ -85,19 +85,22 @@ impl<B: Backend> Module<B> for LayerNorm<B> {
         let total_elems = input_shape.elem_count();
         let num_groups = total_elems / norm_elem_count;
 
-        // Extract input values
-        let input_values: Vec<f32> =
-            (0..total_elems).filter_map(|i| ops.tensor_element(&input, i).ok()).collect();
-
+        // Extract input, gamma and beta values in a single bulk read per tensor.
+        let input_values = match ops.tensor_to_vec(&input) {
+            Ok(v) => v,
+            Err(_) => return Ok(input),
+        };
         if input_values.len() != total_elems {
             return Ok(input);
         }
-
-        // Get gamma and beta parameters
-        let gamma_values: Vec<f32> =
-            (0..norm_elem_count).filter_map(|i| ops.tensor_element(self.weight.tensor(), i).ok()).collect();
-        let beta_values: Vec<f32> =
-            (0..norm_elem_count).filter_map(|i| ops.tensor_element(self.bias.tensor(), i).ok()).collect();
+        let gamma_values = match ops.tensor_to_vec(self.weight.tensor()) {
+            Ok(v) => v,
+            Err(_) => return Ok(input),
+        };
+        let beta_values = match ops.tensor_to_vec(self.bias.tensor()) {
+            Ok(v) => v,
+            Err(_) => return Ok(input),
+        };
 
         let mut output_values = vec![0.0f32; total_elems];
         let eps = self.config.eps;
@@ -210,19 +213,22 @@ impl<B: Backend> Module<B> for BatchNorm<B> {
         let total_elems = input_shape.elem_count();
         let elems_per_channel = batch * spatial;
 
-        // Extract input values
-        let input_values: Vec<f32> =
-            (0..total_elems).filter_map(|i| ops.tensor_element(&input, i).ok()).collect();
-
+        // Extract input, gamma and beta values in a single bulk read per tensor.
+        let input_values = match ops.tensor_to_vec(&input) {
+            Ok(v) => v,
+            Err(_) => return Ok(input),
+        };
         if input_values.len() != total_elems {
             return Ok(input);
         }
-
-        // Get gamma and beta parameters
-        let gamma_values: Vec<f32> =
-            (0..num_features).filter_map(|i| ops.tensor_element(self.weight.tensor(), i).ok()).collect();
-        let beta_values: Vec<f32> =
-            (0..num_features).filter_map(|i| ops.tensor_element(self.bias.tensor(), i).ok()).collect();
+        let gamma_values = match ops.tensor_to_vec(self.weight.tensor()) {
+            Ok(v) => v,
+            Err(_) => return Ok(input),
+        };
+        let beta_values = match ops.tensor_to_vec(self.bias.tensor()) {
+            Ok(v) => v,
+            Err(_) => return Ok(input),
+        };
 
         let mut output_values = vec![0.0f32; total_elems];
         let eps = self.config.eps;

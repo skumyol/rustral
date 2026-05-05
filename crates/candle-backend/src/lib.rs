@@ -97,7 +97,9 @@ impl CandleBackend {
 
     /// Read tensor data back to host as a flat Vec<f32>.
     pub fn to_vec(&self, tensor: &Tensor) -> Vec<f32> {
-        tensor.to_vec1::<f32>().unwrap_or_default()
+        tensor.flatten_all()
+            .and_then(|t| t.to_vec1::<f32>())
+            .unwrap_or_default()
     }
 }
 
@@ -198,10 +200,14 @@ impl TensorOps<CandleBackend> for CandleOps {
         // Manual softmax over all elements
         let flat = x.flatten_all().map_err(|e| CoreError::Backend(e.to_string()))?;
         let max_val = flat.max(0).map_err(|e| CoreError::Backend(e.to_string()))?;
-        let shifted = (&flat - max_val).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let max_broadcast = max_val.broadcast_as(flat.dims())
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let shifted = (&flat - max_broadcast).map_err(|e| CoreError::Backend(e.to_string()))?;
         let exp_shifted = shifted.exp().map_err(|e| CoreError::Backend(e.to_string()))?;
         let sum_exp = exp_shifted.sum(0).map_err(|e| CoreError::Backend(e.to_string()))?;
-        let result = (exp_shifted / sum_exp).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let sum_broadcast = sum_exp.broadcast_as(flat.dims())
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let result = (exp_shifted / sum_broadcast).map_err(|e| CoreError::Backend(e.to_string()))?;
         result.reshape(x.dims())
             .map_err(|e| CoreError::Backend(e.to_string()))
     }
@@ -210,11 +216,15 @@ impl TensorOps<CandleBackend> for CandleOps {
         // Manual log-softmax over all elements
         let flat = x.flatten_all().map_err(|e| CoreError::Backend(e.to_string()))?;
         let max_val = flat.max(0).map_err(|e| CoreError::Backend(e.to_string()))?;
-        let shifted = (&flat - max_val).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let max_broadcast = max_val.broadcast_as(flat.dims())
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let shifted = (&flat - max_broadcast).map_err(|e| CoreError::Backend(e.to_string()))?;
         let exp_shifted = shifted.exp().map_err(|e| CoreError::Backend(e.to_string()))?;
         let sum_exp = exp_shifted.sum(0).map_err(|e| CoreError::Backend(e.to_string()))?;
         let log_sum = sum_exp.log().map_err(|e| CoreError::Backend(e.to_string()))?;
-        let result = (flat - log_sum).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let log_broadcast = log_sum.broadcast_as(flat.dims())
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let result = (flat - log_broadcast).map_err(|e| CoreError::Backend(e.to_string()))?;
         result.reshape(x.dims())
             .map_err(|e| CoreError::Backend(e.to_string()))
     }
@@ -365,6 +375,13 @@ impl TensorOps<CandleBackend> for CandleOps {
 
     fn sum_all(&self, x: &Tensor) -> Result<Tensor> {
         x.sum_all().map_err(|e| CoreError::Backend(e.to_string()))
+    }
+
+    fn tensor_to_vec(&self, x: &Tensor) -> Result<Vec<f32>> {
+        x.flatten_all()
+            .map_err(|e| CoreError::Backend(e.to_string()))?
+            .to_vec1()
+            .map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn tensor_element(&self, x: &Tensor, index: usize) -> Result<f32> {

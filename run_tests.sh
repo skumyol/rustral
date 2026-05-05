@@ -69,6 +69,7 @@ run_test "mnr-io"
 run_test "mnr-metrics"
 run_test "mnr-distributed"
 run_test "mnr-autotuner"
+run_test "mnr-candle-backend"
 run_test "mnr-wgpu-backend"
 
 # Run root integration tests

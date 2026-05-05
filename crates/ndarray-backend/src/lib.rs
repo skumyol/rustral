@@ -703,6 +703,11 @@ impl TensorOps<CpuBackend> for CpuOps {
         CpuTensor::new(vec![sum], &[1])
     }
 
+    /// Read all tensor values into a flat row-major vector.
+    fn tensor_to_vec(&self, x: &CpuTensor) -> Result<Vec<f32>> {
+        Ok(x.values.clone())
+    }
+
     /// Extract a single scalar element from a tensor at a flat index.
     fn tensor_element(&self, x: &CpuTensor, index: usize) -> Result<f32> {
         x.values.get(index).copied().ok_or_else(|| {

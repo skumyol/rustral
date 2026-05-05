@@ -156,6 +156,13 @@ pub trait TensorOps<B: Backend>: Send + Sync {
     /// Sum all elements of a tensor into a scalar.
     fn sum_all(&self, x: &B::Tensor) -> Result<B::Tensor>;
 
+    /// Read all tensor values back into a flat row-major vector.
+    ///
+    /// This is the efficient counterpart to `tensor_element` for bulk access.
+    /// CPU backends can usually provide a zero-copy view; GPU backends
+    /// perform a single device-to-host transfer.
+    fn tensor_to_vec(&self, x: &B::Tensor) -> Result<Vec<f32>>;
+
     /// Extract a single scalar element from a tensor at a flat index.
     ///
     /// This is useful for retrieving specific values from 1D tensors,
