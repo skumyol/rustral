@@ -109,3 +109,9 @@ docs/legacy-mapping.md
 rustral_logo_assets.zip
 scripts/publish_crates_io.sh
 vendor/*
+IMPROVEMENT_PLAN.md
+docs/assets/rustral_system_diagram_download.zip
+docs/assets/rustral_system_diagram_download/rustral_system_diagram_mermaid.md
+docs/assets/rustral_system_diagram_download/rustral_system_diagram.mmd
+docs/assets/rustral_system_diagram_download/rustral_system_diagram.png
+docs/assets/rustral_system_diagram_download/rustral_system_diagram.svg
