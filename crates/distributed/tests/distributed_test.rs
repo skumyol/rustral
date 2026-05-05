@@ -3,16 +3,15 @@
 //! Tests data parallelism, tensor parallelism, ZeRO, and checkpointing.
 
 use std::fs;
-use std::sync::Arc;
 use std::thread;
 
-use mnr_core::{Backend, ForwardCtx, Mode, Parameter, TensorOps};
+use mnr_core::{Backend, ForwardCtx, Mode};
 use mnr_distributed::{
-    AsyncCheckpointWriter, DataParallelTrainer, DistributedCheckpointManager, GradientAccumulator,
+    DataParallelTrainer, DistributedCheckpointManager,
     ParallelStyle, ProcessGroup, TensorParallelLinear, ZeRoMemoryStats, ZeroOptimizer,
 };
 use mnr_ndarray_backend::CpuBackend;
-use mnr_optim::{Adam, Gradient, Optimizer};
+use mnr_optim::{Adam, Gradient};
 
 /// Test single-process data parallel trainer.
 #[test]
@@ -155,7 +154,7 @@ fn test_distributed_checkpoint_manager() {
     let temp_dir = tempfile::tempdir().unwrap();
     let pg = ProcessGroup::new_single_process();
 
-    let manager = DistributedCheckpointManager::new(pg, temp_dir.path(), 3).unwrap();
+    let _manager = DistributedCheckpointManager::new(pg, temp_dir.path(), 3).unwrap();
 
     // Check directory was created
     assert!(temp_dir.path().exists());
@@ -164,7 +163,7 @@ fn test_distributed_checkpoint_manager() {
 /// Test ZeRO optimizer wrapping.
 #[test]
 fn test_zero_optimizer_creation() {
-    let backend = CpuBackend::default();
+    let _backend = CpuBackend::default();
     let pg = ProcessGroup::new_single_process();
     let adam = Adam::<CpuBackend>::new(0.001);
 
@@ -264,7 +263,7 @@ fn test_gradient_accumulation() {
 /// Test checkpoint saving and loading.
 #[test]
 fn test_checkpoint_save_load() {
-    use std::fs;
+    
 
     let temp_dir = tempfile::tempdir().unwrap();
     let backend = CpuBackend::default();
@@ -299,7 +298,7 @@ fn test_list_checkpoints() {
     let temp_dir = tempfile::tempdir().unwrap();
     let pg = ProcessGroup::new_single_process();
 
-    let mut manager = DistributedCheckpointManager::new(pg, temp_dir.path(), 5).unwrap();
+    let manager = DistributedCheckpointManager::new(pg, temp_dir.path(), 5).unwrap();
 
     // Create fake checkpoint directories
     fs::create_dir(temp_dir.path().join("epoch_0")).unwrap();
@@ -317,8 +316,8 @@ fn test_list_checkpoints() {
 #[test]
 fn test_async_checkpoint_writer() {
     use mnr_distributed::AsyncCheckpointWriter;
-    use std::fs;
-    use std::path::PathBuf;
+    
+    
 
     let temp_dir = tempfile::tempdir().unwrap();
     let writer = AsyncCheckpointWriter::new();
