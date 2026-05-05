@@ -5,7 +5,9 @@
 use mnr_core::{Backend, CoreError, ForwardCtx, Mode, Module, TensorOps};
 use mnr_ndarray_backend::CpuBackend;
 use mnr_nn::{
-    Conv2d, Conv2dConfig, Dropout, DropoutConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig,
+    Conv2d, Conv2dConfig, Dropout, DropoutConfig, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig,
+    Linear, LinearConfig, SelfAttention, SelfAttentionConfig, TransformerDecoder, TransformerDecoderConfig,
+    TransformerEncoder, TransformerEncoderConfig,
 };
 
 use crate::common::TestRunner;
@@ -332,8 +334,8 @@ fn test_dropout_determinism(runner: &mut TestRunner) {
         let output2 =
             dropout.forward(input, &mut ctx2).map_err(|e| format!("Second forward failed: {}", e))?;
 
-        let _data1: Vec<f32> = output1.as_ref().to_vec();
-        let _data2: Vec<f32> = output2.as_ref().to_vec();
+        let data1: Vec<f32> = output1.as_ref().to_vec();
+        let data2: Vec<f32> = output2.as_ref().to_vec();
 
         let mut inf_ctx = ForwardCtx::new(&backend, Mode::Inference);
         let inf_output = dropout

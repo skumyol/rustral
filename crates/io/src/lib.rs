@@ -123,6 +123,29 @@ where
     Ok(result)
 }
 
+/// Save a state dictionary (name -> flat f32 values) to a Safetensors byte buffer.
+///
+/// Since the state dictionary does not carry shape information, each tensor
+/// is stored as a 1-D array. The consumer (typically `Saveable::load_state_dict`)
+/// is expected to know the expected shapes and reshape accordingly.
+///
+/// # Example
+/// ```ignore
+/// let mut dict = HashMap::new();
+/// dict.insert("weight".to_string(), vec![1.0, 2.0, 3.0, 4.0]);
+/// let bytes = save_state_dict(&dict).unwrap();
+/// std::fs::write("model.safetensors", &bytes).unwrap();
+/// ```
+pub fn save_state_dict(state_dict: &HashMap<String, Vec<f32>>) -> Result<Vec<u8>, IoError> {
+    let mut views: HashMap<String, TensorData> = HashMap::with_capacity(state_dict.len());
+    for (name, data) in state_dict {
+        let shape = vec![data.len()];
+        let bytes: Vec<u8> = bytemuck::cast_slice(data).to_vec();
+        views.insert(name.clone(), TensorData { shape, data: bytes });
+    }
+    Ok(serialize(views, &None)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +189,19 @@ mod tests {
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded.get("w").unwrap().len(), 4);
         assert_eq!(loaded.get("b").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_save_state_dict_roundtrip() {
+        let mut dict = HashMap::new();
+        dict.insert("weight".to_string(), vec![1.0f32, 2.0, 3.0, 4.0]);
+        dict.insert("bias".to_string(), vec![0.5f32, 0.5f32]);
+
+        let bytes = save_state_dict(&dict).unwrap();
+        let loaded = load_parameters::<CpuBackend>(&bytes).unwrap();
+
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded.get("weight").unwrap(), &vec![1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(loaded.get("bias").unwrap(), &vec![0.5, 0.5]);
     }
 }

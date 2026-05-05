@@ -2,9 +2,12 @@
 
 use mnr_core::{Backend, CoreError, ForwardCtx, Mode, Module};
 use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{Linear, LinearConfig, TransformerEncoder, TransformerEncoderConfig};
+use mnr_nn::{
+    Conv2d, Conv2dConfig, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig,
+    SelfAttention, SelfAttentionConfig, TransformerEncoder, TransformerEncoderConfig,
+};
 
-use crate::common::TestRunner;
+use crate::common::{run_performance_test, PerfConfig, TestRunner};
 
 pub fn run_all(runner: &mut TestRunner) {
     test_zero_dimensions(runner);

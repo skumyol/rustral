@@ -35,11 +35,13 @@
 //! ```
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use mnr_core::{
-    Backend, CoreError, ForwardCtx, Module, Parameter, ParameterId, Result, TensorOps, TensorShape, Trainable,
+    Backend, CoreError, ForwardCtx, Mode, Module, Parameter, ParameterId, Result, TensorOps, TensorShape,
+    Trainable,
 };
-use mnr_optim::{AdamCheckpoint, Gradient, OptimError, Optimizer};
+use mnr_optim::{Adam, AdamCheckpoint, Gradient, OptimError, Optimizer};
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
 
@@ -163,7 +165,7 @@ where
 
         // Create sharded parameters from explicit parameter list
         // Note: caller should pass parameters extracted from the model
-        let sharded_params = HashMap::new();
+        let mut sharded_params = HashMap::new();
         let all_params = Vec::new();
 
         Ok(Self {

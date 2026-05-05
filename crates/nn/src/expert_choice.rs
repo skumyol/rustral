@@ -106,7 +106,7 @@ pub struct ExpertChoiceRouter<B: Backend> {
 }
 
 impl<B: Backend> ExpertChoiceRouter<B> {
-    pub fn new(backend: &B, config: ExpertChoiceConfig, _seed: u64) -> Result<Self> {
+    pub fn new(backend: &B, config: ExpertChoiceConfig, seed: u64) -> Result<Self> {
         let router =
             Linear::new(backend, LinearConfig::new(config.d_model, config.num_experts).with_bias(false))?;
 
@@ -180,7 +180,7 @@ impl<B: Backend> ExpertChoiceRouter<B> {
     }
 
     /// Softmax over experts dimension.
-    fn softmax(&self, logits: &B::Tensor, _ops: &dyn TensorOps<B>) -> Result<Vec<f32>>
+    fn softmax(&self, logits: &B::Tensor, ops: &dyn TensorOps<B>) -> Result<Vec<f32>>
     where
         B::Tensor: AsRef<[f32]>,
     {
@@ -424,7 +424,7 @@ impl RoutingComparison {
         let top_k_imbalance = max_count as f64 / avg.max(1.0);
 
         // Expert choice: perfectly balanced by design
-        let _tokens_per_expert = (num_tokens * top_k) / num_experts;
+        let tokens_per_expert = (num_tokens * top_k) / num_experts;
         let expert_choice_imbalance = 1.0;
 
         let improvement = (top_k_imbalance - expert_choice_imbalance) / top_k_imbalance * 100.0;

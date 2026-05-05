@@ -170,7 +170,9 @@ impl Default for PerfMetrics {
 
 /// Factory for creating kernels with optimal configurations.
 pub struct KernelFactory {
+    #[allow(dead_code)]
     tuner: AutoTuner,
+    #[allow(dead_code)]
     default_configs: HashMap<String, OpConfig>,
 }
 
@@ -220,7 +222,9 @@ impl KernelFactory {
 
 /// Utility to pre-tune common operations.
 pub struct PreTuner {
+    #[allow(dead_code)]
     tuner: AutoTuner,
+    #[allow(dead_code)]
     common_shapes: Vec<Vec<usize>>,
 }
 

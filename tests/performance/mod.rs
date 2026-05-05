@@ -3,11 +3,13 @@
 use mnr_core::{Backend, ForwardCtx, Mode, Module, Trainable};
 use mnr_ndarray_backend::CpuBackend;
 use mnr_nn::{
-    Conv2d, Conv2dConfig, Embedding, EmbeddingConfig, Linear, LinearConfig, SelfAttention,
-    SelfAttentionConfig, TransformerDecoderConfig, TransformerEncoder, TransformerEncoderConfig,
+    Conv2d, Conv2dConfig, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig,
+    SelfAttention, SelfAttentionConfig, TransformerDecoder, TransformerDecoderConfig, TransformerEncoder,
+    TransformerEncoderConfig,
 };
 
 use crate::common::{run_performance_test, PerfConfig, PerfResult, TestRunner};
+use std::time::Duration;
 
 pub fn run_all(runner: &mut TestRunner) {
     let config = PerfConfig::default();
@@ -74,7 +76,7 @@ fn benchmark_linear_medium(runner: &mut TestRunner, config: &PerfConfig) {
 
         println!("  Linear medium ({}x{} -> {}x{}):", batch, in_features, batch, out_features);
         print_perf_result(&result);
-        if result.mean_ms > 20000.0 {
+        if result.mean_ms > 3000.0 {
             return Err(format!("Linear medium too slow: {:.2}ms", result.mean_ms));
         }
         Ok(())
@@ -102,7 +104,7 @@ fn benchmark_linear_large(runner: &mut TestRunner, config: &PerfConfig) {
 
         println!("  Linear large ({}x{} -> {}x{}):", batch, in_features, batch, out_features);
         print_perf_result(&result);
-        if result.mean_ms > 120000.0 {
+        if result.mean_ms > 30000.0 {
             return Err(format!("Linear large too slow: {:.2}ms", result.mean_ms));
         }
         Ok(())
@@ -367,7 +369,7 @@ fn benchmark_memory_scaling(runner: &mut TestRunner) {
                 .map_err(|e| format!("Create linear failed: {}", e))?;
 
             let num_params: usize =
-                linear.parameters().iter().map(|_p| in_features * out_features + out_features).sum();
+                linear.parameters().iter().map(|p| in_features * out_features + out_features).sum();
 
             let input = backend
                 .tensor_from_vec(vec![0.5f32; 64 * in_features], &[64, in_features])

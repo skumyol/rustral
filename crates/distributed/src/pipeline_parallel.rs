@@ -32,7 +32,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use mnr_core::{Backend, ForwardCtx, Module, ParameterRef, Result, Trainable};
+use mnr_core::{Backend, CoreError, ForwardCtx, Mode, Module, Parameter, ParameterRef, Result, Trainable};
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
 
@@ -143,7 +143,7 @@ impl StageSplitter {
         let total_params: usize = params.len();
         let params_per_stage = (total_params + num_stages - 1) / num_stages;
 
-        let stages: Vec<PipelineStage<B>> = (0..num_stages).map(|i| PipelineStage::new(i, i)).collect();
+        let mut stages: Vec<PipelineStage<B>> = (0..num_stages).map(|i| PipelineStage::new(i, i)).collect();
 
         // Simple round-robin assignment
         // In real impl, would analyze model structure and balance by FLOPs

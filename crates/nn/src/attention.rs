@@ -6,6 +6,7 @@
 use crate::{Linear, LinearConfig};
 use mnr_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, TensorOps, Trainable};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Configuration for self-attention.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -502,7 +503,7 @@ where
     B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
 {
     /// Create new Flash Attention layer.
-    pub fn new(backend: &B, config: SelfAttentionConfig, _seed: u64) -> Result<Self> {
+    pub fn new(backend: &B, config: SelfAttentionConfig, seed: u64) -> Result<Self> {
         let q_proj = Linear::new(backend, LinearConfig::new(config.d_model, config.d_model).with_bias(true))?;
 
         let k_proj = Linear::new(backend, LinearConfig::new(config.d_model, config.d_model).with_bias(true))?;
@@ -601,7 +602,7 @@ where
         // For now, use standard attention but with memory-efficient approach
         // Full Flash Attention requires custom kernels
 
-        let _num_blocks = (seq_len + self.block_size - 1) / self.block_size;
+        let num_blocks = (seq_len + self.block_size - 1) / self.block_size;
 
         // Simple implementation: process in blocks but still compute full attention
         // In production, this would use the online softmax algorithm
@@ -626,7 +627,7 @@ where
     }
 
     /// Transpose tensor for attention: [seq, batch, heads, dim] -> [seq, heads, batch, dim].
-    fn transpose_for_attention(&self, x: B::Tensor, _ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
+    fn transpose_for_attention(&self, x: B::Tensor, ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
         // In full implementation, would properly transpose dimensions
         // For now, keep as-is
         Ok(x)
@@ -667,10 +668,10 @@ where
     }
 
     /// Causal softmax (only attends to previous positions).
-    fn causal_softmax(&self, x: &B::Tensor, _seq_len: usize, ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
+    fn causal_softmax(&self, x: &B::Tensor, seq_len: usize, ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
         // Apply causal mask before softmax
         // For positions j > i, set to -inf
-        let _shape = ops.shape(x);
+        let shape = ops.shape(x);
 
         // In full implementation, would apply triangular mask
         // For now, use standard softmax

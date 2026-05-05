@@ -183,6 +183,7 @@ impl SearchStrategy for RandomSearch {
 }
 
 /// Evolutionary search with mutation and crossover.
+#[allow(dead_code)]
 pub struct EvolutionarySearch {
     population_size: usize,
     elite_size: usize,
@@ -194,6 +195,7 @@ pub struct EvolutionarySearch {
     rng: rand::rngs::StdRng,
 }
 
+#[allow(dead_code)]
 impl EvolutionarySearch {
     /// Create a new evolutionary search.
     pub fn new(space: ConfigSpace, population_size: usize, generations: usize, seed: u64) -> Self {
@@ -293,6 +295,7 @@ impl EvolutionarySearch {
 }
 
 /// Bayesian optimization (simplified version).
+#[allow(dead_code)]
 pub struct BayesianSearch {
     space: ConfigSpace,
     max_iterations: usize,

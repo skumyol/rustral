@@ -34,7 +34,7 @@
 //! let output = layer.forward(input, &mut ctx)?;
 //! ```
 
-use mnr_core::{Backend, ForwardCtx, Module, Result, TensorOps};
+use mnr_core::{Backend, CoreError, ForwardCtx, Module, Result, TensorOps};
 use serde::{Deserialize, Serialize};
 
 use crate::{Linear, LinearConfig};
@@ -172,7 +172,7 @@ impl<B: Backend> SharedExpertLayer<B>
 where
     B::Tensor: Clone + AsRef<[f32]> + mnr_core::TensorShape,
 {
-    pub fn new(backend: &B, config: SharedExpertConfig, _seed: u64) -> Result<Self> {
+    pub fn new(backend: &B, config: SharedExpertConfig, seed: u64) -> Result<Self> {
         let mut shared_experts = Vec::with_capacity(config.num_shared);
         for _ in 0..config.num_shared {
             shared_experts.push(ExpertMLP::new(backend, config.d_model, config.expert_hidden_dim)?);
@@ -205,7 +205,7 @@ where
         let flat_input = self.flatten(&input, ops)?;
 
         // 1. Compute shared expert output (always active)
-        let shared_output = self.compute_shared(&flat_input, ctx)?;
+        let mut shared_output = self.compute_shared(&flat_input, ctx)?;
 
         // 2. Route to selected experts
         let routing = self.compute_routing(&flat_input, ctx)?;
@@ -292,7 +292,7 @@ where
 
             // Softmax
             let max_logit = logits_data[start..end].iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-            let exps: Vec<f32> = logits_data[start..end].iter().map(|&x| (x - max_logit).exp()).collect();
+            let mut exps: Vec<f32> = logits_data[start..end].iter().map(|&x| (x - max_logit).exp()).collect();
             let sum_exp: f32 = exps.iter().sum();
             let probs: Vec<f32> = exps.iter().map(|&x| x / sum_exp).collect();
 
@@ -323,7 +323,7 @@ where
     ) -> Result<B::Tensor> {
         let ops = ctx.backend().ops();
         let shape = ops.shape(input);
-        let _num_tokens = shape[0];
+        let num_tokens = shape[0];
 
         let mut output_data: Vec<f32> = vec![0.0f32; shape.iter().product::<usize>()];
         let input_data: Vec<f32> = input.as_ref().to_vec();
@@ -335,7 +335,7 @@ where
         {
             let mut token_output = vec![0.0f32; d_model];
 
-            for (_expert_idx_local, (&expert_global_idx, &weight)) in
+            for (expert_idx_local, (&expert_global_idx, &weight)) in
                 indices.iter().zip(weights.iter()).enumerate()
             {
                 if expert_global_idx >= self.routed_experts.len() {

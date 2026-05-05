@@ -3,8 +3,9 @@
 use mnr_core::{Backend, ForwardCtx, Mode, Module, TensorOps, Trainable};
 use mnr_ndarray_backend::CpuBackend;
 use mnr_nn::{
-    chain, Dropout, DropoutConfig, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear,
-    LinearConfig,
+    chain, Conv2d, Conv2dConfig, Dropout, DropoutConfig, Embedding, EmbeddingConfig, LayerNorm,
+    LayerNormConfig, Linear, LinearConfig, SelfAttention, SelfAttentionConfig, Sequential2,
+    TransformerDecoder, TransformerDecoderConfig, TransformerEncoder, TransformerEncoderConfig,
 };
 
 use crate::common::TestRunner;

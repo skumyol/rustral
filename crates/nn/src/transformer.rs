@@ -30,11 +30,13 @@
 //! let cls_output = encoder.forward(input, &mut ctx)?; // [batch, d_model]
 //! ```
 
-use mnr_core::{Backend, CoreError, ForwardCtx, Module, ParameterRef, Result, TensorOps, Trainable};
+use mnr_core::{
+    Backend, CoreError, ForwardCtx, Module, Parameter, ParameterRef, Result, TensorOps, Trainable,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig, SelfAttention,
+    causal_mask, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig, SelfAttention,
     SelfAttentionConfig,
 };
 
@@ -292,7 +294,7 @@ where
     type Input = B::Tensor;
     type Output = B::Tensor;
 
-    fn forward(&self, input: Self::Input, _ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
+    fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
         // Note: This calls the inherent forward method - need to distinguish
         // For now, just return input (would need refactoring)
         Ok(input)
@@ -802,7 +804,7 @@ where
     /// Logits [batch, tgt_len, vocab_size]
     pub fn forward(&self, src: Vec<usize>, tgt: Vec<usize>, ctx: &mut ForwardCtx<B>) -> Result<B::Tensor> {
         // Encode source
-        let _memory = self.encoder.forward(src, ctx)?;
+        let memory = self.encoder.forward(src, ctx)?;
 
         // Decode target with cross-attention to memory
         // Simplified - full impl would pass memory to decoder

@@ -2,7 +2,10 @@
 
 use mnr_core::{Backend, ForwardCtx, Mode, Module, Trainable};
 use mnr_ndarray_backend::CpuBackend;
-use mnr_nn::{Linear, LinearConfig, TransformerEncoder, TransformerEncoderConfig};
+use mnr_nn::{
+    Embedding, EmbeddingConfig, Linear, LinearConfig, TransformerDecoder, TransformerDecoderConfig,
+    TransformerEncoder, TransformerEncoderConfig,
+};
 
 use crate::common::TestRunner;
 use std::time::{Duration, Instant};
@@ -139,7 +142,7 @@ fn test_long_sequence_processing(runner: &mut TestRunner) {
             let input = vec![100usize; 4 * seq_len];
             let start = Instant::now();
             let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-            let _output = encoder
+            let output = encoder
                 .forward(input, &mut ctx)
                 .map_err(|e| format!("Forward (seq={}) failed: {}", seq_len, e))?;
 

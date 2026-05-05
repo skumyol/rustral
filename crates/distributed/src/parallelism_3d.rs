@@ -27,7 +27,9 @@
 use mnr_core::{Backend, CoreError, ForwardCtx, Module, Result};
 use mnr_nn::{Linear, LinearConfig};
 
-use crate::{DeviceMesh, ParallelismConfig, PipelineParallelTrainer, ProcessGroup, TensorParallelLinear};
+use crate::{
+    DeviceMesh, ParallelismConfig, PipelineParallelTrainer, PipelineStage, ProcessGroup, TensorParallelLinear,
+};
 
 /// 3D Parallel Trainer combining DP, TP, and PP.
 pub struct Parallel3DTrainer<B: Backend> {

@@ -60,7 +60,7 @@ fn smoke_test() {
 
     runner.run_test("smoke_core_module", || {
         // Quick sanity check that core modules load
-        use mnr_core::{ForwardCtx, Mode};
+        use mnr_core::{Backend, ForwardCtx, Mode};
         use mnr_ndarray_backend::CpuBackend;
 
         let backend = CpuBackend::default();
@@ -69,6 +69,7 @@ fn smoke_test() {
     });
 
     runner.run_test("smoke_nn_module", || {
+        use mnr_core::Backend;
         use mnr_ndarray_backend::CpuBackend;
         use mnr_nn::{Linear, LinearConfig};
 
@@ -78,7 +79,7 @@ fn smoke_test() {
     });
 
     runner.run_test("smoke_data_module", || {
-        use mnr_data::DataLoaderConfig;
+        use mnr_data::{DataLoader, DataLoaderConfig, Dataset};
         // Verify data module is available
         let _config = DataLoaderConfig { batch_size: 32, ..Default::default() };
         Ok(())

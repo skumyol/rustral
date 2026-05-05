@@ -21,6 +21,7 @@ mnr-symbolic = { path = "crates/symbolic" }
 mnr-metrics = { path = "crates/metrics" }
 mnr-autotuner = { path = "crates/autotuner" }
 mnr-io = { path = "crates/io" }
+mnr-hf = { path = "crates/hf" }
 
 [dev-dependencies]
 rand = { workspace = true }
@@ -41,6 +42,7 @@ members = [
     "crates/distributed",
     "crates/metrics",
     "crates/autotuner",
+    "crates/hf",
 ]
 resolver = "2"
 

@@ -1,0 +1,20 @@
+[package]
+name = "mnr-hf"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+description = "HuggingFace Hub integration for MNR models"
+
+[dependencies]
+mnr-core = { path = "../core" }
+mnr-io = { path = "../io" }
+mnr-ndarray-backend = { path = "../ndarray-backend" }
+hf-hub = { version = "0.4" }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+mnr-nn = { path = "../nn" }
