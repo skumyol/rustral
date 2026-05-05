@@ -1,6 +1,6 @@
 # Architecture
 
-The runtime follows a layered design.
+The runtime follows a layered design. This file is intentionally short; the canonical roadmap and invariants live in [`docs/master-plan.md`](master-plan.md).
 
 ```text
 Backend

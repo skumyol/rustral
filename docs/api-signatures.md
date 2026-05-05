@@ -1,6 +1,8 @@
 # API Signatures
 
-This document is an explicit, human-readable API inventory. It mirrors the public function signatures in the workspace and explains the purpose of each signature. It is meant to make architectural review easy before adding a production backend.
+This document is an explicit, human-readable API inventory. It mirrors the public function signatures in the workspace and explains the purpose of each signature.
+
+For roadmap/status (what to build next), see [`docs/master-plan.md`](master-plan.md).
 
 ## `rustral-core`
 

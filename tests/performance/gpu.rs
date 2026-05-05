@@ -11,7 +11,7 @@ pub fn benchmark_gpu_smoke(runner: &mut TestRunner, config: &PerfConfig) {
         #[cfg(feature = "cuda")]
         {
             use rustral_candle_backend::CandleBackend;
-            use rustral_core::{Backend, ForwardCtx, Mode, TensorOps};
+            use rustral_core::{Backend, TensorOps};
 
             let backend = CandleBackend::cuda(0).map_err(|e| format!("CUDA backend init failed: {:?}", e))?;
             let ops = backend.ops();
@@ -28,9 +28,6 @@ pub fn benchmark_gpu_smoke(runner: &mut TestRunner, config: &PerfConfig) {
                 .tensor_from_vec(vec![0.01f32; k * n], &[k, n])
                 .map_err(|e| format!("Create B failed: {:?}", e))?;
 
-            // Make sure we run in a ForwardCtx to match normal call paths.
-            let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-
             // Warmup + perf loop. Avoid host<->device transfers inside the loop.
             let mut cfg = config.clone();
             cfg.warmup_iterations = cfg.warmup_iterations.max(2);
@@ -39,6 +36,10 @@ pub fn benchmark_gpu_smoke(runner: &mut TestRunner, config: &PerfConfig) {
 
             let result = run_performance_test(&cfg, || {
                 let y = ops.matmul(&a, &b).unwrap();
+                // Ensure the GPU work is actually completed before we stop the timer.
+                // Without a sync point, CUDA matmuls can appear "too fast" due to async dispatch.
+                let y_sum = ops.sum_all(&y).unwrap();
+                let _ = ops.tensor_to_vec(&y_sum).unwrap();
                 // Prevent the compiler from eliding the work.
                 std::hint::black_box(&y);
             });

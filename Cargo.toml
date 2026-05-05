@@ -108,7 +108,4 @@ opt-level = 3
 debug = false
 lto = "thin"
 
-# Workaround: CUDA 12.0 + sm75 build failure in `candle-kernels` (`__hmax_nan` / `__hmin_nan`).
-# We patch the crate locally (vendored) to keep CUDA 12.0 + sm75 compiling.
-[patch.crates-io]
-candle-kernels = { path = "vendor/candle-kernels" }
+ 

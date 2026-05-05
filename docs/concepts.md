@@ -2,6 +2,8 @@
 
 > **A beginner-friendly explanation of core ideas in Rustral**
 
+For roadmap/status (what to build next), see [`docs/master-plan.md`](master-plan.md). This file is a tutorial and intentionally avoids “phase” claims.
+
 This document explains every concept you'll encounter when building neural networks with Rustral. No prior Rust knowledge is required—just basic familiarity with how neural networks work.
 
 ---
