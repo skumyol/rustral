@@ -43,6 +43,7 @@ members = [
     "crates/metrics",
     "crates/autotuner",
     "crates/hf",
+    "crates/candle-backend",
 ]
 resolver = "2"
 
