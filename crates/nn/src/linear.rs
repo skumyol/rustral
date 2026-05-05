@@ -165,18 +165,18 @@ impl<B: Backend> Saveable<B> for Linear<B> {
 
     fn load_state_dict(&mut self, dict: &HashMap<String, Vec<f32>>, backend: &B) -> Result<()> {
         // Load weight
-        let weight_data = dict
-            .get("weight")
-            .ok_or_else(|| rustral_core::CoreError::InvalidArgument("Missing 'weight' in state_dict".into()))?;
+        let weight_data = dict.get("weight").ok_or_else(|| {
+            rustral_core::CoreError::InvalidArgument("Missing 'weight' in state_dict".into())
+        })?;
         let weight_shape = &[self.config.out_dim, self.config.in_dim];
         let new_weight = backend.parameter_from_vec("weight", weight_data.clone(), weight_shape)?;
         self.weight = new_weight;
 
         // Load bias if present
         if self.config.bias {
-            let bias_data = dict
-                .get("bias")
-                .ok_or_else(|| rustral_core::CoreError::InvalidArgument("Missing 'bias' in state_dict".into()))?;
+            let bias_data = dict.get("bias").ok_or_else(|| {
+                rustral_core::CoreError::InvalidArgument("Missing 'bias' in state_dict".into())
+            })?;
             let bias_shape = &[self.config.out_dim];
             let new_bias = backend.parameter_from_vec("bias", bias_data.clone(), bias_shape)?;
             self.bias = Some(new_bias);

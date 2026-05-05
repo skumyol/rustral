@@ -18,7 +18,8 @@ pub struct Vocabulary {
 
 impl Vocabulary {
     pub fn from_text(text: &str) -> Self {
-        let mut chars: Vec<char> = text.chars().collect::<std::collections::HashSet<_>>().into_iter().collect();
+        let mut chars: Vec<char> =
+            text.chars().collect::<std::collections::HashSet<_>>().into_iter().collect();
         chars.sort();
 
         let mut char_to_idx = HashMap::new();
@@ -26,10 +27,7 @@ impl Vocabulary {
             char_to_idx.insert(ch, idx);
         }
 
-        Self {
-            char_to_idx,
-            idx_to_char: chars,
-        }
+        Self { char_to_idx, idx_to_char: chars }
     }
 
     pub fn encode(&self, ch: char) -> usize {

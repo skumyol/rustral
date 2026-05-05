@@ -32,7 +32,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use rustral_core::{Backend, CoreError, ForwardCtx, Mode, Module, Parameter, ParameterRef, Result, Trainable};
+use rustral_core::{
+    Backend, CoreError, ForwardCtx, Mode, Module, Parameter, ParameterRef, Result, Trainable,
+};
 
 use crate::{DistributedError, DistributedResult, ProcessGroup};
 

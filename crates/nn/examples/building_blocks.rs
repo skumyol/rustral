@@ -42,8 +42,8 @@ fn main() {
     // Creating tensors
     println!("  Creating a 2D tensor (matrix):");
     let data = vec![
-        1.0, 2.0, 3.0,  // Row 1
-        4.0, 5.0, 6.0,  // Row 2
+        1.0, 2.0, 3.0, // Row 1
+        4.0, 5.0, 6.0, // Row 2
     ];
     let tensor_2d = backend.tensor_from_vec(data.clone(), &[2, 3]).unwrap();
     println!("    Data: {:?}", data);
@@ -52,11 +52,11 @@ fn main() {
 
     // Tensor operations
     println!("  Tensor operations:");
-    let zeros = ops.zeros(&[2, 2]).unwrap();
+    let _zeros = ops.zeros(&[2, 2]).unwrap();
     println!("    Zeros [2,2]: created");
 
     // Create ones manually
-    let ones = backend.tensor_from_vec(vec![1.0, 1.0, 1.0, 1.0], &[2, 2]).unwrap();
+    let _ones = backend.tensor_from_vec(vec![1.0, 1.0, 1.0, 1.0], &[2, 2]).unwrap();
     println!("    Ones [2,2]: created manually\n");
 
     // Element-wise operations
@@ -98,8 +98,7 @@ fn main() {
     println!("  Linear, Conv2d, and even your entire model are Modules.\n");
 
     // Create a linear layer
-    let linear = Linear::new(&backend, LinearConfig::new(3, 2))
-        .expect("Failed to create linear layer");
+    let linear = Linear::new(&backend, LinearConfig::new(3, 2)).expect("Failed to create linear layer");
     println!("  ✓ Created Linear layer (3 -> 2)");
 
     // Create input

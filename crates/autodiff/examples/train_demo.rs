@@ -9,8 +9,8 @@
 //!
 //! Run with: `cargo run --bin train_demo`
 
-use rustral_autodiff::{Tape, GradExt, GradExtFromStore};
-use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_autodiff::{GradExtFromStore, Tape};
+use rustral_core::{Backend, ForwardCtx, Mode};
 use rustral_ndarray_backend::CpuBackend;
 
 fn main() {
@@ -32,10 +32,10 @@ fn main() {
 
     // Training data: y = 2x + 1
     let training_data = vec![
-        (vec![1.0], vec![3.0]),   // y = 2*1 + 1 = 3
-        (vec![2.0], vec![5.0]),   // y = 2*2 + 1 = 5
-        (vec![3.0], vec![7.0]),   // y = 2*3 + 1 = 7
-        (vec![4.0], vec![9.0]),   // y = 2*4 + 1 = 9
+        (vec![1.0], vec![3.0]), // y = 2*1 + 1 = 3
+        (vec![2.0], vec![5.0]), // y = 2*2 + 1 = 5
+        (vec![3.0], vec![7.0]), // y = 2*3 + 1 = 7
+        (vec![4.0], vec![9.0]), // y = 2*4 + 1 = 9
     ];
 
     // Training loop
@@ -81,10 +81,8 @@ fn main() {
             let grads = tape.backward(y_pred, make_ones, ops).unwrap();
 
             // Get gradients
-            let w_grad = w.gradient_from_store(&grads, &param_map)
-                .expect("Missing w gradient").values()[0];
-            let b_grad = b.gradient_from_store(&grads, &param_map)
-                .expect("Missing b gradient").values()[0];
+            let w_grad = w.gradient_from_store(&grads, &param_map).expect("Missing w gradient").values()[0];
+            let b_grad = b.gradient_from_store(&grads, &param_map).expect("Missing b gradient").values()[0];
 
             // SGD update
             let w_val = w.tensor().values()[0];

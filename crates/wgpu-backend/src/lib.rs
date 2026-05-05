@@ -590,11 +590,7 @@ impl ComputeKernelCache {
     }
 
     /// Execute gather_rows using the GPU compute shader.
-    fn execute_gather_rows(
-        &mut self,
-        table: &GpuTensor,
-        ids: &[usize],
-    ) -> CoreResult<GpuTensor> {
+    fn execute_gather_rows(&mut self, table: &GpuTensor, ids: &[usize]) -> CoreResult<GpuTensor> {
         let (input_dim0, input_dim1) = (table.shape[0], table.shape[1]);
         let num_indices = ids.len();
         let output_size = num_indices * input_dim1;
@@ -617,25 +613,15 @@ impl ComputeKernelCache {
         // Uniform buffer with gather params: [num_indices, index_dim=1, input_dim0, input_dim1]
         let params_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("gather_params"),
-            contents: bytemuck::cast_slice(&[
-                num_indices as u32,
-                1u32,
-                input_dim0 as u32,
-                input_dim1 as u32,
-            ]),
+            contents: bytemuck::cast_slice(&[num_indices as u32, 1u32, input_dim0 as u32, input_dim1 as u32]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
         let entry_point = "gather_rows";
         if !self.kernels.contains_key(entry_point) {
             let layout = create_gather_bind_group_layout(&self.device);
-            let kernel = ComputeKernel::new(
-                &self.device,
-                &self.shader_code,
-                entry_point,
-                layout,
-                WORKGROUP_SIZE,
-            )?;
+            let kernel =
+                ComputeKernel::new(&self.device, &self.shader_code, entry_point, layout, WORKGROUP_SIZE)?;
             self.kernels.insert(entry_point.to_string(), kernel);
         }
         let kernel = self.kernels.get(entry_point).unwrap();
@@ -798,12 +784,7 @@ impl ComputeKernelCache {
     }
 
     /// Execute a transpose operation using the GPU compute shader.
-    fn execute_transpose(
-        &mut self,
-        x: &GpuTensor,
-        rows: usize,
-        cols: usize,
-    ) -> CoreResult<GpuTensor> {
+    fn execute_transpose(&mut self, x: &GpuTensor, rows: usize, cols: usize) -> CoreResult<GpuTensor> {
         let output_size = rows * cols;
         let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("transpose_output"),
@@ -862,11 +843,7 @@ impl ComputeKernelCache {
 
         self.queue.submit(Some(encoder.finish()));
 
-        Ok(GpuTensor {
-            buffer: Arc::new(output_buffer),
-            shape: vec![cols, rows],
-            size: output_size,
-        })
+        Ok(GpuTensor { buffer: Arc::new(output_buffer), shape: vec![cols, rows], size: output_size })
     }
 }
 
@@ -1172,10 +1149,7 @@ impl TensorOps<WgpuBackend> for WgpuOps {
         }
         let (batch, n) = (a.shape[0], a.shape[1]);
         if row.shape[0] != n {
-            return Err(CoreError::ShapeMismatch {
-                expected: vec![n],
-                actual: row.shape.clone(),
-            });
+            return Err(CoreError::ShapeMismatch { expected: vec![n], actual: row.shape.clone() });
         }
 
         // Read the small row vector once, then broadcast it on the GPU and add.
@@ -1308,7 +1282,12 @@ impl TensorOps<WgpuBackend> for WgpuOps {
         let x = match input.shape.len() {
             1 => {
                 // Treat as [1, in_dim]
-                GpuTensor::from_data(&self.device, &self.queue, &input.to_vec(&self.device, &self.queue), &[1, input.shape[0]])?
+                GpuTensor::from_data(
+                    &self.device,
+                    &self.queue,
+                    &input.to_vec(&self.device, &self.queue),
+                    &[1, input.shape[0]],
+                )?
             }
             2 => input.clone(),
             _ => {
@@ -1643,12 +1622,8 @@ mod tests {
             None => return,
         };
 
-        let a = backend
-            .tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0], &[2, 2])
-            .unwrap();
-        let b = backend
-            .tensor_from_vec(vec![5.0f32, 6.0, 7.0, 8.0], &[2, 2])
-            .unwrap();
+        let a = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0], &[2, 2]).unwrap();
+        let b = backend.tensor_from_vec(vec![5.0f32, 6.0, 7.0, 8.0], &[2, 2]).unwrap();
 
         let c = backend.ops().matmul(&a, &b).unwrap();
         let data = backend.to_vec(&c);
@@ -1743,9 +1718,7 @@ mod tests {
             None => return,
         };
 
-        let a = backend
-            .tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3])
-            .unwrap();
+        let a = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
 
         let c = backend.ops().transpose(&a).unwrap();
         let data = backend.to_vec(&c);
@@ -1763,10 +1736,10 @@ mod tests {
 
         // Table: 4 rows x 3 cols
         let table_data = vec![
-            1.0f32, 2.0, 3.0,   // row 0
-            4.0, 5.0, 6.0,      // row 1
-            7.0, 8.0, 9.0,      // row 2
-            10.0, 11.0, 12.0,  // row 3
+            1.0f32, 2.0, 3.0, // row 0
+            4.0, 5.0, 6.0, // row 1
+            7.0, 8.0, 9.0, // row 2
+            10.0, 11.0, 12.0, // row 3
         ];
         let table_tensor = backend.tensor_from_vec(table_data, &[4, 3]).unwrap();
         let table_param = rustral_core::Parameter::new("table", table_tensor);
@@ -1776,11 +1749,7 @@ mod tests {
         let data = backend.to_vec(&gathered);
 
         // Expected: row0, row2, row1
-        assert_eq!(data, vec![
-            1.0, 2.0, 3.0,
-            7.0, 8.0, 9.0,
-            4.0, 5.0, 6.0,
-        ]);
+        assert_eq!(data, vec![1.0, 2.0, 3.0, 7.0, 8.0, 9.0, 4.0, 5.0, 6.0,]);
         assert_eq!(gathered.shape, vec![3, 3]);
     }
 
@@ -1792,15 +1761,9 @@ mod tests {
         };
 
         // input: [2, 3]
-        let input = backend.tensor_from_vec(vec![
-            1.0f32, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-        ], &[2, 3]).unwrap();
+        let input = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
         // weight: [2, 3] -> out=2, in=3
-        let weight = backend.tensor_from_vec(vec![
-            1.0f32, 0.0, 1.0,
-            0.0, 1.0, 1.0,
-        ], &[2, 3]).unwrap();
+        let weight = backend.tensor_from_vec(vec![1.0f32, 0.0, 1.0, 0.0, 1.0, 1.0], &[2, 3]).unwrap();
         let weight_param = rustral_core::Parameter::new("w", weight);
         // bias: [2]
         let bias = backend.tensor_from_vec(vec![1.0f32, 2.0], &[2]).unwrap();
@@ -1822,10 +1785,7 @@ mod tests {
             None => return,
         };
 
-        let a = backend.tensor_from_vec(vec![
-            1.0f32, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-        ], &[2, 3]).unwrap();
+        let a = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
         let row = backend.tensor_from_vec(vec![10.0f32, 20.0, 30.0], &[3]).unwrap();
 
         let c = backend.ops().add_row_vector(&a, &row).unwrap();
@@ -1841,10 +1801,7 @@ mod tests {
             None => return,
         };
 
-        let a = backend.tensor_from_vec(vec![
-            1.0f32, 2.0, 3.0,
-            1.0, 2.0, 3.0,
-        ], &[2, 3]).unwrap();
+        let a = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0, 1.0, 2.0, 3.0], &[2, 3]).unwrap();
 
         let c = backend.ops().softmax(&a).unwrap();
         let data = backend.to_vec(&c);
@@ -1865,10 +1822,7 @@ mod tests {
             None => return,
         };
 
-        let a = backend.tensor_from_vec(vec![
-            1.0f32, 2.0, 3.0,
-            1.0, 2.0, 3.0,
-        ], &[2, 3]).unwrap();
+        let a = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0, 1.0, 2.0, 3.0], &[2, 3]).unwrap();
 
         let c = backend.ops().log_softmax(&a).unwrap();
         let data = backend.to_vec(&c);

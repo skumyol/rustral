@@ -247,8 +247,7 @@ impl ProcessGroup {
                 Ok(())
             }
             CommunicationBackend::Threaded { .. } => Err(DistributedError::Communication(
-                "all_gather_f32 is not implemented for the Threaded backend; use MPI or world_size=1"
-                    .into(),
+                "all_gather_f32 is not implemented for the Threaded backend; use MPI or world_size=1".into(),
             )),
             #[cfg(feature = "mpi")]
             CommunicationBackend::Mpi { communicator } => {

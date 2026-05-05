@@ -77,10 +77,9 @@ where
 
     let data = build_synthetic_dataset(seed, dataset_size, input_dim, num_classes);
 
-    let mut w =
-        backend.normal_parameter("classifier.weight", &[input_dim, num_classes], seed, 0.15).map_err(|e| {
-            anyhow::anyhow!("{:?}", e)
-        })?;
+    let mut w = backend
+        .normal_parameter("classifier.weight", &[input_dim, num_classes], seed, 0.15)
+        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
 
     let mut adam = Adam::<B>::new(learning_rate);
     let ops = backend.ops();
@@ -96,8 +95,9 @@ where
             let mut ctx = ForwardCtx::new(backend, Mode::Train);
             let mut tape = Tape::<B>::new();
 
-            let x_tensor =
-                ops.tensor_from_vec(x_vec.clone(), &[1, input_dim]).map_err(|e| anyhow::anyhow!("{:?}", e))?;
+            let x_tensor = ops
+                .tensor_from_vec(x_vec.clone(), &[1, input_dim])
+                .map_err(|e| anyhow::anyhow!("{:?}", e))?;
             let x_id = tape.watch(x_tensor);
 
             let w_id = tape.watch_parameter(&w);
@@ -110,16 +110,19 @@ where
                 ops.tensor_from_vec(one_hot, &[1, num_classes]).map_err(|e| anyhow::anyhow!("{:?}", e))?;
             let target_id = tape.watch(target_tensor);
 
-            let loss_id =
-                tape.cross_entropy_loss(logits_id, target_id, &mut ctx).map_err(|e| anyhow::anyhow!("{:?}", e))?;
+            let loss_id = tape
+                .cross_entropy_loss(logits_id, target_id, &mut ctx)
+                .map_err(|e| anyhow::anyhow!("{:?}", e))?;
 
-            let loss_scalar = ops.tensor_element(tape.value(loss_id).ok_or_else(|| anyhow::anyhow!("missing loss"))?, 0)
+            let loss_scalar = ops
+                .tensor_element(tape.value(loss_id).ok_or_else(|| anyhow::anyhow!("missing loss"))?, 0)
                 .map_err(|e| anyhow::anyhow!("{:?}", e))?;
             epoch_loss += loss_scalar;
 
             let param_map = tape.param_map().clone();
             let make_ones = |data: Vec<f32>, shape: &[usize]| ops.tensor_from_vec(data, shape);
-            let grads_store = tape.backward(loss_id, make_ones, ops).map_err(|e| anyhow::anyhow!("{:?}", e))?;
+            let grads_store =
+                tape.backward(loss_id, make_ones, ops).map_err(|e| anyhow::anyhow!("{:?}", e))?;
 
             let mut grads = Vec::new();
             let g = w
@@ -127,7 +130,8 @@ where
                 .ok_or_else(|| anyhow::anyhow!("missing gradient for weight"))?;
             grads.push(Gradient { param_id: w.id(), tensor: g.clone() });
 
-            adam.step(std::slice::from_mut(&mut w), &grads, &mut ctx).map_err(|e| anyhow::anyhow!("{:?}", e))?;
+            adam.step(std::slice::from_mut(&mut w), &grads, &mut ctx)
+                .map_err(|e| anyhow::anyhow!("{:?}", e))?;
         }
 
         let mean = epoch_loss / dataset_size as f32;
@@ -147,10 +151,10 @@ where
                 let bytes = save_state_dict(&dict).map_err(|e| anyhow::anyhow!("{:?}", e))?;
                 std::fs::write(&path, bytes).map_err(|e| anyhow::anyhow!(e))?;
 
-                let loaded_map =
-                    load_parameters(&std::fs::read(&path).map_err(|e| anyhow::anyhow!(e))?)
-                        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-                let flat = loaded_map.get("classifier.weight").ok_or_else(|| anyhow::anyhow!("missing key"))?;
+                let loaded_map = load_parameters(&std::fs::read(&path).map_err(|e| anyhow::anyhow!(e))?)
+                    .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+                let flat =
+                    loaded_map.get("classifier.weight").ok_or_else(|| anyhow::anyhow!("missing key"))?;
                 let shape = ops.shape(w.tensor());
                 let n: usize = shape.iter().product();
                 if flat.len() != n {
@@ -171,7 +175,12 @@ where
     })
 }
 
-fn build_synthetic_dataset(seed: u64, n: usize, input_dim: usize, num_classes: usize) -> Vec<(Vec<f32>, usize)> {
+fn build_synthetic_dataset(
+    seed: u64,
+    n: usize,
+    input_dim: usize,
+    num_classes: usize,
+) -> Vec<(Vec<f32>, usize)> {
     let mut out = Vec::with_capacity(n);
     let mut s = seed;
     for _ in 0..n {
@@ -200,9 +209,7 @@ mod tests {
     #[test]
     fn synthetic_training_cpu_loss_decreases() {
         let backend = CpuBackend::default();
-        let mut cfg = SeriousTrainingConfig::default();
-        cfg.epochs = 200;
-        cfg.dataset_size = 64;
+        let cfg = SeriousTrainingConfig { epochs: 200, dataset_size: 64, ..Default::default() };
         let out = train_synthetic_classification(&backend, cfg).unwrap();
         assert!(out.loss_end < out.loss_start, "expected {} < {}", out.loss_end, out.loss_start);
     }

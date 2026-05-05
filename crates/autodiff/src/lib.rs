@@ -468,7 +468,10 @@ impl<B: Backend> Tape<B> {
         let mut id_vec = Vec::with_capacity(num_indices);
         for i in 0..num_indices {
             let val = ops.tensor_element(&ids_val, i).map_err(|e| {
-                rustral_core::CoreError::InvalidArgument(format!("Failed to get tensor element {}: {:?}", i, e))
+                rustral_core::CoreError::InvalidArgument(format!(
+                    "Failed to get tensor element {}: {:?}",
+                    i, e
+                ))
             })?;
             id_vec.push(val as usize);
         }

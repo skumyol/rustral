@@ -48,7 +48,12 @@ fn run_cargo_example(dir: &std::path::Path, args: &[&str], label: &str, max_secs
 
     let elapsed = start.elapsed();
     if elapsed.as_secs() > max_secs {
-        return Err(format!("Example '{}' exceeded {}s (took {:.1}s)", label, max_secs, elapsed.as_secs_f64()));
+        return Err(format!(
+            "Example '{}' exceeded {}s (took {:.1}s)",
+            label,
+            max_secs,
+            elapsed.as_secs_f64()
+        ));
     }
 
     if !output.status.success() {
@@ -71,4 +76,3 @@ fn repo_root() -> Result<std::path::PathBuf, String> {
     }
     Err("Could not locate repository root".into())
 }
-

@@ -6,7 +6,7 @@
 
 use rustral_core::{Backend, ForwardCtx, Mode, Module};
 use rustral_ndarray_backend::CpuBackend;
-use rustral_nn::{Linear, LinearConfig, BatchNorm, BatchNormConfig};
+use rustral_nn::{Linear, LinearConfig};
 
 fn main() {
     println!("ResNet Image Classification Example");

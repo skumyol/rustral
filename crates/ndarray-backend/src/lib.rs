@@ -11,9 +11,9 @@
 //! - **ARM/AArch64**: NEON SIMD instructions (when `neon` feature enabled)
 //! - **Fallback**: Portable scalar implementation
 
-use rustral_core::{Backend, CoreError, Parameter, Result, ShapeExt, TensorOps};
 use rand::thread_rng;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use rustral_core::{Backend, CoreError, Parameter, Result, ShapeExt, TensorOps};
 use serde::{Deserialize, Serialize};
 
 /// Dense row-major CPU tensor used by the reference backend.
@@ -234,9 +234,7 @@ impl TensorOps<CpuBackend> for CpuOps {
         if len > 4096 {
             use rayon::prelude::*;
             let mut out = vec![0.0; len];
-            out.par_iter_mut()
-                .enumerate()
-                .for_each(|(i, o)| *o = a.values[i] + b.values[i]);
+            out.par_iter_mut().enumerate().for_each(|(i, o)| *o = a.values[i] + b.values[i]);
             CpuTensor::new(out, &a.shape)
         } else {
             CpuTensor::new(a.values.iter().zip(&b.values).map(|(x, y)| x + y).collect(), &a.shape)
@@ -254,12 +252,11 @@ impl TensorOps<CpuBackend> for CpuOps {
         let mut out = a.values.clone();
         if m > 64 {
             use rayon::prelude::*;
-            out.par_chunks_exact_mut(n)
-                .for_each(|chunk| {
-                    for j in 0..n {
-                        chunk[j] += row.values[j];
-                    }
-                });
+            out.par_chunks_exact_mut(n).for_each(|chunk| {
+                for j in 0..n {
+                    chunk[j] += row.values[j];
+                }
+            });
         } else {
             for i in 0..m {
                 for j in 0..n {
@@ -276,7 +273,9 @@ impl TensorOps<CpuBackend> for CpuOps {
             use rayon::prelude::*;
             let mut out = x.values.clone();
             out.par_iter_mut().for_each(|v| {
-                if *v < 0.0 { *v = 0.0; }
+                if *v < 0.0 {
+                    *v = 0.0;
+                }
             });
             CpuTensor::new(out, &x.shape)
         } else {
@@ -297,7 +296,9 @@ impl TensorOps<CpuBackend> for CpuOps {
             use rayon::prelude::*;
             exps.par_iter_mut().for_each(|v| *v *= inv_sum);
         } else {
-            for v in &mut exps { *v *= inv_sum; }
+            for v in &mut exps {
+                *v *= inv_sum;
+            }
         }
         CpuTensor::new(exps, &x.shape)
     }
@@ -380,17 +381,15 @@ impl TensorOps<CpuBackend> for CpuOps {
         // Parallelize over (batch, out) pairs for large matrices.
         if batch_size * out_dim > 512 {
             use rayon::prelude::*;
-            out.par_chunks_exact_mut(out_dim)
-                .enumerate()
-                .for_each(|(batch, chunk)| {
-                    for o in 0..out_dim {
-                        let mut sum = 0.0;
-                        for i in 0..in_dim {
-                            sum += x_values[batch * in_dim + i] * w_values[o * in_dim + i];
-                        }
-                        chunk[o] = sum;
+            out.par_chunks_exact_mut(out_dim).enumerate().for_each(|(batch, chunk)| {
+                for o in 0..out_dim {
+                    let mut sum = 0.0;
+                    for i in 0..in_dim {
+                        sum += x_values[batch * in_dim + i] * w_values[o * in_dim + i];
                     }
-                });
+                    chunk[o] = sum;
+                }
+            });
         } else {
             for batch in 0..batch_size {
                 for o in 0..out_dim {
@@ -444,9 +443,7 @@ impl TensorOps<CpuBackend> for CpuOps {
         if len > 4096 {
             use rayon::prelude::*;
             let mut out = vec![0.0; len];
-            out.par_iter_mut()
-                .enumerate()
-                .for_each(|(i, o)| *o = a.values[i] * b.values[i]);
+            out.par_iter_mut().enumerate().for_each(|(i, o)| *o = a.values[i] * b.values[i]);
             CpuTensor::new(out, &a.shape)
         } else {
             CpuTensor::new(a.values.iter().zip(&b.values).map(|(x, y)| x * y).collect(), &a.shape)

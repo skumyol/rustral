@@ -6,7 +6,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use mnr_optim::{Adam, MixedPrecisionOptimizer, LossScaleScheduler};
+//! use rustral_optim::{Adam, MixedPrecisionOptimizer, LossScaleScheduler};
 //!
 //! let adam = Adam::new(0.001);
 //! let optimizer = MixedPrecisionOptimizer::new(adam)
@@ -456,7 +456,7 @@ impl f16 {
 mod tests {
     use super::*;
     use crate::Adam;
-    use rustral_core::{ForwardCtx, Mode, Parameter};
+    use rustral_core::{ForwardCtx, Mode};
     use rustral_ndarray_backend::CpuBackend;
 
     #[test]
@@ -542,7 +542,8 @@ mod tests {
         let adam = Adam::<CpuBackend>::new(0.001);
         let mut mp = MixedPrecisionOptimizer::new(adam).with_dtype(DType::Float32).without_overflow_check();
 
-        let mut params = vec![Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
+        let mut params =
+            vec![rustral_core::Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
 
         let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
         let gradients = vec![Gradient { param_id: params[0].id(), tensor: grad_tensor }];
@@ -560,7 +561,8 @@ mod tests {
         let adam = Adam::<CpuBackend>::new(0.001);
         let mut mp = MixedPrecisionOptimizer::new(adam).with_dtype(DType::BFloat16).without_overflow_check();
 
-        let mut params = vec![Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
+        let mut params =
+            vec![rustral_core::Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
 
         let grad_tensor = backend.tensor_from_vec(vec![0.1f32], &[1]).unwrap();
         let gradients = vec![Gradient { param_id: params[0].id(), tensor: grad_tensor }];
@@ -577,7 +579,8 @@ mod tests {
         let adam = Adam::<CpuBackend>::new(0.001);
         let mut mp = MixedPrecisionOptimizer::new(adam).with_dtype(DType::Float32).with_loss_scale(1.0); // Scale 1.0 so overflow check works directly
 
-        let mut params = vec![Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
+        let mut params =
+            vec![rustral_core::Parameter::new("p0", backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap())];
 
         // Create a gradient with NaN to trigger overflow detection
         let grad_tensor = backend.tensor_from_vec(vec![f32::NAN], &[1]).unwrap();
@@ -595,7 +598,7 @@ mod tests {
         let adam = Adam::<CpuBackend>::new(0.001);
         let mut mp = MixedPrecisionOptimizer::new(adam).with_dtype(DType::Float16);
 
-        let params: Vec<Parameter<CpuBackend>> = vec![Parameter::new(
+        let params: Vec<rustral_core::Parameter<CpuBackend>> = vec![rustral_core::Parameter::new(
             "p0",
             backend.tensor_from_vec(vec![1.0f32, 2.0f32], &[2]).unwrap(),
         )];
@@ -610,7 +613,7 @@ mod tests {
         let adam = Adam::<CpuBackend>::new(0.001);
         let mut mp = MixedPrecisionOptimizer::new(adam).with_dtype(DType::Float16).without_overflow_check();
 
-        let mut params = vec![Parameter::new(
+        let mut params = vec![rustral_core::Parameter::new(
             "p0",
             backend.tensor_from_vec(vec![10.0f32; 100], &[100]).unwrap(),
         )];

@@ -45,7 +45,7 @@ fn main() {
 
     // Route to top-k experts
     let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
-    let router_logits = router.forward(input.clone(), &mut ctx).unwrap();
+    let _router_logits = router.forward(input.clone(), &mut ctx).unwrap();
 
     // For simplicity, combine first two expert outputs
     let expert0_out = experts[0].forward(input.clone(), &mut ctx).unwrap();

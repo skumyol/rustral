@@ -68,4 +68,3 @@ pub fn benchmark_gpu_smoke(runner: &mut TestRunner, config: &PerfConfig) {
         }
     });
 }
-

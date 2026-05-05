@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use rustral_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, Result, TensorOps, TensorShape};
+use rustral_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, TensorOps, TensorShape};
 use thiserror::Error;
 
 pub mod lr_scheduler;
@@ -432,7 +432,7 @@ fn create_scalar_tensor<B: Backend>(
     ops: &dyn TensorOps<B>,
     value: f32,
     shape: &[usize],
-) -> Result<B::Tensor> {
+) -> rustral_core::Result<B::Tensor> {
     let size = shape.iter().product::<usize>();
     let values = vec![value; size];
     ops.tensor_from_vec(values, shape)

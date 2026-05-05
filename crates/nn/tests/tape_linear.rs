@@ -1,3 +1,5 @@
+#![cfg(feature = "autodiff")]
+
 use rustral_autodiff::{GradExtFromStore, Tape};
 use rustral_core::{Backend, ForwardCtx, Mode};
 use rustral_ndarray_backend::CpuBackend;
@@ -60,4 +62,3 @@ fn linear_tape_with_bias_produces_bias_gradients() {
     assert_eq!(g_vals.len(), 2);
     assert!(g_vals.iter().any(|v| v.abs() > 0.0));
 }
-

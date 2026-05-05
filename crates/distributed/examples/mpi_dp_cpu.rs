@@ -28,11 +28,11 @@ fn main() {
     let batch = vec![backend.tensor_from_vec(vec![1.0f32], &[1]).unwrap()];
     let mut ctx = ForwardCtx::new(&backend, Mode::Train);
 
-    let mut loss_fn =
-        |_item: &<CpuBackend as rustral_core::Backend>::Tensor, _ctx: &mut ForwardCtx<CpuBackend>| {
-            let grad_tensor = backend.tensor_from_vec(vec![0.25f32], &[1]).unwrap();
-            Ok((0.25f32, vec![Gradient { param_id, tensor: grad_tensor }]))
-        };
+    let mut loss_fn = |_item: &<CpuBackend as rustral_core::Backend>::Tensor,
+                       _ctx: &mut ForwardCtx<CpuBackend>| {
+        let grad_tensor = backend.tensor_from_vec(vec![0.25f32], &[1]).unwrap();
+        Ok((0.25f32, vec![Gradient { param_id, tensor: grad_tensor }]))
+    };
 
     let loss = trainer.step(&mut params, &batch, &mut loss_fn, &mut ctx).expect("step");
     if pg.is_primary() {

@@ -29,9 +29,11 @@
 //! limitations in Rustral's tape-based autodiff for parameter gradients.
 //! Future versions will integrate full automatic differentiation.
 
+#![allow(clippy::too_many_arguments)]
+
+use rand::Rng;
 use rustral_candle_backend::CandleBackend;
 use rustral_core::{Backend, Parameter, Result, TensorOps};
-use rand::Rng;
 
 /// Tiny Shakespeare excerpt for training.
 const DATA: &str = "To be, or not to be, that is the question:\n\
@@ -94,17 +96,10 @@ fn main() -> Result<()> {
         let target_token = encoded[start + BLOCK_SIZE];
 
         // Forward pass
-        let (loss, logits, h1) = forward(
-            ops, input_tokens, target_token,
-            &w_emb, &w1, &b1, &w2, &b2,
-        )?;
+        let (loss, logits, h1) = forward(ops, input_tokens, target_token, &w_emb, &w1, &b1, &w2, &b2)?;
 
         // Backward pass - compute gradients manually
-        let grads = backward(
-            ops, input_tokens, target_token,
-            &w_emb, &w1, &b1, &w2, &b2,
-            &logits, &h1,
-        )?;
+        let grads = backward(ops, input_tokens, target_token, &w_emb, &w1, &b1, &w2, &b2, &logits, &h1)?;
 
         // SGD update
         update_param(&mut w_emb, &grads.dw_emb, lr, ops)?;
@@ -124,10 +119,7 @@ fn main() -> Result<()> {
 
             if epoch % (EVAL_INTERVAL * 2) == 0 {
                 let prompt = "To be";
-                let generated = generate(
-                    ops, prompt, 80, &vocab,
-                    &w_emb, &w1, &b1, &w2, &b2,
-                )?;
+                let generated = generate(ops, prompt, 80, &vocab, &w_emb, &w1, &b1, &w2, &b2)?;
                 println!("  Prompt: '{}' -> Generated: '{}'", prompt, generated);
             }
         }
@@ -136,10 +128,7 @@ fn main() -> Result<()> {
     // Final generation
     println!("\nFinal generation samples:");
     for prompt in &["To be", "Whether", "And by"] {
-        let generated = generate(
-            ops, prompt, 120, &vocab,
-            &w_emb, &w1, &b1, &w2, &b2,
-        )?;
+        let generated = generate(ops, prompt, 120, &vocab, &w_emb, &w1, &b1, &w2, &b2)?;
         println!("  '{}' -> '{}'", prompt, generated);
     }
 
@@ -266,9 +255,7 @@ fn backward(
     let probs_data: Vec<f32> = exps.iter().map(|&v| v / sum_exp).collect();
 
     let mut dlogits_data: Vec<f32> = vec![0.0; vocab_size];
-    for i in 0..vocab_size {
-        dlogits_data[i] = probs_data[i];
-    }
+    dlogits_data[..vocab_size].copy_from_slice(&probs_data[..vocab_size]);
     dlogits_data[target_token] -= 1.0;
     let _dlogits = ops.tensor_from_vec(dlogits_data.clone(), &[1, vocab_size])?;
 
@@ -399,9 +386,7 @@ fn generate(
         let start = tokens.len().saturating_sub(BLOCK_SIZE);
         let context = &tokens[start..];
 
-        let (_, logits, _) = forward(
-            ops, context, 0, w_emb, w1, b1, w2, b2,
-        )?;
+        let (_, logits, _) = forward(ops, context, 0, w_emb, w1, b1, w2, b2)?;
 
         let logits_data = to_vec(ops, &logits)?;
         let vocab_size = logits_data.len();

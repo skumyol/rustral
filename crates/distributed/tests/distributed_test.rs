@@ -7,8 +7,8 @@ use std::thread;
 
 use rustral_core::{Backend, ForwardCtx, Mode};
 use rustral_distributed::{
-    DataParallelTrainer, DistributedCheckpointManager,
-    ParallelStyle, ProcessGroup, TensorParallelLinear, ZeRoMemoryStats, ZeroOptimizer,
+    DataParallelTrainer, DistributedCheckpointManager, ParallelStyle, ProcessGroup, TensorParallelLinear,
+    ZeRoMemoryStats, ZeroOptimizer,
 };
 use rustral_ndarray_backend::CpuBackend;
 use rustral_optim::{Adam, Gradient};
@@ -263,8 +263,6 @@ fn test_gradient_accumulation() {
 /// Test checkpoint saving and loading.
 #[test]
 fn test_checkpoint_save_load() {
-    
-
     let temp_dir = tempfile::tempdir().unwrap();
     let backend = CpuBackend::default();
     let pg = ProcessGroup::new_single_process();
@@ -316,8 +314,6 @@ fn test_list_checkpoints() {
 #[test]
 fn test_async_checkpoint_writer() {
     use rustral_distributed::AsyncCheckpointWriter;
-    
-    
 
     let temp_dir = tempfile::tempdir().unwrap();
     let writer = AsyncCheckpointWriter::new();

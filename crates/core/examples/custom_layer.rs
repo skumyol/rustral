@@ -11,16 +11,13 @@ use rustral_ndarray_backend::CpuBackend;
 /// SwiGLU(x) = Swish(xW + b) ⊗ (xV + c)
 /// A gating activation used in modern LLMs like LLaMA and PaLM
 struct SwiGLULayer {
-    input_dim: usize,
-    hidden_dim: usize,
+    _input_dim: usize,
+    _hidden_dim: usize,
 }
 
 impl SwiGLULayer {
     fn new(_input_dim: usize, _hidden_dim: usize) -> Self {
-        Self {
-            input_dim: _input_dim,
-            hidden_dim: _hidden_dim,
-        }
+        Self { _input_dim, _hidden_dim }
     }
 
     fn forward<B: Backend>(

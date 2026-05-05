@@ -12,8 +12,8 @@ use rustral_nn::{Linear, LinearConfig};
 /// Simple MNIST sample
 #[derive(Clone)]
 pub struct MnistSample {
-    pub image: Vec<f32>,  // 784 elements (28x28)
-    pub label: usize,     // 0-9
+    pub image: Vec<f32>, // 784 elements (28x28)
+    pub label: usize,    // 0-9
 }
 
 fn main() {
@@ -54,10 +54,7 @@ fn main() {
         let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
 
         // Create input tensor [1, 784]
-        let input = backend.tensor_from_vec(
-            sample.image.clone(),
-            &[1, 784]
-        ).unwrap();
+        let input = backend.tensor_from_vec(sample.image.clone(), &[1, 784]).unwrap();
 
         // Hidden layer + ReLU
         let hidden_out = hidden.forward(input, &mut ctx).unwrap();

@@ -1,8 +1,6 @@
 //! Convolutional layers for neural networks.
 
-use rustral_core::{
-    Backend, CoreError, ForwardCtx, Module, Parameter, ParameterRef, Result, Trainable,
-};
+use rustral_core::{Backend, CoreError, ForwardCtx, Module, Parameter, ParameterRef, Result, Trainable};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for a 2D convolutional layer.
@@ -140,16 +138,17 @@ impl<B: Backend> Module<B> for Conv2d<B> {
 
         // Extract input, filter and (optional) bias values in a single bulk read per tensor.
         // This avoids O(n) roundtrips on GPU backends.
-        let input_values = ops.tensor_to_vec(&input).map_err(|e| {
-            CoreError::Backend(format!("Conv2d failed to read input: {e}"))
-        })?;
-        let filter_values = ops.tensor_to_vec(filter).map_err(|e| {
-            CoreError::Backend(format!("Conv2d failed to read filter: {e}"))
-        })?;
+        let input_values = ops
+            .tensor_to_vec(&input)
+            .map_err(|e| CoreError::Backend(format!("Conv2d failed to read input: {e}")))?;
+        let filter_values = ops
+            .tensor_to_vec(filter)
+            .map_err(|e| CoreError::Backend(format!("Conv2d failed to read filter: {e}")))?;
         let bias_values: Option<Vec<f32>> = match self.bias {
-            Some(ref b) => Some(ops.tensor_to_vec(b.tensor()).map_err(|e| {
-                CoreError::Backend(format!("Conv2d failed to read bias: {e}"))
-            })?),
+            Some(ref b) => Some(
+                ops.tensor_to_vec(b.tensor())
+                    .map_err(|e| CoreError::Backend(format!("Conv2d failed to read bias: {e}")))?,
+            ),
             None => None,
         };
 
@@ -171,8 +170,7 @@ impl<B: Backend> Module<B> for Conv2d<B> {
                         };
 
                         if ih < in_h && iw < in_w {
-                            let input_idx =
-                                n * in_channels * in_h * in_w + ic * in_h * in_w + ih * in_w + iw;
+                            let input_idx = n * in_channels * in_h * in_w + ic * in_h * in_w + ih * in_w + iw;
                             let filter_idx = oc * in_channels * kernel_h * kernel_w
                                 + ic * kernel_h * kernel_w
                                 + kh * kernel_w
@@ -195,18 +193,15 @@ impl<B: Backend> Module<B> for Conv2d<B> {
         // Parallelize over large convolutions; small ones stay serial to avoid thread overhead.
         if total_outputs > 1024 {
             use rayon::prelude::*;
-            output_values
-                .par_chunks_exact_mut(out_h * out_w)
-                .enumerate()
-                .for_each(|(oc_batch, chunk)| {
-                    let n = oc_batch / out_channels;
-                    let oc = oc_batch % out_channels;
-                    for oh in 0..out_h {
-                        for ow in 0..out_w {
-                            chunk[oh * out_w + ow] = conv_fn(n, oc, oh, ow);
-                        }
+            output_values.par_chunks_exact_mut(out_h * out_w).enumerate().for_each(|(oc_batch, chunk)| {
+                let n = oc_batch / out_channels;
+                let oc = oc_batch % out_channels;
+                for oh in 0..out_h {
+                    for ow in 0..out_w {
+                        chunk[oh * out_w + ow] = conv_fn(n, oc, oh, ow);
                     }
-                });
+                }
+            });
         } else {
             for n in 0..batch {
                 for oc in 0..out_channels {
@@ -270,9 +265,9 @@ pub fn max_pool2d<B: Backend>(
     let out_w = if no_padding { (in_w - window_w) / stride_w + 1 } else { (in_w + stride_w - 1) / stride_w };
 
     // Extract input values in a single bulk read.
-    let input_values = ops.tensor_to_vec(input).map_err(|e| {
-        CoreError::Backend(format!("max_pool2d failed to read input: {e}"))
-    })?;
+    let input_values = ops
+        .tensor_to_vec(input)
+        .map_err(|e| CoreError::Backend(format!("max_pool2d failed to read input: {e}")))?;
 
     let mut output_values = vec![f32::NEG_INFINITY; batch * channels * out_h * out_w];
 

@@ -10,17 +10,12 @@ use rustral_nn::{Linear, LinearConfig};
 
 /// XOR dataset: inputs and expected outputs
 fn xor_dataset() -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
-    let inputs = vec![
-        vec![0.0, 0.0],
-        vec![0.0, 1.0],
-        vec![1.0, 0.0],
-        vec![1.0, 1.0],
-    ];
+    let inputs = vec![vec![0.0, 0.0], vec![0.0, 1.0], vec![1.0, 0.0], vec![1.0, 1.0]];
     let targets = vec![
-        vec![0.0],  // 0 XOR 0 = 0
-        vec![1.0],  // 0 XOR 1 = 1
-        vec![1.0],  // 1 XOR 0 = 1
-        vec![0.0],  // 1 XOR 1 = 0
+        vec![0.0], // 0 XOR 0 = 0
+        vec![1.0], // 0 XOR 1 = 1
+        vec![1.0], // 1 XOR 0 = 1
+        vec![0.0], // 1 XOR 1 = 0
     ];
     (inputs, targets)
 }
@@ -34,10 +29,8 @@ fn main() {
     let ops = backend.ops();
 
     // Create a simple network: 2 inputs -> 2 hidden (ReLU) -> 1 output (Sigmoid)
-    let hidden = Linear::new(&backend, LinearConfig::new(2, 2))
-        .expect("Failed to create hidden layer");
-    let output = Linear::new(&backend, LinearConfig::new(2, 1))
-        .expect("Failed to create output layer");
+    let hidden = Linear::new(&backend, LinearConfig::new(2, 2)).expect("Failed to create hidden layer");
+    let output = Linear::new(&backend, LinearConfig::new(2, 1)).expect("Failed to create output layer");
 
     println!("Model architecture: 2 -> 2 -> 1");
     println!("Hidden layer: 2 -> 2, bias: true");
@@ -71,8 +64,10 @@ fn main() {
         println!(
             "Sample {}: Input [{:.0}, {:.0}] -> Output {:.4} (Target: {:.0})",
             i + 1,
-            input_vec[0], input_vec[1],
-            pred_val, target_val
+            input_vec[0],
+            input_vec[1],
+            pred_val,
+            target_val
         );
     }
 

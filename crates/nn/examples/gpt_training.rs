@@ -6,7 +6,7 @@
 
 use rustral_core::{Backend, ForwardCtx, Mode, Module};
 use rustral_ndarray_backend::CpuBackend;
-use rustral_nn::{Linear, LinearConfig, Embedding, EmbeddingConfig};
+use rustral_nn::{Embedding, EmbeddingConfig, Linear, LinearConfig};
 
 fn main() {
     println!("GPT Training Example");

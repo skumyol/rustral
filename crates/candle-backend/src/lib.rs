@@ -44,10 +44,7 @@ impl CandleBackend {
     /// Create a CPU backend.
     pub fn cpu() -> Self {
         let device = Device::Cpu;
-        Self {
-            device: device.clone(),
-            ops: CandleOps { device },
-        }
+        Self { device: device.clone(), ops: CandleOps { device } }
     }
 
     /// Create a CUDA backend on the given device index.
@@ -56,16 +53,11 @@ impl CandleBackend {
         {
             let device = Device::new_cuda(_device_id)
                 .map_err(|e| CoreError::Backend(format!("CUDA init failed: {}", e)))?;
-            Ok(Self {
-                device: device.clone(),
-                ops: CandleOps { device },
-            })
+            Ok(Self { device: device.clone(), ops: CandleOps { device } })
         }
         #[cfg(not(feature = "cuda"))]
         {
-            Err(CoreError::Backend(
-                "CUDA feature not enabled. Rebuild with --features cuda".to_string(),
-            ))
+            Err(CoreError::Backend("CUDA feature not enabled. Rebuild with --features cuda".to_string()))
         }
     }
 
@@ -74,10 +66,7 @@ impl CandleBackend {
         #[cfg(feature = "cuda")]
         {
             if let Ok(dev) = Device::new_cuda(0) {
-                return Self {
-                    device: dev.clone(),
-                    ops: CandleOps { device: dev },
-                };
+                return Self { device: dev.clone(), ops: CandleOps { device: dev } };
             }
         }
         Self::cpu()
@@ -90,16 +79,14 @@ impl CandleBackend {
 
     /// Create a tensor from host data.
     pub fn tensor_from_vec(&self, values: Vec<f32>, shape: &[usize]) -> Result<Tensor> {
-        let tensor = Tensor::from_vec(values, shape, &self.device)
-            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let tensor =
+            Tensor::from_vec(values, shape, &self.device).map_err(|e| CoreError::Backend(e.to_string()))?;
         Ok(tensor)
     }
 
     /// Read tensor data back to host as a flat Vec<f32>.
     pub fn to_vec(&self, tensor: &Tensor) -> Vec<f32> {
-        tensor.flatten_all()
-            .and_then(|t| t.to_vec1::<f32>())
-            .unwrap_or_default()
+        tensor.flatten_all().and_then(|t| t.to_vec1::<f32>()).unwrap_or_default()
     }
 }
 
@@ -121,13 +108,7 @@ impl Backend for CandleBackend {
         &self.ops
     }
 
-    fn normal_parameter(
-        &self,
-        name: &str,
-        shape: &[usize],
-        seed: u64,
-        scale: f32,
-    ) -> Result<Parameter<Self>>
+    fn normal_parameter(&self, name: &str, shape: &[usize], seed: u64, scale: f32) -> Result<Parameter<Self>>
     where
         Self: Sized,
     {
@@ -144,12 +125,7 @@ impl Backend for CandleBackend {
         Ok(Parameter::new(name, tensor))
     }
 
-    fn parameter_from_vec(
-        &self,
-        name: &str,
-        values: Vec<f32>,
-        shape: &[usize],
-    ) -> Result<Parameter<Self>>
+    fn parameter_from_vec(&self, name: &str, values: Vec<f32>, shape: &[usize]) -> Result<Parameter<Self>>
     where
         Self: Sized,
     {
@@ -164,8 +140,7 @@ impl TensorOps<CandleBackend> for CandleOps {
     }
 
     fn tensor_from_vec(&self, values: Vec<f32>, shape: &[usize]) -> Result<Tensor> {
-        Tensor::from_vec(values, shape, &self.device)
-            .map_err(|e| CoreError::Backend(e.to_string()))
+        Tensor::from_vec(values, shape, &self.device).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn zeros(&self, shape: &[usize]) -> Result<Tensor> {
@@ -187,8 +162,7 @@ impl TensorOps<CandleBackend> for CandleOps {
 
     fn add_row_vector(&self, a: &Tensor, row: &Tensor) -> Result<Tensor> {
         // Broadcast row to match a's shape, then add
-        let broadcasted = row.broadcast_as(a.dims())
-            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let broadcasted = row.broadcast_as(a.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
         (a + broadcasted).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
@@ -200,33 +174,31 @@ impl TensorOps<CandleBackend> for CandleOps {
         // Manual softmax over all elements
         let flat = x.flatten_all().map_err(|e| CoreError::Backend(e.to_string()))?;
         let max_val = flat.max(0).map_err(|e| CoreError::Backend(e.to_string()))?;
-        let max_broadcast = max_val.broadcast_as(flat.dims())
-            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let max_broadcast =
+            max_val.broadcast_as(flat.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
         let shifted = (&flat - max_broadcast).map_err(|e| CoreError::Backend(e.to_string()))?;
         let exp_shifted = shifted.exp().map_err(|e| CoreError::Backend(e.to_string()))?;
         let sum_exp = exp_shifted.sum(0).map_err(|e| CoreError::Backend(e.to_string()))?;
-        let sum_broadcast = sum_exp.broadcast_as(flat.dims())
-            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let sum_broadcast =
+            sum_exp.broadcast_as(flat.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
         let result = (exp_shifted / sum_broadcast).map_err(|e| CoreError::Backend(e.to_string()))?;
-        result.reshape(x.dims())
-            .map_err(|e| CoreError::Backend(e.to_string()))
+        result.reshape(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn log_softmax(&self, x: &Tensor) -> Result<Tensor> {
         // Manual log-softmax over all elements
         let flat = x.flatten_all().map_err(|e| CoreError::Backend(e.to_string()))?;
         let max_val = flat.max(0).map_err(|e| CoreError::Backend(e.to_string()))?;
-        let max_broadcast = max_val.broadcast_as(flat.dims())
-            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let max_broadcast =
+            max_val.broadcast_as(flat.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
         let shifted = (&flat - max_broadcast).map_err(|e| CoreError::Backend(e.to_string()))?;
         let exp_shifted = shifted.exp().map_err(|e| CoreError::Backend(e.to_string()))?;
         let sum_exp = exp_shifted.sum(0).map_err(|e| CoreError::Backend(e.to_string()))?;
         let log_sum = sum_exp.log().map_err(|e| CoreError::Backend(e.to_string()))?;
-        let log_broadcast = log_sum.broadcast_as(flat.dims())
-            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let log_broadcast =
+            log_sum.broadcast_as(flat.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
         let result = (flat - log_broadcast).map_err(|e| CoreError::Backend(e.to_string()))?;
-        result.reshape(x.dims())
-            .map_err(|e| CoreError::Backend(e.to_string()))
+        result.reshape(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn argmax(&self, x: &Tensor) -> Result<usize> {
@@ -241,8 +213,7 @@ impl TensorOps<CandleBackend> for CandleOps {
         let ids_i64: Vec<i64> = ids.iter().map(|&id| id as i64).collect();
         let ids_tensor = Tensor::from_vec(ids_i64, &[ids.len()], &self.device)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
-        table_tensor.index_select(&ids_tensor, 0)
-            .map_err(|e| CoreError::Backend(e.to_string()))
+        table_tensor.index_select(&ids_tensor, 0).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn linear(
@@ -252,12 +223,13 @@ impl TensorOps<CandleBackend> for CandleOps {
         bias: Option<&Parameter<CandleBackend>>,
     ) -> Result<Tensor> {
         let w = weight.tensor();
-        let output = input.matmul(&w.t().map_err(|e| CoreError::Backend(e.to_string()))?)
+        let output = input
+            .matmul(&w.t().map_err(|e| CoreError::Backend(e.to_string()))?)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
         match bias {
             Some(b) => {
-                let b_t = b.tensor().broadcast_as(output.dims())
-                    .map_err(|e| CoreError::Backend(e.to_string()))?;
+                let b_t =
+                    b.tensor().broadcast_as(output.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
                 (output + b_t).map_err(|e| CoreError::Backend(e.to_string()))
             }
             None => Ok(output),
@@ -306,39 +278,33 @@ impl TensorOps<CandleBackend> for CandleOps {
 
     fn concat(&self, tensors: &[&Tensor], dim: usize) -> Result<Tensor> {
         let owned: Vec<Tensor> = tensors.iter().map(|&t| t.clone()).collect();
-        Tensor::cat(&owned, dim)
-            .map_err(|e| CoreError::Backend(e.to_string()))
+        Tensor::cat(&owned, dim).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn slice(&self, x: &Tensor, start: usize, end: usize) -> Result<Tensor> {
-        x.narrow(0, start, end - start)
-            .map_err(|e| CoreError::Backend(e.to_string()))
+        x.narrow(0, start, end - start).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn reshape(&self, x: &Tensor, shape: &[usize]) -> Result<Tensor> {
-        x.reshape(shape)
-            .map_err(|e| CoreError::Backend(e.to_string()))
+        x.reshape(shape).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn add_scalar(&self, x: &Tensor, scalar: f32) -> Result<Tensor> {
         let s = Tensor::from_vec(vec![scalar], &[], &self.device)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
-        let broadcasted = s.broadcast_as(x.dims())
-            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let broadcasted = s.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
         (x + broadcasted).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn mul_scalar(&self, x: &Tensor, scalar: f32) -> Result<Tensor> {
         let s = Tensor::from_vec(vec![scalar], &[], &self.device)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
-        let broadcasted = s.broadcast_as(x.dims())
-            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let broadcasted = s.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
         (x * broadcasted).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn broadcast(&self, x: &Tensor, shape: &[usize]) -> Result<Tensor> {
-        x.broadcast_as(shape)
-            .map_err(|e| CoreError::Backend(e.to_string()))
+        x.broadcast_as(shape).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn neg(&self, x: &Tensor) -> Result<Tensor> {
@@ -373,8 +339,7 @@ impl TensorOps<CandleBackend> for CandleOps {
 
     fn gt_scalar(&self, x: &Tensor, scalar: f32) -> Result<Tensor> {
         let mask = x.gt(scalar).map_err(|e| CoreError::Backend(e.to_string()))?;
-        mask.to_dtype(candle_core::DType::F32)
-            .map_err(|e| CoreError::Backend(e.to_string()))
+        mask.to_dtype(candle_core::DType::F32).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn sum_all(&self, x: &Tensor) -> Result<Tensor> {

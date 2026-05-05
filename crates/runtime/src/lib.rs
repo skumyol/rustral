@@ -9,7 +9,7 @@ mod trainer;
 
 pub use inference::{InferencePool, InferenceRequest, InferenceResponse};
 #[cfg(feature = "training")]
-pub use serious_training::{SeriousTrainingConfig, SeriousTrainingOutcome, train_synthetic_classification};
+pub use serious_training::{train_synthetic_classification, SeriousTrainingConfig, SeriousTrainingOutcome};
 #[cfg(feature = "training")]
 pub use tape_trainer::{TapeTrainer, TapeTrainerConfig};
 pub use trainer::{EpochStats, Learner, ParallelTrainer, TrainerConfig};
