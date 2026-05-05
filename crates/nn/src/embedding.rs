@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use rustral_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, Trainable};
+use rustral_core::{
+    Backend, ForwardCtx, Module, NamedParameters, Parameter, ParameterRef, Result, Trainable,
+};
 use rustral_symbolic::Vocabulary;
 use serde::{Deserialize, Serialize};
 
@@ -53,6 +55,16 @@ impl<B: Backend> Embedding<B> {
     /// Borrow the embedding table parameter.
     pub fn table(&self) -> &Parameter<B> {
         &self.table
+    }
+}
+
+impl<B: Backend> NamedParameters<B> for Embedding<B> {
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+        f("embed", &self.table);
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+        f("embed", &mut self.table);
     }
 }
 

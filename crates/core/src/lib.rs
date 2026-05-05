@@ -18,6 +18,6 @@ pub use memory_profiler::{
     global_profiler, AllocationEvent, AllocationTracker, MemoryProfiler, MemorySnapshot, MemorySummary,
     OomRisk,
 };
-pub use module::{Module, Saveable, StatefulModule, Trainable};
+pub use module::{Module, NamedParameters, Saveable, StatefulModule, Trainable};
 pub use parameter::{Parameter, ParameterGroup, ParameterId, ParameterRef};
 pub use shape::{Shape, ShapeExt, TensorShape};

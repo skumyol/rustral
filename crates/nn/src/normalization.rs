@@ -1,6 +1,8 @@
 //! Normalization layers for neural networks.
 
-use rustral_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, ShapeExt, Trainable};
+use rustral_core::{
+    Backend, ForwardCtx, Module, NamedParameters, Parameter, ParameterRef, Result, ShapeExt, Trainable,
+};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for layer normalization.
@@ -63,6 +65,18 @@ impl<B: Backend> LayerNorm<B> {
     /// Learnable shift (beta), shape `[product(normalized_shape)]`.
     pub fn bias(&self) -> &Parameter<B> {
         &self.bias
+    }
+}
+
+impl<B: Backend> NamedParameters<B> for LayerNorm<B> {
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+        f("weight", &self.weight);
+        f("bias", &self.bias);
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+        f("weight", &mut self.weight);
+        f("bias", &mut self.bias);
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::{Backend, ForwardCtx, ParameterRef, Result};
+use crate::{Backend, ForwardCtx, Parameter, ParameterRef, Result};
 
 /// Stateless forward-computation contract.
 ///
@@ -57,4 +57,21 @@ pub trait Saveable<B: Backend> {
         dict: &std::collections::HashMap<String, Vec<f32>>,
         backend: &B,
     ) -> Result<()>;
+}
+
+/// Named parameter traversal for nested modules.
+///
+/// This closes the "parameter ownership loop": optimizers, checkpointing, and tooling
+/// can walk an owned module tree without callers assembling flat parameter arrays.
+///
+/// Names must be **stable** and **hierarchical**, e.g.:
+/// - `encoder.layers.0.self_attn.q_proj.weight`
+/// - `mlp.0.weight`
+#[allow(dead_code)]
+pub trait NamedParameters<B: Backend> {
+    /// Visit all parameters owned by this module (immutable).
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>));
+
+    /// Visit all parameters owned by this module (mutable).
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>));
 }

@@ -1,4 +1,6 @@
-use rustral_core::{Backend, ForwardCtx, Module, ParameterRef, Result, Trainable};
+use rustral_core::{
+    Backend, ForwardCtx, Module, NamedParameters, Parameter, ParameterRef, Result, Trainable,
+};
 
 /// Composition of exactly two modules.
 ///
@@ -49,6 +51,35 @@ where
         let mut params = self.first.parameters();
         params.extend(self.second.parameters());
         params
+    }
+}
+
+impl<BE, A, Bm> NamedParameters<BE> for Sequential2<A, Bm>
+where
+    BE: Backend,
+    A: NamedParameters<BE>,
+    Bm: NamedParameters<BE>,
+{
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<BE>)) {
+        self.first.visit_parameters(&mut |name, p| {
+            let full = format!("first.{name}");
+            f(&full, p);
+        });
+        self.second.visit_parameters(&mut |name, p| {
+            let full = format!("second.{name}");
+            f(&full, p);
+        });
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<BE>)) {
+        self.first.visit_parameters_mut(&mut |name, p| {
+            let full = format!("first.{name}");
+            f(&full, p);
+        });
+        self.second.visit_parameters_mut(&mut |name, p| {
+            let full = format!("second.{name}");
+            f(&full, p);
+        });
     }
 }
 

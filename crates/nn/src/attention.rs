@@ -4,7 +4,9 @@
 //! implementations for modern NLP and vision architectures.
 
 use crate::{Linear, LinearConfig};
-use rustral_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, TensorOps, Trainable};
+use rustral_core::{
+    Backend, ForwardCtx, Module, NamedParameters, Parameter, ParameterRef, Result, TensorOps, Trainable,
+};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for self-attention.
@@ -134,6 +136,22 @@ impl<B: Backend> SelfAttention<B> {
 
         // Reshape back to [batch, seq, d_k]
         ops.reshape(&output, &[batch, seq_len, d_k])
+    }
+}
+
+impl<B: Backend> NamedParameters<B> for SelfAttention<B> {
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+        f("q_proj", &self.q_proj);
+        f("k_proj", &self.k_proj);
+        f("v_proj", &self.v_proj);
+        f("out_proj", &self.out_proj);
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+        f("q_proj", &mut self.q_proj);
+        f("k_proj", &mut self.k_proj);
+        f("v_proj", &mut self.v_proj);
+        f("out_proj", &mut self.out_proj);
     }
 }
 
@@ -269,6 +287,22 @@ impl<B: Backend> Trainable<B> for MultiHeadAttention<B> {
     }
 }
 
+impl<B: Backend> NamedParameters<B> for MultiHeadAttention<B> {
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+        self.attention.visit_parameters(&mut |name, p| {
+            let full = format!("attention.{name}");
+            f(&full, p);
+        });
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+        self.attention.visit_parameters_mut(&mut |name, p| {
+            let full = format!("attention.{name}");
+            f(&full, p);
+        });
+    }
+}
+
 /// A single transformer encoder block.
 ///
 /// Consists of:
@@ -329,6 +363,54 @@ impl<B: Backend> Trainable<B> for TransformerEncoderBlock<B> {
         params.extend(self.ff2.parameters());
         params.extend(self.norm2.parameters());
         params
+    }
+}
+
+impl<B: Backend> NamedParameters<B> for TransformerEncoderBlock<B> {
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+        self.self_attn.visit_parameters(&mut |name, p| {
+            let full = format!("self_attn.{name}");
+            f(&full, p);
+        });
+        self.norm1.visit_parameters(&mut |name, p| {
+            let full = format!("norm1.{name}");
+            f(&full, p);
+        });
+        self.ff1.visit_parameters(&mut |name, p| {
+            let full = format!("ff1.{name}");
+            f(&full, p);
+        });
+        self.ff2.visit_parameters(&mut |name, p| {
+            let full = format!("ff2.{name}");
+            f(&full, p);
+        });
+        self.norm2.visit_parameters(&mut |name, p| {
+            let full = format!("norm2.{name}");
+            f(&full, p);
+        });
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+        self.self_attn.visit_parameters_mut(&mut |name, p| {
+            let full = format!("self_attn.{name}");
+            f(&full, p);
+        });
+        self.norm1.visit_parameters_mut(&mut |name, p| {
+            let full = format!("norm1.{name}");
+            f(&full, p);
+        });
+        self.ff1.visit_parameters_mut(&mut |name, p| {
+            let full = format!("ff1.{name}");
+            f(&full, p);
+        });
+        self.ff2.visit_parameters_mut(&mut |name, p| {
+            let full = format!("ff2.{name}");
+            f(&full, p);
+        });
+        self.norm2.visit_parameters_mut(&mut |name, p| {
+            let full = format!("norm2.{name}");
+            f(&full, p);
+        });
     }
 }
 
@@ -698,6 +780,46 @@ impl<B: Backend> Trainable<B> for FlashAttention<B> {
         params.extend(self.v_proj.parameters());
         params.extend(self.out_proj.parameters());
         params
+    }
+}
+
+impl<B: Backend> NamedParameters<B> for FlashAttention<B> {
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+        self.q_proj.visit_parameters(&mut |name, p| {
+            let full = format!("q_proj.{name}");
+            f(&full, p);
+        });
+        self.k_proj.visit_parameters(&mut |name, p| {
+            let full = format!("k_proj.{name}");
+            f(&full, p);
+        });
+        self.v_proj.visit_parameters(&mut |name, p| {
+            let full = format!("v_proj.{name}");
+            f(&full, p);
+        });
+        self.out_proj.visit_parameters(&mut |name, p| {
+            let full = format!("out_proj.{name}");
+            f(&full, p);
+        });
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+        self.q_proj.visit_parameters_mut(&mut |name, p| {
+            let full = format!("q_proj.{name}");
+            f(&full, p);
+        });
+        self.k_proj.visit_parameters_mut(&mut |name, p| {
+            let full = format!("k_proj.{name}");
+            f(&full, p);
+        });
+        self.v_proj.visit_parameters_mut(&mut |name, p| {
+            let full = format!("v_proj.{name}");
+            f(&full, p);
+        });
+        self.out_proj.visit_parameters_mut(&mut |name, p| {
+            let full = format!("out_proj.{name}");
+            f(&full, p);
+        });
     }
 }
 

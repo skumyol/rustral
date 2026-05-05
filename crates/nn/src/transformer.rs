@@ -30,7 +30,10 @@
 //! let cls_output = encoder.forward(input, &mut ctx)?; // [batch, d_model]
 //! ```
 
-use rustral_core::{Backend, CoreError, ForwardCtx, Module, ParameterRef, Result, TensorOps, Trainable};
+use rustral_core::{
+    Backend, CoreError, ForwardCtx, Module, NamedParameters, Parameter, ParameterRef, Result, TensorOps,
+    Trainable,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -138,6 +141,12 @@ impl<B: Backend> Trainable<B> for PositionalEncoding<B> {
         // Positional encoding has no trainable parameters
         Vec::new()
     }
+}
+
+impl<B: Backend> NamedParameters<B> for PositionalEncoding<B> {
+    fn visit_parameters(&self, _f: &mut dyn FnMut(&str, &Parameter<B>)) {}
+
+    fn visit_parameters_mut(&mut self, _f: &mut dyn FnMut(&str, &mut Parameter<B>)) {}
 }
 
 // =============================================================================
@@ -311,6 +320,54 @@ impl<B: Backend> Trainable<B> for TransformerEncoderLayer<B> {
     }
 }
 
+impl<B: Backend> NamedParameters<B> for TransformerEncoderLayer<B> {
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+        self.self_attn.visit_parameters(&mut |name, p| {
+            let full = format!("self_attn.{name}");
+            f(&full, p);
+        });
+        self.ff_linear1.visit_parameters(&mut |name, p| {
+            let full = format!("ff_linear1.{name}");
+            f(&full, p);
+        });
+        self.ff_linear2.visit_parameters(&mut |name, p| {
+            let full = format!("ff_linear2.{name}");
+            f(&full, p);
+        });
+        self.norm1.visit_parameters(&mut |name, p| {
+            let full = format!("norm1.{name}");
+            f(&full, p);
+        });
+        self.norm2.visit_parameters(&mut |name, p| {
+            let full = format!("norm2.{name}");
+            f(&full, p);
+        });
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+        self.self_attn.visit_parameters_mut(&mut |name, p| {
+            let full = format!("self_attn.{name}");
+            f(&full, p);
+        });
+        self.ff_linear1.visit_parameters_mut(&mut |name, p| {
+            let full = format!("ff_linear1.{name}");
+            f(&full, p);
+        });
+        self.ff_linear2.visit_parameters_mut(&mut |name, p| {
+            let full = format!("ff_linear2.{name}");
+            f(&full, p);
+        });
+        self.norm1.visit_parameters_mut(&mut |name, p| {
+            let full = format!("norm1.{name}");
+            f(&full, p);
+        });
+        self.norm2.visit_parameters_mut(&mut |name, p| {
+            let full = format!("norm2.{name}");
+            f(&full, p);
+        });
+    }
+}
+
 /// Transformer encoder (BERT-style).
 ///
 /// Stack of encoder layers with embeddings and positional encoding.
@@ -455,6 +512,60 @@ impl<B: Backend> Trainable<B> for TransformerEncoder<B> {
     }
 }
 
+impl<B: Backend> NamedParameters<B> for TransformerEncoder<B> {
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+        self.token_embedding.visit_parameters(&mut |name, p| {
+            let full = format!("token_embedding.{name}");
+            f(&full, p);
+        });
+
+        self.pos_encoding.visit_parameters(&mut |name, p| {
+            let full = format!("pos_encoding.{name}");
+            f(&full, p);
+        });
+
+        for (i, layer) in self.layers.iter().enumerate() {
+            layer.visit_parameters(&mut |name, p| {
+                let full = format!("layers.{i}.{name}");
+                f(&full, p);
+            });
+        }
+
+        if let Some(norm) = &self.final_norm {
+            norm.visit_parameters(&mut |name, p| {
+                let full = format!("final_norm.{name}");
+                f(&full, p);
+            });
+        }
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+        self.token_embedding.visit_parameters_mut(&mut |name, p| {
+            let full = format!("token_embedding.{name}");
+            f(&full, p);
+        });
+
+        self.pos_encoding.visit_parameters_mut(&mut |name, p| {
+            let full = format!("pos_encoding.{name}");
+            f(&full, p);
+        });
+
+        for (i, layer) in self.layers.iter_mut().enumerate() {
+            layer.visit_parameters_mut(&mut |name, p| {
+                let full = format!("layers.{i}.{name}");
+                f(&full, p);
+            });
+        }
+
+        if let Some(norm) = &mut self.final_norm {
+            norm.visit_parameters_mut(&mut |name, p| {
+                let full = format!("final_norm.{name}");
+                f(&full, p);
+            });
+        }
+    }
+}
+
 // =============================================================================
 // Transformer Decoder
 // =============================================================================
@@ -587,6 +698,54 @@ impl<B: Backend> Trainable<B> for TransformerDecoderLayer<B> {
         params.extend(self.norm1.parameters());
         params.extend(self.norm2.parameters());
         params
+    }
+}
+
+impl<B: Backend> NamedParameters<B> for TransformerDecoderLayer<B> {
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+        self.self_attn.visit_parameters(&mut |name, p| {
+            let full = format!("self_attn.{name}");
+            f(&full, p);
+        });
+        self.ff_linear1.visit_parameters(&mut |name, p| {
+            let full = format!("ff_linear1.{name}");
+            f(&full, p);
+        });
+        self.ff_linear2.visit_parameters(&mut |name, p| {
+            let full = format!("ff_linear2.{name}");
+            f(&full, p);
+        });
+        self.norm1.visit_parameters(&mut |name, p| {
+            let full = format!("norm1.{name}");
+            f(&full, p);
+        });
+        self.norm2.visit_parameters(&mut |name, p| {
+            let full = format!("norm2.{name}");
+            f(&full, p);
+        });
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+        self.self_attn.visit_parameters_mut(&mut |name, p| {
+            let full = format!("self_attn.{name}");
+            f(&full, p);
+        });
+        self.ff_linear1.visit_parameters_mut(&mut |name, p| {
+            let full = format!("ff_linear1.{name}");
+            f(&full, p);
+        });
+        self.ff_linear2.visit_parameters_mut(&mut |name, p| {
+            let full = format!("ff_linear2.{name}");
+            f(&full, p);
+        });
+        self.norm1.visit_parameters_mut(&mut |name, p| {
+            let full = format!("norm1.{name}");
+            f(&full, p);
+        });
+        self.norm2.visit_parameters_mut(&mut |name, p| {
+            let full = format!("norm2.{name}");
+            f(&full, p);
+        });
     }
 }
 
@@ -728,6 +887,70 @@ impl<B: Backend> Trainable<B> for TransformerDecoder<B> {
         }
         params.extend(self.lm_head.parameters());
         params
+    }
+}
+
+impl<B: Backend> NamedParameters<B> for TransformerDecoder<B> {
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+        self.token_embedding.visit_parameters(&mut |name, p| {
+            let full = format!("token_embedding.{name}");
+            f(&full, p);
+        });
+
+        self.pos_encoding.visit_parameters(&mut |name, p| {
+            let full = format!("pos_encoding.{name}");
+            f(&full, p);
+        });
+
+        for (i, layer) in self.layers.iter().enumerate() {
+            layer.visit_parameters(&mut |name, p| {
+                let full = format!("layers.{i}.{name}");
+                f(&full, p);
+            });
+        }
+
+        if let Some(norm) = &self.final_norm {
+            norm.visit_parameters(&mut |name, p| {
+                let full = format!("final_norm.{name}");
+                f(&full, p);
+            });
+        }
+
+        self.lm_head.visit_parameters(&mut |name, p| {
+            let full = format!("lm_head.{name}");
+            f(&full, p);
+        });
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+        self.token_embedding.visit_parameters_mut(&mut |name, p| {
+            let full = format!("token_embedding.{name}");
+            f(&full, p);
+        });
+
+        self.pos_encoding.visit_parameters_mut(&mut |name, p| {
+            let full = format!("pos_encoding.{name}");
+            f(&full, p);
+        });
+
+        for (i, layer) in self.layers.iter_mut().enumerate() {
+            layer.visit_parameters_mut(&mut |name, p| {
+                let full = format!("layers.{i}.{name}");
+                f(&full, p);
+            });
+        }
+
+        if let Some(norm) = &mut self.final_norm {
+            norm.visit_parameters_mut(&mut |name, p| {
+                let full = format!("final_norm.{name}");
+                f(&full, p);
+            });
+        }
+
+        self.lm_head.visit_parameters_mut(&mut |name, p| {
+            let full = format!("lm_head.{name}");
+            f(&full, p);
+        });
     }
 }
 

@@ -1,4 +1,6 @@
-use rustral_core::{Backend, ForwardCtx, Module, Parameter, ParameterRef, Result, Saveable, Trainable};
+use rustral_core::{
+    Backend, ForwardCtx, Module, NamedParameters, Parameter, ParameterRef, Result, Saveable, Trainable,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -58,6 +60,22 @@ impl<B: Backend> Linear<B> {
     /// Borrow the optional bias parameter.
     pub fn bias(&self) -> Option<&Parameter<B>> {
         self.bias.as_ref()
+    }
+}
+
+impl<B: Backend> NamedParameters<B> for Linear<B> {
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+        f("weight", &self.weight);
+        if let Some(bias) = &self.bias {
+            f("bias", bias);
+        }
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+        f("weight", &mut self.weight);
+        if let Some(bias) = &mut self.bias {
+            f("bias", bias);
+        }
     }
 }
 

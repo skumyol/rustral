@@ -132,6 +132,10 @@ cargo run -p rustral-nn --example transformer_bert_encoder
 
 Rustral is organized as a workspace of focused crates. Each crate handles one piece of the puzzle:
 
+<p align="center">
+  <img src="docs/assets/system_diagram_1.png" alt="Rustral system diagram" width="920" />
+</p>
+
 ```mermaid
 flowchart TD
     app["Examples and applications"]
