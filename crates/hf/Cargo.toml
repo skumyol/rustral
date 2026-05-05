@@ -13,7 +13,7 @@ description = "HuggingFace Hub integration for MNR models"
 mnr-core = { path = "../core" }
 mnr-io = { path = "../io" }
 mnr-ndarray-backend = { path = "../ndarray-backend" }
-hf-hub = { version = "0.4" }
+hf-hub = { version = "0.4", default-features = false, features = ["ureq", "rustls-tls"] }
 thiserror = { workspace = true }
 
 [dev-dependencies]
