@@ -22,6 +22,10 @@ path = "basics/mnist.rs"
 name = "char_rnn"
 path = "basics/char_rnn.rs"
 
+[[bin]]
+name = "nanogpt"
+path = "nlp/nanogpt.rs"
+
 # Vision Examples - Computer vision and image processing
 [[example]]
 name = "building_blocks"
@@ -63,4 +67,6 @@ mnr-data = { path = "../crates/data" }
 mnr-distributed = { path = "../crates/distributed" }
 mnr-runtime = { path = "../crates/runtime" }
 mnr-symbolic = { path = "../crates/symbolic" }
+mnr-candle-backend = { path = "../crates/candle-backend" }
+candle-core = "0.10"
 rand = "0.8"

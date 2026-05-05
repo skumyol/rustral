@@ -321,15 +321,19 @@ impl TensorOps<CandleBackend> for CandleOps {
     }
 
     fn add_scalar(&self, x: &Tensor, scalar: f32) -> Result<Tensor> {
-        let s = Tensor::from_vec(vec![scalar], &[1], &self.device)
+        let s = Tensor::from_vec(vec![scalar], &[], &self.device)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
-        (x + s).map_err(|e| CoreError::Backend(e.to_string()))
+        let broadcasted = s.broadcast_as(x.dims())
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        (x + broadcasted).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn mul_scalar(&self, x: &Tensor, scalar: f32) -> Result<Tensor> {
-        let s = Tensor::from_vec(vec![scalar], &[1], &self.device)
+        let s = Tensor::from_vec(vec![scalar], &[], &self.device)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
-        (x * s).map_err(|e| CoreError::Backend(e.to_string()))
+        let broadcasted = s.broadcast_as(x.dims())
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        (x * broadcasted).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn broadcast(&self, x: &Tensor, shape: &[usize]) -> Result<Tensor> {
@@ -465,5 +469,69 @@ mod tests {
         let param = backend.normal_parameter("test", &[3], 42, 1.0).unwrap();
         assert_eq!(param.name(), "test");
         assert_eq!(param.tensor().dims().to_vec(), vec![3]);
+    }
+
+    #[test]
+    fn test_candle_matmul_rectangular() {
+        let backend = CandleBackend::cpu();
+        let a = backend.tensor_from_vec(vec![1.0f32; 8 * 40], &[8, 40]).unwrap();
+        let b = backend.tensor_from_vec(vec![1.0f32; 40 * 64], &[40, 64]).unwrap();
+        let c = backend.ops().matmul(&a, &b).unwrap();
+        assert_eq!(c.dims().to_vec(), vec![8, 64]);
+    }
+
+    #[test]
+    fn test_candle_log_softmax_2d() {
+        let backend = CandleBackend::cpu();
+        let a = backend.tensor_from_vec(vec![1.0f32, 2.0, 3.0], &[1, 3]).unwrap();
+        let c = backend.ops().log_softmax(&a).unwrap();
+        let data = backend.to_vec(&c);
+        assert_eq!(data.len(), 3);
+    }
+
+    #[test]
+    fn test_candle_full_pipeline() {
+        let backend = CandleBackend::cpu();
+        let ops = backend.ops();
+        let vocab = 40usize;
+        let d = 64usize;
+        let h = 256usize;
+
+        let w_emb = backend.normal_parameter("w_emb", &[vocab, d], 42, 0.1).unwrap();
+        let w1 = backend.normal_parameter("w1", &[d, h], 43, 0.1).unwrap();
+        let b1 = backend.normal_parameter("b1", &[h], 44, 0.0).unwrap();
+        let w2 = backend.normal_parameter("w2", &[h, vocab], 45, 0.1).unwrap();
+        let b2 = backend.normal_parameter("b2", &[vocab], 46, 0.0).unwrap();
+
+        let x = backend.tensor_from_vec(vec![1.0f32; 8 * vocab], &[8, vocab]).unwrap();
+        let emb = ops.matmul(&x, w_emb.tensor()).unwrap();
+        let emb_data: Vec<f32> = emb.flatten_all().unwrap().to_vec1().unwrap();
+        assert_eq!(emb_data.len(), 8 * d);
+
+        let pooled = emb_data.chunks_exact(d).fold(vec![0.0f32; d], |mut acc, chunk| {
+            for (i, &v) in chunk.iter().enumerate() {
+                acc[i] += v / 8.0;
+            }
+            acc
+        });
+        let pooled_t = backend.tensor_from_vec(pooled, &[1, d]).unwrap();
+
+        let h1 = ops.matmul(&pooled_t, w1.tensor()).unwrap();
+        let h1_b = ops.add_row_vector(&h1, b1.tensor()).unwrap();
+        let h1_relu = ops.relu(&h1_b).unwrap();
+        let logits = ops.matmul(&h1_relu, w2.tensor()).unwrap();
+        let logits_b = ops.add_row_vector(&logits, b2.tensor()).unwrap();
+        let log_probs = ops.log_softmax(&logits_b).unwrap();
+        let data = backend.to_vec(&log_probs);
+        assert_eq!(data.len(), vocab);
+    }
+
+    #[test]
+    fn test_candle_softmax_1_40() {
+        let backend = CandleBackend::cpu();
+        let ops = backend.ops();
+        let a = backend.tensor_from_vec(vec![1.0f32; 40], &[1, 40]).unwrap();
+        let c = ops.softmax(&a).unwrap();
+        assert_eq!(c.dims().to_vec(), vec![1, 40]);
     }
 }
