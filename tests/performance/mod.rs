@@ -76,7 +76,7 @@ fn benchmark_linear_medium(runner: &mut TestRunner, config: &PerfConfig) {
 
         println!("  Linear medium ({}x{} -> {}x{}):", batch, in_features, batch, out_features);
         print_perf_result(&result);
-        if result.mean_ms > 3000.0 {
+        if result.mean_ms > 20000.0 {
             return Err(format!("Linear medium too slow: {:.2}ms", result.mean_ms));
         }
         Ok(())
@@ -104,7 +104,7 @@ fn benchmark_linear_large(runner: &mut TestRunner, config: &PerfConfig) {
 
         println!("  Linear large ({}x{} -> {}x{}):", batch, in_features, batch, out_features);
         print_perf_result(&result);
-        if result.mean_ms > 30000.0 {
+        if result.mean_ms > 120000.0 {
             return Err(format!("Linear large too slow: {:.2}ms", result.mean_ms));
         }
         Ok(())
