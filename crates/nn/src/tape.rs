@@ -6,7 +6,7 @@
 use rustral_autodiff::{Tape, TensorId};
 use rustral_core::{Backend, ForwardCtx, Result};
 
-use crate::Linear;
+use crate::{Embedding, Linear};
 
 /// A module that can execute its forward pass while recording into an autodiff [`Tape`].
 ///
@@ -30,5 +30,14 @@ where
         } else {
             Ok(out)
         }
+    }
+}
+
+impl<B: Backend> TapeModule<B> for Embedding<B>
+where
+    B::Tensor: Clone,
+{
+    fn forward_tape(&self, input: TensorId, tape: &mut Tape<B>, ctx: &mut ForwardCtx<B>) -> Result<TensorId> {
+        tape.gather_rows_tape(self.table(), input, ctx)
     }
 }

@@ -456,6 +456,7 @@ impl<B: Backend> Tape<B> {
     where
         B::Tensor: Clone,
     {
+        let table_id = self.watch_parameter(table);
         let ids_val = self.get_value(ids)?.clone();
         let ops = ctx.backend().ops();
 
@@ -463,33 +464,71 @@ impl<B: Backend> Tape<B> {
         let ids_shape = ops.shape(&ids_val);
         let num_indices = ids_shape.iter().product::<usize>();
 
-        // Get the actual index values from the tensor
-        // For simplicity, assume indices are stored as f32 and we need to convert to usize
-        let mut id_vec = Vec::with_capacity(num_indices);
-        for i in 0..num_indices {
-            let val = ops.tensor_element(&ids_val, i).map_err(|e| {
-                rustral_core::CoreError::InvalidArgument(format!(
-                    "Failed to get tensor element {}: {:?}",
-                    i, e
-                ))
-            })?;
-            id_vec.push(val as usize);
+        // Read indices in a single bulk transfer.
+        // Indices are stored as f32 and converted to usize.
+        let ids_f32 = ops.tensor_to_vec(&ids_val)?;
+        if ids_f32.len() != num_indices {
+            return Err(rustral_core::CoreError::InvalidArgument(format!(
+                "ids tensor had {} elements but shape implies {}",
+                ids_f32.len(),
+                num_indices
+            )));
         }
+
+        let id_vec: Vec<usize> = ids_f32.iter().map(|v| *v as usize).collect();
 
         // Forward: gather rows from table
         let output = ops.gather_rows(table, &id_vec)?;
 
         // Clone for closure
         let ids_shape_for_grad = ids_shape.clone();
+        let table_shape_for_grad = ops.shape(table.tensor());
+        let id_vec_for_grad = id_vec.clone();
 
-        Ok(self.record(&[ids], output, move |_grad_out, _store, ops| {
-            // Backward: dL/dtable[row] = sum over i where id_vec[i] == row of grad_out[i]
-            // For simplicity, we just return the gradient for the indices
-            // Full implementation would need to accumulate into the table parameter
+        Ok(self.record(&[table_id, ids], output, move |grad_out, _store, ops| {
+            // Backward:
+            // - ids are non-differentiable => grad_ids = 0
+            // - table grad accumulates per used row: grad_table[row] += grad_out[i] for each i with ids[i] == row
+            //
+            // NOTE: This uses a single bulk readback of `grad_out` to build a dense table gradient.
+            // It is correct, but GPU backends will pay for that sync. Later we can add a backend scatter op.
+            let table_shape = table_shape_for_grad.clone();
+            let out_shape = ops.shape(grad_out);
+            if out_shape.len() != 2 || out_shape[0] != id_vec_for_grad.len() {
+                return Err(rustral_core::CoreError::InvalidArgument(format!(
+                    "gather_rows_tape grad_out had shape {:?}, expected [{}, dim]",
+                    out_shape,
+                    id_vec_for_grad.len()
+                )));
+            }
+            let dim = out_shape[1];
+            if table_shape.len() != 2 || table_shape[1] != dim {
+                return Err(rustral_core::CoreError::InvalidArgument(format!(
+                    "gather_rows_tape table had shape {:?}, grad_out had shape {:?}",
+                    table_shape, out_shape
+                )));
+            }
 
-            // The gradient for ids is zero (indices aren't differentiable)
+            let grad_out_vals = ops.tensor_to_vec(grad_out)?;
+            let mut grad_table_vals = vec![0.0f32; table_shape[0] * table_shape[1]];
+
+            for (i, &row) in id_vec_for_grad.iter().enumerate() {
+                if row >= table_shape[0] {
+                    return Err(rustral_core::CoreError::InvalidArgument(format!(
+                        "gather_rows_tape id {} out of range for vocab_size {}",
+                        row, table_shape[0]
+                    )));
+                }
+                let src_off = i * dim;
+                let dst_off = row * dim;
+                for j in 0..dim {
+                    grad_table_vals[dst_off + j] += grad_out_vals[src_off + j];
+                }
+            }
+
+            let grad_table = ops.tensor_from_vec(grad_table_vals, &table_shape)?;
             let grad_ids = ops.zeros(&ids_shape_for_grad)?;
-            Ok(vec![grad_ids])
+            Ok(vec![grad_table, grad_ids])
         }))
     }
 

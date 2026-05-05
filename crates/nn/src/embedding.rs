@@ -49,6 +49,11 @@ impl<B: Backend> Embedding<B> {
     pub fn config(&self) -> &EmbeddingConfig {
         &self.config
     }
+
+    /// Borrow the embedding table parameter.
+    pub fn table(&self) -> &Parameter<B> {
+        &self.table
+    }
 }
 
 impl<B: Backend> Module<B> for Embedding<B> {
