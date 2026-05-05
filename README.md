@@ -3,7 +3,7 @@
 > **A Rust neural network framework for learning, research, and experiments**
 
 <p align="center">
-  <img src="docs/assets/rustral-logo-full.svg" alt="MNR logo" width="720" />
+  <img src="docs/assets/rustral-logo-full.svg" alt="Rustral logo" width="720" />
 </p>
 
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org)
@@ -13,12 +13,13 @@
 
 **Rustral** is a deep learning toolkit in Rust for building and training neural networks—from small tutorials to transformers and mixture-of-experts experiments.
 
-Unlike Python frameworks, Rustral aims for:
+Rustral is not trying to be a Python framework with Rust syntax. It is built around a different set of engineering bets:
 
-- **Memory safety** at compile time (no hidden C++/CUDA footguns in your Rust code)
-- **Explicit state** (`ForwardCtx`, backends) instead of hidden global tensors
-- **Single-binary workflows** when you deploy trained logic
-- **Readable internals**—use the source to see how autodiff, optimizers, and layers behave
+- **Explicit execution state.** A `ForwardCtx` carries backend, mode, and run state through the call graph. Model code does not depend on hidden global tensor registries or implicit training modes.
+- **Backend-independent model definitions.** Layers are written against small backend traits, so the same model can run on the reference CPU backend, Candle, or experimental `wgpu` without rewriting the layer stack.
+- **Typed model boundaries.** The `Module` trait makes input and output contracts visible in Rust types. This is useful when experiments grow from one-off notebooks into reusable systems.
+- **Inspectable internals.** Autodiff, optimizers, layers, distributed training hooks, and runtime orchestration live in focused crates. The framework is meant to be read, modified, and audited.
+- **Rust-native deployment paths.** Trained logic can be compiled into ordinary Rust binaries and services, which reduces the gap between experiment code and production code.
 
 ### Who is it for?
 
@@ -27,6 +28,43 @@ Unlike Python frameworks, Rustral aims for:
 - **Engineers** experimenting with Rust-native ML pipelines
 
 ---
+
+## Design Philosophy
+
+Rustral favors explicit structure over framework magic. That choice creates more visible code than a notebook-first API, but it also gives senior engineers and ML researchers stronger control over correctness, reproducibility, and system behavior.
+
+### The Core Tradeoff
+
+Most deep learning frameworks optimize for interactive velocity: global tensor state, dynamic graph construction, runtime shape failures, and large native backends hidden behind Python objects. That model is productive, but it makes many production and research questions harder to reason about:
+
+- Which backend owns this tensor?
+- Which parameters are trainable in this pass?
+- Where does graph lifetime begin and end?
+- What does a model need to run outside the training process?
+- Can this layer be reused without inheriting hidden runtime state?
+
+Rustral makes those boundaries explicit. The result is a framework where model code is more portable across backends, easier to test at crate boundaries, and easier to integrate into Rust systems that already care about memory safety, concurrency, deployment, and reproducible builds.
+
+### Practical Advantages
+
+| Advantage | Why it matters |
+|-----------|----------------|
+| Explicit `ForwardCtx` | Training/inference mode, backend access, and run state are visible at every forward pass. |
+| Small backend contract | New execution engines can be added without changing high-level model definitions. |
+| Reference CPU backend | Correctness can be tested on a simple backend before optimizing for CUDA or cross-platform GPU paths. |
+| Focused crates | Researchers can study or replace autodiff, optimizers, layers, runtime, data, or distributed pieces independently. |
+| Rust ownership model | Parameter ownership, borrowing, and lifetimes are checked by the compiler instead of convention. |
+| Single-binary integration | Inference and training utilities can be embedded into normal Rust services, CLIs, and pipelines. |
+
+### What Rustral Optimizes For
+
+- Clear extension points for new layers, backends, optimizers, and training loops.
+- Reproducible experiments that can move from research code into systems code.
+- Debuggable internals for people who want to understand or modify the framework.
+- Correctness-first CPU execution with optional faster backend paths.
+- A workspace architecture where each subsystem can be tested and evolved independently.
+
+Rustral is currently best viewed as a research and systems framework: useful for learning, experiments, backend work, and Rust-native ML infrastructure. If you need the largest pretrained model ecosystem today, Python frameworks remain the practical default. If you want a framework whose execution model is explicit and whose internals are approachable, Rustral is designed for that.
 
 ## Quick Start (5 Minutes)
 
@@ -75,39 +113,26 @@ cargo run -p rustral-nn --example transformer_bert_encoder
 
 Rustral is organized as a workspace of focused crates. Each crate handles one piece of the puzzle:
 
+```text
+examples and applications
+  -> rustral-nn
+     neural network layers: Linear, Conv2d, LSTM, Transformer, Attention, MoE
+  -> rustral-core
+     TensorOps, Backend, Parameter, Module, ForwardCtx
+  -> training and runtime crates
+     rustral-autodiff, rustral-optim, rustral-runtime, rustral-distributed
+  -> backend crates
+     rustral-ndarray-backend, rustral-candle-backend, rustral-wgpu-backend
 ```
-┌────────────────────────────────────────────────────────────────────┐
-│                         Your Model / Examples                       │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────────────┐  │
-│  │  basics/     │  │  vision/     │  │  nlp/                   │  │
-│  │  · xor       │  │  · resnet    │  │  · bert                 │  │
-│  │  · mnist     │  │  · diffusion │  │  · gpt                  │  │
-│  │  · char_rnn  │  └──────────────┘  └─────────────────────────┘  │
-│  └──────┬───────┘                                                   │
-│         │                                                           │
-│  ┌──────┴─────────────────────────────────────────────────────┐    │
-│  │              rustral_nn: Neural Network Layers                   │    │
-│  │  Linear · Conv2d · LSTM · Transformer · Attention · MoE     │    │
-│  └──────┬─────────────────────────────────────────────────────┘    │
-│         │                                                           │
-│  ┌──────┴─────────────────────────────────────────────────────┐    │
-│  │             rustral_core: Tensors, Backends, Module trait         │    │
-│  │  TensorOps · Backend · Parameter · ForwardCtx · Tape         │    │
-│  └──────┬─────────────────────────────────────────────────────┘    │
-│         │                                                           │
-│  ┌──────┴──────────┬─────────────────────┬─────────────────────┐   │
-│  │ rustral_optim       │ rustral_autodiff        │ rustral_distributed      │   │
-│  │ SGD · Adam ·    │ Reverse-mode        │ Data Parallel ·      │   │
-│  │ AdamW · Schedules │ autodiff · Gradients │ Pipeline · ZeRO · FSDP │   │
-│  └─────────────────┴─────────────────────┴─────────────────────┘   │
-│         │                                                           │
-│  ┌──────┴──────────┬─────────────────────┬─────────────────────┐   │
-│  │ rustral_ndarray_  │ rustral_candle_    │ rustral_wgpu_      │   │
-│  │ backend           │ backend            │ backend            │   │
-│  │ (CPU reference)   │ (CPU/CUDA)         │ (Vulkan/Metal/DX12)│   │
-│  └───────────────────┴─────────────────────┴─────────────────────┘   │
-└────────────────────────────────────────────────────────────────────┘
-```
+
+| Layer | Crates | Responsibility |
+|-------|--------|----------------|
+| Model surface | `examples`, `rustral-nn` | User-facing layers, model composition, transformer and vision examples |
+| Core contracts | `rustral-core` | Tensor operations, backend trait, parameters, module trait, explicit forward context |
+| Training stack | `rustral-autodiff`, `rustral-optim`, `rustral-runtime` | Gradients, optimizers, mixed precision hooks, trainer and inference orchestration |
+| Scaling stack | `rustral-distributed` | Data, tensor, pipeline, sequence, context, ZeRO, and FSDP-style parallelism APIs |
+| Execution backends | `rustral-ndarray-backend`, `rustral-candle-backend`, `rustral-wgpu-backend` | Reference CPU, optimized CPU/CUDA, and experimental cross-platform GPU execution |
+| Supporting crates | `rustral-data`, `rustral-io`, `rustral-metrics`, `rustral-autotuner`, `rustral-symbolic`, `rustral-hf` | Data loading, checkpoints, metrics, backend tuning, vocabularies, and Hugging Face helpers |
 
 ### Crate-by-Crate Breakdown
 
