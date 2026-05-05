@@ -932,19 +932,21 @@ impl GpuTensor {
         encoder.copy_buffer_to_buffer(&self.buffer, 0, &staging_buffer, 0, (self.size * 4) as u64);
         queue.submit(Some(encoder.finish()));
 
-        // Block and read
-        let data = pollster::block_on(async {
-            let slice = staging_buffer.slice(..);
-            slice.map_async(wgpu::MapMode::Read, |_| {});
-            device.poll(wgpu::Maintain::Wait);
-            let data = slice.get_mapped_range();
-            let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
-            drop(data);
-            staging_buffer.unmap();
-            result
+        // Block and read - use a channel to avoid deadlock with pollster::block_on
+        let (tx, rx) = std::sync::mpsc::channel();
+        let slice = staging_buffer.slice(..);
+        slice.map_async(wgpu::MapMode::Read, move |_| {
+            let _ = tx.send(());
         });
+        device.poll(wgpu::Maintain::Wait);
+        rx.recv().expect("GPU buffer mapping failed");
 
-        data
+        let data = slice.get_mapped_range();
+        let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
+        drop(data);
+        staging_buffer.unmap();
+
+        result
     }
 
     /// Return the shape of this tensor.
