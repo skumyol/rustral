@@ -212,6 +212,26 @@ mod tests {
         assert!(matches!(result, Err(HfError::MissingFile { .. })));
     }
 
+    /// Smoke test: actually download a real tiny model from HF Hub.
+    /// Ignored by default since it requires network.
+    #[test]
+    #[ignore = "requires network"]
+    fn test_download_real_model_smoke() {
+        let result = download_state_dict("hf-internal-testing/tiny-random-bert");
+        match result {
+            Ok(dict) => {
+                // The tiny-random-bert has a handful of tensors.
+                assert!(!dict.is_empty(), "Expected at least one tensor");
+                println!("Downloaded {} tensors from tiny-random-bert", dict.len());
+            }
+            Err(HfError::MissingFile { ref file, .. }) => {
+                // If the model doesn't have model.safetensors, that's fine.
+                assert!(file.contains("model.safetensors"));
+            }
+            Err(e) => panic!("Unexpected error: {}", e),
+        }
+    }
+
     #[test]
     fn test_save_and_load_roundtrip_local() {
         // Simulate a Hub-like roundtrip by writing a local safetensors
