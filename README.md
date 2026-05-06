@@ -85,6 +85,115 @@ Rustral is currently best viewed as a research and systems framework: useful for
 
 The current improvement roadmap is tracked in [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md).
 
+## Why Rustral Feels Different
+
+Rustral's edge is **modular ML systems code with light syntax around the common path**:
+
+- Model code is written once against `Backend`, then run on ndarray, Candle, or experimental `wgpu` backends.
+- Execution state is explicit through `ForwardCtx`, so training/inference mode does not hide in globals.
+- Layers are normal Rust structs, but builders remove most parameter-initialization boilerplate.
+- Internals are split into crates, so researchers can inspect or replace autodiff, optimizers, IO, runtime, or backends independently.
+
+### Same Tiny Model, Different Stacks
+
+**PyTorch: concise, dynamic, global runtime conventions**
+
+```python
+import torch
+import torch.nn as nn
+
+model = nn.Sequential(
+    nn.Linear(2, 4),
+    nn.ReLU(),
+    nn.Linear(4, 1),
+    nn.Sigmoid(),
+)
+
+x = torch.tensor([[0.0, 1.0]])
+y = model(x)
+```
+
+PyTorch is the fastest path for interactive research and ecosystem access. The tradeoff is that device placement, training mode, parameter ownership, and graph behavior are mostly runtime conventions.
+
+**Candle direct: fast Rust tensor library, model plumbing stays close to tensors**
+
+```rust
+use candle_core::{DType, Device, Tensor};
+use candle_nn::{linear, Module, VarBuilder, VarMap};
+
+let device = Device::Cpu;
+let varmap = VarMap::new();
+let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
+let l1 = linear(2, 4, vb.pp("l1"))?;
+let l2 = linear(4, 1, vb.pp("l2"))?;
+
+let x = Tensor::from_vec(vec![0.0f32, 1.0], (1, 2), &device)?;
+let y = l2.forward(&l1.forward(&x)?.relu()?)?.sigmoid()?;
+```
+
+Candle is excellent when you want a practical Rust tensor engine. Rustral can use Candle as a backend while keeping model code behind Rustral's `Module` and `ForwardCtx` contracts.
+
+**Rustral: backend-generic model code with explicit execution context**
+
+```rust
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_nn::{Linear, LinearBuilder};
+
+struct TinyMlp<B: Backend> {
+    l1: Linear<B>,
+    l2: Linear<B>,
+}
+
+impl<B: Backend> TinyMlp<B> {
+    fn new(backend: &B) -> rustral_core::Result<Self> {
+        Ok(Self {
+            l1: LinearBuilder::new(2, 4).with_bias(true).build(backend)?,
+            l2: LinearBuilder::new(4, 1).with_bias(true).build(backend)?,
+        })
+    }
+
+    fn forward(&self, x: B::Tensor, ctx: &mut ForwardCtx<B>) -> rustral_core::Result<B::Tensor> {
+        let ops = ctx.backend().ops();
+        let h = self.l1.forward(x, ctx)?;
+        let h = ops.relu(&h)?;
+        let y = self.l2.forward(h, ctx)?;
+        ops.sigmoid(&y)
+    }
+}
+```
+
+The syntax is still Rust, but the repeated decisions are handled for you: parameter initialization goes through builders, execution state goes through `ForwardCtx`, and backend-specific tensor work stays behind `TensorOps`.
+
+### Backend Swap Without Rewriting The Model
+
+```rust
+use rustral_core::{Backend, ForwardCtx, Mode};
+use rustral_ndarray_backend::CpuBackend;
+use rustral_candle_backend::CandleBackend;
+
+fn run<B: Backend>(backend: &B) -> rustral_core::Result<B::Tensor> {
+    let model = TinyMlp::new(backend)?;
+    let input = backend.tensor_from_vec(vec![0.0, 1.0], &[1, 2])?;
+    let mut ctx = ForwardCtx::new(backend, Mode::Inference);
+    model.forward(input, &mut ctx)
+}
+
+let _reference = run(&CpuBackend::default())?;
+let _fast_cpu = run(&CandleBackend::cpu())?;
+```
+
+This is the design center: use the CPU reference backend for correctness, switch to Candle for practical execution, and keep the model definition stable.
+
+### Where Rustral Is Better, And Where It Is Not
+
+| Stack | Best at | Tradeoff | Rustral advantage |
+|-------|---------|----------|-------------------|
+| PyTorch | ecosystem, pretrained models, notebooks, mature autograd | runtime conventions and Python/C++ boundary | Rust-native deployment, explicit context, auditable internals |
+| JAX | transforms, compilation, accelerator research | XLA-oriented mental model, Python-first | simpler explicit systems model for Rust applications |
+| Candle | practical Rust tensor execution and model loading | lower-level model/runtime orchestration | Rustral can use Candle as a backend while adding typed modules, trainers, IO, and explicit context |
+| Burn | high-level Rust deep learning ergonomics | larger framework surface and its own abstractions | Rustral stays small, inspectable, and backend-contract focused |
+| Rustral | modularity, explicit state, backend swapping, readable internals | younger ecosystem, fewer kernels, fewer pretrained workflows | strongest fit for learning, ML systems research, and Rust-native pipelines |
+
 ## Quick Start (5 Minutes)
 
 ### 1. Installation

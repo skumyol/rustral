@@ -1,4 +1,5 @@
 use crate::{Backend, ForwardCtx, Parameter, ParameterRef, Result};
+use std::collections::HashMap;
 
 /// Stateless forward-computation contract.
 ///
@@ -74,4 +75,24 @@ pub trait NamedParameters<B: Backend> {
 
     /// Visit all parameters owned by this module (mutable).
     fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>));
+}
+
+/// Collect all parameters with their stable names as [`ParameterRef`]s.
+pub fn collect_named_parameters<B: Backend, M: NamedParameters<B>>(model: &M) -> Vec<(String, ParameterRef)> {
+    let mut out = Vec::new();
+    model.visit_parameters(&mut |name, p| {
+        out.push((name.to_string(), ParameterRef { id: p.id() }));
+    });
+    out
+}
+
+/// Collect a reverse map from parameter id to its stable name.
+///
+/// This is useful for trainer logs and checkpoint keys (id -> path).
+pub fn collect_named_parameter_ids<B: Backend, M: NamedParameters<B>>(model: &M) -> HashMap<crate::ParameterId, String> {
+    let mut out: HashMap<crate::ParameterId, String> = HashMap::new();
+    model.visit_parameters(&mut |name, p| {
+        out.insert(p.id(), name.to_string());
+    });
+    out
 }

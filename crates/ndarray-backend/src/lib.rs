@@ -13,7 +13,7 @@
 
 use rand::thread_rng;
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use rustral_core::{AxisTensorOps, Backend, CoreError, Parameter, Result, ShapeExt, TensorOps};
+use rustral_core::{Backend, CoreError, Parameter, Result, ShapeExt, TensorOps};
 use serde::{Deserialize, Serialize};
 
 /// Dense row-major CPU tensor used by the reference backend.
@@ -734,9 +734,7 @@ impl TensorOps<CpuBackend> for CpuOps {
             ))
         })
     }
-}
 
-impl AxisTensorOps<CpuBackend> for CpuOps {
     fn softmax_dim(&self, x: &CpuTensor, dim: usize) -> Result<CpuTensor> {
         let shape = &x.shape;
         if dim >= shape.len() {
@@ -755,13 +753,11 @@ impl AxisTensorOps<CpuBackend> for CpuOps {
 
         for o in 0..outer {
             for i in 0..inner {
-                // Find max for numerical stability.
                 let mut max = f32::NEG_INFINITY;
                 for a in 0..axis {
                     let idx = o * axis * inner + a * inner + i;
                     max = max.max(x.values[idx]);
                 }
-                // exp and sum
                 let mut sum = 0.0f32;
                 for a in 0..axis {
                     let idx = o * axis * inner + a * inner + i;
@@ -850,7 +846,6 @@ impl AxisTensorOps<CpuBackend> for CpuOps {
                     let idx = o * axis * inner + a * inner + i;
                     s += x.values[idx];
                 }
-                // write at [o, i] in (outer, inner) flattened space
                 let out_idx = o * inner + i;
                 out[out_idx] = s;
             }
@@ -891,7 +886,6 @@ impl AxisTensorOps<CpuBackend> for CpuOps {
             return Err(CoreError::InvalidArgument("var_dim: unbiased variance requires axis >= 2".into()));
         }
 
-        // mean with keepdim so we can broadcast-sub.
         let mean_keep = self.mean_dim(x, dim, true)?;
         let mean_b = self.broadcast_to(&mean_keep, shape)?;
         let diff = self.sub(x, &mean_b)?;
@@ -948,7 +942,6 @@ impl rustral_core::TensorInPlaceOps<CpuBackend> for CpuOps {
 #[cfg(test)]
 mod axis_ops_tests {
     use super::*;
-    use rustral_core::AxisTensorOps;
 
     fn assert_close(a: &[f32], b: &[f32], tol: f32) {
         assert_eq!(a.len(), b.len());

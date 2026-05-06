@@ -446,37 +446,40 @@ impl<B: Backend> Tape<B> {
         let classes = logits_shape[1].max(1);
         let inv_batch = 1.0 / batch as f32;
 
-        // Row-wise log-softmax(logits) for numerical stability.
-        //
-        // NOTE: `TensorOps::log_softmax` is currently defined as a whole-tensor operation, so we
-        // implement the row-wise `[batch, classes]` semantics here for correctness.
-        let logits_vec = ops.tensor_to_vec(&logits_val)?;
-        if logits_vec.len() != batch * classes {
-            return Err(rustral_core::CoreError::InvalidArgument(format!(
-                "cross_entropy_loss: logits had {} elements, expected {}",
-                logits_vec.len(),
-                batch * classes
-            )));
-        }
-        let mut log_probs_vec = vec![0.0f32; batch * classes];
-        for i in 0..batch {
-            let row = &logits_vec[i * classes..i * classes + classes];
-            let mut row_max = f32::NEG_INFINITY;
-            for &v in row {
-                if v > row_max {
-                    row_max = v;
+        // Prefer axis-aware log-softmax when available (ndarray + candle implement it).
+        // Fall back to a manual row-wise implementation otherwise.
+        let log_probs = match ops.log_softmax_dim(&logits_val, 1) {
+            Ok(t) => t,
+            Err(_) => {
+                let logits_vec = ops.tensor_to_vec(&logits_val)?;
+                if logits_vec.len() != batch * classes {
+                    return Err(rustral_core::CoreError::InvalidArgument(format!(
+                        "cross_entropy_loss: logits had {} elements, expected {}",
+                        logits_vec.len(),
+                        batch * classes
+                    )));
                 }
+                let mut log_probs_vec = vec![0.0f32; batch * classes];
+                for i in 0..batch {
+                    let row = &logits_vec[i * classes..i * classes + classes];
+                    let mut row_max = f32::NEG_INFINITY;
+                    for &v in row {
+                        if v > row_max {
+                            row_max = v;
+                        }
+                    }
+                    let mut sum_exp = 0.0f32;
+                    for &v in row {
+                        sum_exp += (v - row_max).exp();
+                    }
+                    let log_denom = row_max + sum_exp.ln();
+                    for j in 0..classes {
+                        log_probs_vec[i * classes + j] = row[j] - log_denom;
+                    }
+                }
+                ops.tensor_from_vec(log_probs_vec, &[batch, classes])?
             }
-            let mut sum_exp = 0.0f32;
-            for &v in row {
-                sum_exp += (v - row_max).exp();
-            }
-            let log_denom = row_max + sum_exp.ln();
-            for j in 0..classes {
-                log_probs_vec[i * classes + j] = row[j] - log_denom;
-            }
-        }
-        let log_probs = ops.tensor_from_vec(log_probs_vec.clone(), &[batch, classes])?;
+        };
         let target_shape = ops.shape(&target_val);
 
         // Build a one-hot tensor for the backward formula and compute the forward loss.
@@ -500,6 +503,7 @@ impl<B: Backend> Tape<B> {
             }
 
             let mut one_hot = vec![0.0f32; batch * classes];
+            let log_probs_vec = ops.tensor_to_vec(&log_probs)?;
             let mut nll_sum = 0.0f32;
             for i in 0..batch {
                 let yi = target_idx_f32[i] as isize;
@@ -537,34 +541,40 @@ impl<B: Backend> Tape<B> {
             let grad_scale = upstream * scale_for_grad;
 
             // Gradient w.r.t. logits: softmax(logits) - target
-            // Recompute row-wise log-softmax in backward for correctness.
-            let logits_vec = ops.tensor_to_vec(&logits_for_grad)?;
-            if logits_vec.len() != batch_for_grad * classes_for_grad {
-                return Err(rustral_core::CoreError::InvalidArgument(format!(
-                    "cross_entropy_loss backward: logits had {} elements, expected {}",
-                    logits_vec.len(),
-                    batch_for_grad * classes_for_grad
-                )));
-            }
-            let mut log_probs_vec = vec![0.0f32; batch_for_grad * classes_for_grad];
-            for i in 0..batch_for_grad {
-                let row = &logits_vec[i * classes_for_grad..i * classes_for_grad + classes_for_grad];
-                let mut row_max = f32::NEG_INFINITY;
-                for &v in row {
-                    if v > row_max {
-                        row_max = v;
+            let log_probs_grad = match ops.log_softmax_dim(&logits_for_grad, 1) {
+                Ok(t) => t,
+                Err(_) => {
+                    // Manual row-wise fallback.
+                    let logits_vec = ops.tensor_to_vec(&logits_for_grad)?;
+                    if logits_vec.len() != batch_for_grad * classes_for_grad {
+                        return Err(rustral_core::CoreError::InvalidArgument(format!(
+                            "cross_entropy_loss backward: logits had {} elements, expected {}",
+                            logits_vec.len(),
+                            batch_for_grad * classes_for_grad
+                        )));
                     }
+                    let mut log_probs_vec = vec![0.0f32; batch_for_grad * classes_for_grad];
+                    for i in 0..batch_for_grad {
+                        let row =
+                            &logits_vec[i * classes_for_grad..i * classes_for_grad + classes_for_grad];
+                        let mut row_max = f32::NEG_INFINITY;
+                        for &v in row {
+                            if v > row_max {
+                                row_max = v;
+                            }
+                        }
+                        let mut sum_exp = 0.0f32;
+                        for &v in row {
+                            sum_exp += (v - row_max).exp();
+                        }
+                        let log_denom = row_max + sum_exp.ln();
+                        for j in 0..classes_for_grad {
+                            log_probs_vec[i * classes_for_grad + j] = row[j] - log_denom;
+                        }
+                    }
+                    ops.tensor_from_vec(log_probs_vec, &[batch_for_grad, classes_for_grad])?
                 }
-                let mut sum_exp = 0.0f32;
-                for &v in row {
-                    sum_exp += (v - row_max).exp();
-                }
-                let log_denom = row_max + sum_exp.ln();
-                for j in 0..classes_for_grad {
-                    log_probs_vec[i * classes_for_grad + j] = row[j] - log_denom;
-                }
-            }
-            let log_probs_grad = ops.tensor_from_vec(log_probs_vec, &[batch_for_grad, classes_for_grad])?;
+            };
             let softmax_out = ops.exp(&log_probs_grad)?;
             let grad_logits_unscaled = ops.sub(&softmax_out, &target_one_hot_for_grad)?;
             let grad_logits = ops.mul_scalar(&grad_logits_unscaled, grad_scale)?;

@@ -26,6 +26,18 @@ pub enum IoError {
     /// A requested tensor was not found in the file.
     #[error("tensor '{0}' not found in checkpoint")]
     MissingTensor(String),
+
+    /// A tensor had an unexpected dtype.
+    #[error("dtype mismatch for '{name}': expected {expected:?}, got {actual:?}")]
+    DTypeMismatch { name: String, expected: safetensors::Dtype, actual: safetensors::Dtype },
+}
+
+/// A loaded tensor entry from a safetensors state dict.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StateTensor {
+    pub shape: Vec<usize>,
+    pub dtype: safetensors::Dtype,
+    pub data: Vec<f32>,
 }
 
 /// Owned tensor data for serialization.
@@ -120,6 +132,53 @@ pub fn load_parameters(data: &[u8]) -> Result<HashMap<String, Vec<f32>>, IoError
     Ok(result)
 }
 
+/// Save a typed state dictionary with shapes (and optional metadata).
+pub fn save_state_dict_typed(
+    state_dict: &HashMap<String, (Vec<f32>, Vec<usize>)>,
+    metadata: Option<HashMap<String, String>>,
+) -> Result<Vec<u8>, IoError> {
+    let mut views: HashMap<String, TensorData> = HashMap::with_capacity(state_dict.len());
+    for (name, (data, shape)) in state_dict {
+        let bytes: Vec<u8> = bytemuck::cast_slice(data).to_vec();
+        views.insert(name.clone(), TensorData { shape: shape.clone(), data: bytes });
+    }
+    Ok(serialize(views, &metadata)?)
+}
+
+/// Load a typed state dictionary preserving shapes and dtype.
+///
+/// This is the strict loader used for whole-model save/load.
+pub fn load_state_dict_typed(data: &[u8]) -> Result<HashMap<String, StateTensor>, IoError> {
+    let safe = SafeTensors::deserialize(data)?;
+    let mut result: HashMap<String, StateTensor> = HashMap::with_capacity(safe.len());
+    for (name, view) in safe.tensors() {
+        let dtype = view.dtype();
+        if dtype != safetensors::Dtype::F32 {
+            return Err(IoError::DTypeMismatch {
+                name: name.to_string(),
+                expected: safetensors::Dtype::F32,
+                actual: dtype,
+            });
+        }
+        let shape = view.shape().to_vec();
+        let bytes = view.data();
+        let floats: Vec<f32> = bytemuck::cast_slice(&bytes).to_vec();
+        let expected_count: usize = shape.iter().product();
+        if floats.len() != expected_count {
+            return Err(IoError::ShapeMismatch {
+                name: name.to_string(),
+                expected: shape,
+                actual: vec![floats.len()],
+            });
+        }
+        result.insert(name.to_string(), StateTensor { shape, dtype, data: floats });
+    }
+
+    // Note: safetensors metadata access is not exposed in our current dependency version.
+    // We still allow writers to include metadata for inspection by external tools.
+    Ok(result)
+}
+
 /// Save a state dictionary (name -> flat f32 values) to a Safetensors byte buffer.
 ///
 /// Since the state dictionary does not carry shape information, each tensor
@@ -199,5 +258,17 @@ mod tests {
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded.get("weight").unwrap(), &vec![1.0, 2.0, 3.0, 4.0]);
         assert_eq!(loaded.get("bias").unwrap(), &vec![0.5, 0.5]);
+    }
+
+    #[test]
+    fn test_typed_state_dict_roundtrip_preserves_shape() {
+        let mut dict: HashMap<String, (Vec<f32>, Vec<usize>)> = HashMap::new();
+        dict.insert("w".to_string(), (vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]));
+        let bytes = save_state_dict_typed(&dict, None).unwrap();
+        let loaded = load_state_dict_typed(&bytes).unwrap();
+        assert_eq!(
+            loaded.get("w").unwrap(),
+            &StateTensor { shape: vec![2, 2], dtype: safetensors::Dtype::F32, data: vec![1.0, 2.0, 3.0, 4.0] }
+        );
     }
 }

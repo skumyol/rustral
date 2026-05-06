@@ -6,23 +6,29 @@
 use std::collections::HashMap;
 
 use rustral_core::{Backend, NamedParameters, Parameter};
-use rustral_io::{load_parameters, save_state_dict};
+use rustral_io::{load_state_dict_typed, save_state_dict_typed, StateTensor};
 
 /// Serialize a model to a Safetensors byte buffer.
 ///
-/// This stores each parameter as a flat `f32` array keyed by its stable name.
+/// This stores each parameter keyed by its stable name, preserving tensor shape.
 pub fn save_model<B: Backend, M: NamedParameters<B>>(model: &M, backend: &B) -> anyhow::Result<Vec<u8>>
 where
     B::Tensor: Clone,
 {
     let ops = backend.ops();
-    let mut dict: HashMap<String, Vec<f32>> = HashMap::new();
+    let mut dict: HashMap<String, (Vec<f32>, Vec<usize>)> = HashMap::new();
+    let mut ids: HashMap<String, u64> = HashMap::new();
     model.visit_parameters(&mut |name, p: &Parameter<B>| {
         if let Ok(v) = ops.tensor_to_vec(p.tensor()) {
-            dict.insert(name.to_string(), v);
+            let shape = ops.shape(p.tensor());
+            dict.insert(name.to_string(), (v, shape));
+            ids.insert(name.to_string(), p.id().get());
         }
     });
-    Ok(save_state_dict(&dict)?)
+
+    let mut meta = HashMap::new();
+    meta.insert("rustral.parameter_ids".to_string(), serde_json::to_string(&ids)?);
+    Ok(save_state_dict_typed(&dict, Some(meta))?)
 }
 
 /// Load parameters from a Safetensors byte buffer into an existing model.
@@ -37,7 +43,7 @@ where
     B::Tensor: Clone,
 {
     let ops = backend.ops();
-    let loaded: HashMap<String, Vec<f32>> = load_parameters(bytes)?;
+    let loaded = load_state_dict_typed(bytes)?;
     let mut model_meta: Vec<(String, Vec<usize>)> = Vec::new();
     model.visit_parameters(&mut |name, p| {
         model_meta.push((name.to_string(), ops.shape(p.tensor())));
@@ -68,9 +74,12 @@ where
     // Materialize all tensors first so we can fail fast with a real error.
     let mut materialized: HashMap<String, B::Tensor> = HashMap::with_capacity(model_meta.len());
     for (name, shape) in &model_meta {
-        let values = loaded
+        let StateTensor { data: values, shape: stored_shape, .. } = loaded
             .get(name)
             .ok_or_else(|| anyhow::anyhow!("load_model: missing key after precheck: {name}"))?;
+        if stored_shape != shape {
+            anyhow::bail!("load_model: shape mismatch for '{name}': expected {:?}, got {:?}", shape, stored_shape);
+        }
         let expected_elems: usize = shape.iter().product();
         if values.len() != expected_elems {
             anyhow::bail!(

@@ -97,6 +97,8 @@ crossbeam-channel = "0.5"
 parking_lot = "0.12"
 tracing = "0.1"
 criterion = "0.5"
+safetensors = "0.4"
+bytemuck = { version = "1", features = ["extern_crate_alloc"] }
 
 [profile.release]
 lto = "thin"

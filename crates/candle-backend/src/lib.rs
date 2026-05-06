@@ -14,7 +14,7 @@
 //! ```
 
 use candle_core::{Device, IndexOp, Tensor};
-use rustral_core::{AxisTensorOps, Backend, CoreError, Parameter, Result, TensorOps};
+use rustral_core::{Backend, CoreError, Parameter, Result, TensorOps};
 use thiserror::Error;
 
 /// Errors specific to the candle backend.
@@ -358,20 +358,6 @@ impl TensorOps<CandleBackend> for CandleOps {
         x.sum(0).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
-    fn tensor_to_vec(&self, x: &Tensor) -> Result<Vec<f32>> {
-        x.flatten_all()
-            .map_err(|e| CoreError::Backend(e.to_string()))?
-            .to_vec1()
-            .map_err(|e| CoreError::Backend(e.to_string()))
-    }
-
-    fn tensor_element(&self, x: &Tensor, index: usize) -> Result<f32> {
-        let val = x.i(index).map_err(|e| CoreError::Backend(e.to_string()))?;
-        val.to_scalar::<f32>().map_err(|e| CoreError::Backend(e.to_string()))
-    }
-}
-
-impl AxisTensorOps<CandleBackend> for CandleOps {
     fn softmax_dim(&self, x: &Tensor, dim: usize) -> Result<Tensor> {
         let dims = x.dims();
         if dim >= dims.len() {
@@ -381,18 +367,19 @@ impl AxisTensorOps<CandleBackend> for CandleOps {
             )));
         }
 
-        // max over dim (reduced rank), then reshape to keepdim so we can broadcast.
         let max_val = x.max(dim).map_err(|e| CoreError::Backend(e.to_string()))?;
         let mut keep_shape = dims.to_vec();
         keep_shape[dim] = 1;
-        let max_keep = max_val.reshape(keep_shape.as_slice()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let max_keep =
+            max_val.reshape(keep_shape.as_slice()).map_err(|e| CoreError::Backend(e.to_string()))?;
         let max_b = max_keep.broadcast_as(dims).map_err(|e| CoreError::Backend(e.to_string()))?;
 
         let shifted = (x - max_b).map_err(|e| CoreError::Backend(e.to_string()))?;
         let exp_shifted = shifted.exp().map_err(|e| CoreError::Backend(e.to_string()))?;
 
         let sum_exp = exp_shifted.sum(dim).map_err(|e| CoreError::Backend(e.to_string()))?;
-        let sum_keep = sum_exp.reshape(keep_shape.as_slice()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let sum_keep =
+            sum_exp.reshape(keep_shape.as_slice()).map_err(|e| CoreError::Backend(e.to_string()))?;
         let sum_b = sum_keep.broadcast_as(dims).map_err(|e| CoreError::Backend(e.to_string()))?;
 
         (exp_shifted / sum_b).map_err(|e| CoreError::Backend(e.to_string()))
@@ -407,11 +394,11 @@ impl AxisTensorOps<CandleBackend> for CandleOps {
             )));
         }
 
-        // log_softmax(x) = (x - max) - log(sum(exp(x - max)))
         let max_val = x.max(dim).map_err(|e| CoreError::Backend(e.to_string()))?;
         let mut keep_shape = dims.to_vec();
         keep_shape[dim] = 1;
-        let max_keep = max_val.reshape(keep_shape.as_slice()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let max_keep =
+            max_val.reshape(keep_shape.as_slice()).map_err(|e| CoreError::Backend(e.to_string()))?;
         let max_b = max_keep.broadcast_as(dims).map_err(|e| CoreError::Backend(e.to_string()))?;
 
         let shifted = (x - max_b).map_err(|e| CoreError::Backend(e.to_string()))?;
@@ -419,7 +406,8 @@ impl AxisTensorOps<CandleBackend> for CandleOps {
 
         let sum_exp = exp_shifted.sum(dim).map_err(|e| CoreError::Backend(e.to_string()))?;
         let log_sum = sum_exp.log().map_err(|e| CoreError::Backend(e.to_string()))?;
-        let log_keep = log_sum.reshape(keep_shape.as_slice()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let log_keep =
+            log_sum.reshape(keep_shape.as_slice()).map_err(|e| CoreError::Backend(e.to_string()))?;
         let log_b = log_keep.broadcast_as(dims).map_err(|e| CoreError::Backend(e.to_string()))?;
 
         (shifted - log_b).map_err(|e| CoreError::Backend(e.to_string()))
@@ -428,7 +416,6 @@ impl AxisTensorOps<CandleBackend> for CandleOps {
     fn sum_dim(&self, x: &Tensor, dim: usize, keepdim: bool) -> Result<Tensor> {
         let s = x.sum(dim).map_err(|e| CoreError::Backend(e.to_string()))?;
         if keepdim {
-            // Insert a singleton dimension at `dim`.
             let mut new_shape = x.dims().to_vec();
             if dim >= new_shape.len() {
                 return Err(CoreError::InvalidArgument(format!(
@@ -470,7 +457,6 @@ impl AxisTensorOps<CandleBackend> for CandleOps {
             return Err(CoreError::InvalidArgument("var_dim: unbiased variance requires axis >= 2".into()));
         }
 
-        // mean keepdim for broadcasting
         let mean_keep = self.mean_dim(x, dim, true)?;
         let mean_b = mean_keep.broadcast_as(dims).map_err(|e| CoreError::Backend(e.to_string()))?;
         let diff = (x - mean_b).map_err(|e| CoreError::Backend(e.to_string()))?;
@@ -486,12 +472,25 @@ impl AxisTensorOps<CandleBackend> for CandleOps {
     fn broadcast_to(&self, x: &Tensor, shape: &[usize]) -> Result<Tensor> {
         x.broadcast_as(shape).map_err(|e| CoreError::Backend(e.to_string()))
     }
+
+    fn tensor_to_vec(&self, x: &Tensor) -> Result<Vec<f32>> {
+        x.flatten_all()
+            .map_err(|e| CoreError::Backend(e.to_string()))?
+            .to_vec1()
+            .map_err(|e| CoreError::Backend(e.to_string()))
+    }
+
+    fn tensor_element(&self, x: &Tensor, index: usize) -> Result<f32> {
+        let val = x.i(index).map_err(|e| CoreError::Backend(e.to_string()))?;
+        val.to_scalar::<f32>().map_err(|e| CoreError::Backend(e.to_string()))
+    }
 }
+
+// (removed duplicate impl; axis-aware methods are implemented on the primary TensorOps impl above)
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustral_core::AxisTensorOps;
 
     #[test]
     fn test_candle_backend_cpu() {

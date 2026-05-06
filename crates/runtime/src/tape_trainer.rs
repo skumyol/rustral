@@ -12,17 +12,47 @@ use rustral_optim::{Gradient, Optimizer};
 
 use crate::EpochStats;
 
+/// A supervised model that can run forward + loss on a tape.
+///
+/// This is the building block for a high-level `fit(...)` API: the trainer owns the tape,
+/// batching, backprop, optimizer step, and metrics.
+pub trait SupervisedTapeModel<B: Backend, X, Y>: NamedParameters<B> {
+    fn forward_tape(
+        &mut self,
+        input: X,
+        tape: &mut Tape<B>,
+        ctx: &mut ForwardCtx<B>,
+    ) -> Result<TensorId>;
+
+    fn loss_tape(
+        &mut self,
+        logits: TensorId,
+        target: Y,
+        tape: &mut Tape<B>,
+        ctx: &mut ForwardCtx<B>,
+    ) -> Result<TensorId>;
+}
+
+#[derive(Clone, Debug)]
+pub struct TrainingReport {
+    pub epochs: Vec<EpochStats>,
+    /// Accuracy per epoch when classification targets are usable; otherwise None.
+    pub accuracy: Option<Vec<f32>>,
+}
+
 /// Basic training configuration for [`TapeTrainer`].
 #[derive(Clone, Debug)]
 pub struct TapeTrainerConfig {
     pub epochs: usize,
     pub learning_rate: f32,
     pub batch_size: usize,
+    pub shuffle: bool,
+    pub seed: u64,
 }
 
 impl Default for TapeTrainerConfig {
     fn default() -> Self {
-        Self { epochs: 1, learning_rate: 1e-3, batch_size: 1 }
+        Self { epochs: 1, learning_rate: 1e-3, batch_size: 1, shuffle: true, seed: 0 }
     }
 }
 
@@ -180,5 +210,165 @@ where
         }
 
         Ok(stats)
+    }
+
+    /// Train a supervised model without requiring caller-provided tape code.
+    ///
+    /// This is a minimal-but-structured `fit`:
+    /// - the model defines `forward_tape` and `loss_tape`
+    /// - the trainer owns tape, backprop, optimizer step, batching, shuffling, and metrics
+    pub fn fit<M, X, Y>(
+        &mut self,
+        backend: &B,
+        model: &mut M,
+        train: &[(X, Y)],
+    ) -> anyhow::Result<TrainingReport>
+    where
+        M: SupervisedTapeModel<B, X, Y>,
+        X: Clone,
+        Y: Clone,
+    {
+        self.fit_inner(backend, model, train, None::<fn(&Y) -> usize>)
+    }
+
+    /// Supervised fit with built-in accuracy (classification targets).
+    pub fn fit_classification<M, X, Y>(
+        &mut self,
+        backend: &B,
+        model: &mut M,
+        train: &[(X, Y)],
+    ) -> anyhow::Result<TrainingReport>
+    where
+        M: SupervisedTapeModel<B, X, Y>,
+        X: Clone,
+        Y: Copy + Into<usize>,
+    {
+        self.fit_inner(backend, model, train, Some(|y: &Y| (*y).into()))
+    }
+
+    fn fit_inner<M, X, Y>(
+        &mut self,
+        backend: &B,
+        model: &mut M,
+        train: &[(X, Y)],
+        target_to_class: Option<fn(&Y) -> usize>,
+    ) -> anyhow::Result<TrainingReport>
+    where
+        M: SupervisedTapeModel<B, X, Y>,
+        X: Clone,
+        Y: Clone,
+    {
+        use rand::seq::SliceRandom;
+        use rand::SeedableRng;
+
+        let ops = backend.ops();
+        if self.config.batch_size == 0 {
+            anyhow::bail!("batch_size must be non-zero");
+        }
+
+        let mut indices: Vec<usize> = (0..train.len()).collect();
+        let mut acc_hist: Vec<f32> = Vec::with_capacity(self.config.epochs);
+        let mut epochs: Vec<EpochStats> = Vec::with_capacity(self.config.epochs);
+
+        for epoch in 0..self.config.epochs {
+            let start = Instant::now();
+            let mut rng = rand::rngs::StdRng::seed_from_u64(self.config.seed ^ (epoch as u64).wrapping_mul(0x9E37));
+            if self.config.shuffle {
+                indices.shuffle(&mut rng);
+            }
+
+            let mut losses = Vec::new();
+            let mut correct: usize = 0;
+            let mut total: usize = 0;
+
+            for batch_idx in indices.chunks(self.config.batch_size) {
+                let mut ctx = ForwardCtx::new(backend, Mode::Train);
+                let mut tape = Tape::<B>::new();
+
+                model.visit_parameters(&mut |_name, p| {
+                    tape.watch_parameter(p);
+                });
+
+                let mut batch_loss: Option<TensorId> = None;
+
+                for &i in batch_idx {
+                    let (ref x, ref y) = train[i];
+                    let logits = model.forward_tape(x.clone(), &mut tape, &mut ctx)?;
+                    let loss = model.loss_tape(logits, y.clone(), &mut tape, &mut ctx)?;
+
+                    if let Some(target_to_class) = target_to_class {
+                        if let Some(t) = tape.value(logits) {
+                            if let Ok(v) = ops.tensor_to_vec(t) {
+                                if !v.is_empty() {
+                                    let pred = v
+                                        .iter()
+                                        .enumerate()
+                                        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                                        .map(|(idx, _)| idx)
+                                        .unwrap_or(0);
+                                    let truth = target_to_class(y);
+                                    total += 1;
+                                    if pred == truth {
+                                        correct += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    batch_loss = Some(match batch_loss {
+                        Some(acc) => tape.add(acc, loss, &mut ctx)?,
+                        None => loss,
+                    });
+                }
+
+                let Some(batch_loss) = batch_loss else { continue };
+                let inv_batch = 1.0 / batch_idx.len() as f32;
+                let batch_loss = tape.mul_scalar(batch_loss, inv_batch, &mut ctx)?;
+
+                let loss_tensor = tape
+                    .value(batch_loss)
+                    .ok_or_else(|| anyhow::anyhow!("internal error: loss tensor missing from tape"))?;
+                let loss_value = ops.tensor_to_vec(loss_tensor)?.first().copied().unwrap_or(0.0);
+                losses.push(loss_value);
+
+                let param_map = tape.param_map().clone();
+                let make_ones = |data: Vec<f32>, shape: &[usize]| ops.tensor_from_vec(data, shape);
+                let grads_store = tape.backward(batch_loss, make_ones, ops)?;
+
+                let mut grads = Vec::new();
+                model.visit_parameters(&mut |_name, p| {
+                    if let Some(g) = p.gradient_from_store(&grads_store, &param_map) {
+                        grads.push(Gradient { param_id: p.id(), tensor: g.clone() });
+                    }
+                });
+
+                let mut params_vec: Vec<Parameter<B>> = Vec::new();
+                model.visit_parameters(&mut |_name, p| params_vec.push(p.clone()));
+                self.optimizer
+                    .step(&mut params_vec, &grads, &mut ctx)
+                    .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+
+                let mut updated: HashMap<ParameterId, B::Tensor> = HashMap::with_capacity(params_vec.len());
+                for p in params_vec {
+                    updated.insert(p.id(), p.into_tensor());
+                }
+                model.visit_parameters_mut(&mut |_name, p| {
+                    if let Some(t) = updated.get(&p.id()) {
+                        *p = p.clone().with_tensor(t.clone());
+                    }
+                });
+            }
+
+            let mean_loss =
+                if losses.is_empty() { 0.0 } else { losses.iter().sum::<f32>() / losses.len() as f32 };
+            epochs.push(EpochStats { epoch, examples: train.len(), mean_loss, elapsed: start.elapsed() });
+
+            if target_to_class.is_some() && total > 0 {
+                acc_hist.push(correct as f32 / total as f32);
+            }
+        }
+
+        Ok(TrainingReport { epochs, accuracy: if acc_hist.is_empty() { None } else { Some(acc_hist) } })
     }
 }

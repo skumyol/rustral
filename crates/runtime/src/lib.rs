@@ -15,5 +15,5 @@ pub use model_io::{load_model, save_model};
 #[cfg(feature = "training")]
 pub use serious_training::{train_synthetic_classification, SeriousTrainingConfig, SeriousTrainingOutcome};
 #[cfg(feature = "training")]
-pub use tape_trainer::{TapeTrainer, TapeTrainerConfig};
+pub use tape_trainer::{SupervisedTapeModel, TapeTrainer, TapeTrainerConfig, TrainingReport};
 pub use trainer::{EpochStats, Learner, ParallelTrainer, TrainerConfig};

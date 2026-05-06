@@ -28,9 +28,13 @@ rustral-optim = { path = "../optim", optional = true, version = "0.1.0" }
 anyhow.workspace = true
 crossbeam-channel.workspace = true
 parking_lot.workspace = true
+rand.workspace = true
+serde_json.workspace = true
 rayon = { workspace = true, optional = true }
 tracing.workspace = true
 
 [dev-dependencies]
 rustral-ndarray-backend = { path = "../ndarray-backend", version = "0.1.0" }
 rustral-candle-backend = { path = "../candle-backend", version = "0.1.0" }
+safetensors = { workspace = true }
+bytemuck = { workspace = true }

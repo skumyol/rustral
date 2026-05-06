@@ -22,3 +22,4 @@ lazy_static = "1.4"
 
 [dev-dependencies]
 rustral-ndarray-backend = { path = "../ndarray-backend", version = "0.1.0" }
+rustral-nn = { path = "../nn", version = "0.1.0" }
