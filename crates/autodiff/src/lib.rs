@@ -170,6 +170,19 @@ impl<B: Backend> Tape<B> {
         }))
     }
 
+    /// Multiply a tensor by a scalar (records gradient).
+    pub fn mul_scalar(&mut self, a: TensorId, scalar: f32, ctx: &mut ForwardCtx<B>) -> Result<TensorId>
+    where
+        B::Tensor: Clone,
+    {
+        let a_val = self.get_value(a)?.clone();
+        let out = ctx.backend().ops().mul_scalar(&a_val, scalar)?;
+        Ok(self.record(&[a], out, move |grad_out, _store, ops| {
+            let grad_a = ops.mul_scalar(grad_out, scalar)?;
+            Ok(vec![grad_a])
+        }))
+    }
+
     /// ReLU activation.
     pub fn relu(&mut self, a: TensorId, ctx: &mut ForwardCtx<B>) -> Result<TensorId>
     where
@@ -396,7 +409,18 @@ impl<B: Backend> Tape<B> {
 
     /// Cross-entropy loss with built-in log-softmax.
     ///
-    /// Computes: -sum(target * log_softmax(logits)) / batch_size
+    /// Supports two target formats:
+    ///
+    /// - **Index targets**: `target` has shape `[batch]` and contains class indices as `f32`.
+    /// - **One-hot targets**: `target` has shape `[batch, classes]`.
+    ///
+    /// Computes mean cross-entropy over batch:
+    ///
+    /// \[
+    /// \mathrm{loss} = -\frac{1}{B}\sum_{i=0}^{B-1}\log p_{i,y_i}
+    /// \]
+    ///
+    /// where \(p = \mathrm{softmax}(\mathrm{logits})\).
     ///
     /// Returns a scalar loss tensor and records gradients.
     pub fn cross_entropy_loss(
@@ -411,35 +435,180 @@ impl<B: Backend> Tape<B> {
         let logits_val = self.get_value(logits)?.clone();
         let target_val = self.get_value(target)?.clone();
         let ops = ctx.backend().ops();
+        let logits_shape = ops.shape(&logits_val);
+        if logits_shape.len() != 2 {
+            return Err(rustral_core::CoreError::InvalidArgument(format!(
+                "cross_entropy_loss expects logits rank-2 [batch, classes], got shape {:?}",
+                logits_shape
+            )));
+        }
+        let batch = logits_shape[0].max(1);
+        let classes = logits_shape[1].max(1);
+        let inv_batch = 1.0 / batch as f32;
 
-        // log_softmax(logits) for numerical stability
-        let log_probs = ops.log_softmax(&logits_val)?;
+        // Row-wise log-softmax(logits) for numerical stability.
+        //
+        // NOTE: `TensorOps::log_softmax` is currently defined as a whole-tensor operation, so we
+        // implement the row-wise `[batch, classes]` semantics here for correctness.
+        let logits_vec = ops.tensor_to_vec(&logits_val)?;
+        if logits_vec.len() != batch * classes {
+            return Err(rustral_core::CoreError::InvalidArgument(format!(
+                "cross_entropy_loss: logits had {} elements, expected {}",
+                logits_vec.len(),
+                batch * classes
+            )));
+        }
+        let mut log_probs_vec = vec![0.0f32; batch * classes];
+        for i in 0..batch {
+            let row = &logits_vec[i * classes..i * classes + classes];
+            let mut row_max = f32::NEG_INFINITY;
+            for &v in row {
+                if v > row_max {
+                    row_max = v;
+                }
+            }
+            let mut sum_exp = 0.0f32;
+            for &v in row {
+                sum_exp += (v - row_max).exp();
+            }
+            let log_denom = row_max + sum_exp.ln();
+            for j in 0..classes {
+                log_probs_vec[i * classes + j] = row[j] - log_denom;
+            }
+        }
+        let log_probs = ops.tensor_from_vec(log_probs_vec.clone(), &[batch, classes])?;
+        let target_shape = ops.shape(&target_val);
 
-        // -sum(target * log_probs) / batch_size
-        // For now: element-wise multiply then negate
-        let neg_log_probs = ops.neg(&log_probs)?;
-        let loss_per_sample = ops.mul(&target_val, &neg_log_probs)?;
+        // Build a one-hot tensor for the backward formula and compute the forward loss.
+        // We use one-hot in all cases to keep the gradient path uniform.
+        let (target_one_hot, loss) = if target_shape == logits_shape {
+            // One-hot targets: loss = -sum(target * log_probs) / batch
+            let neg_log_probs = ops.neg(&log_probs)?;
+            let loss_per_elem = ops.mul(&target_val, &neg_log_probs)?;
+            let loss_sum = ops.sum_all(&loss_per_elem)?;
+            let loss = ops.mul_scalar(&loss_sum, inv_batch)?;
+            (target_val.clone(), loss)
+        } else if target_shape.len() == 1 && target_shape[0] == batch {
+            // Index targets: compute -mean(log_probs[i, y_i]) and also build one-hot.
+            let target_idx_f32 = ops.tensor_to_vec(&target_val)?;
+            if target_idx_f32.len() != batch {
+                return Err(rustral_core::CoreError::InvalidArgument(format!(
+                    "cross_entropy_loss: target had {} elements, expected {}",
+                    target_idx_f32.len(),
+                    batch
+                )));
+            }
 
-        // Sum over features to get per-sample loss
-        // Then mean over batch (simplified: just sum everything for now)
-        // This should use a sum reduction, but we'll use the raw values
-        let loss = ops.sum_all(&loss_per_sample)?;
+            let mut one_hot = vec![0.0f32; batch * classes];
+            let mut nll_sum = 0.0f32;
+            for i in 0..batch {
+                let yi = target_idx_f32[i] as isize;
+                if yi < 0 || yi as usize >= classes {
+                    return Err(rustral_core::CoreError::InvalidArgument(format!(
+                        "cross_entropy_loss: target index {} out of range [0, {}) at batch {}",
+                        yi, classes, i
+                    )));
+                }
+                let yi = yi as usize;
+                one_hot[i * classes + yi] = 1.0;
+                nll_sum += -log_probs_vec[i * classes + yi];
+            }
+
+            let loss = ops.tensor_from_vec(vec![nll_sum * inv_batch], &[1])?;
+            let one_hot_t = ops.tensor_from_vec(one_hot, &[batch, classes])?;
+            (one_hot_t, loss)
+        } else {
+            return Err(rustral_core::CoreError::InvalidArgument(format!(
+                "cross_entropy_loss target must be [batch] indices or [batch, classes] one-hot; got {:?} with logits {:?}",
+                target_shape, logits_shape
+            )));
+        };
 
         // Record with backward pass: gradient is softmax(logits) - target
         let logits_for_grad = logits_val.clone();
-        let target_for_grad = target_val.clone();
+        let target_one_hot_for_grad = target_one_hot.clone();
+        let scale_for_grad = inv_batch;
+        let batch_for_grad = batch;
+        let classes_for_grad = classes;
 
-        Ok(self.record(&[logits, target], loss, move |_grad_out, _store, ops| {
+        Ok(self.record(&[logits, target], loss, move |grad_out, _store, ops| {
+            // grad_out is a scalar for this loss; propagate scaling for composed losses.
+            let upstream = ops.tensor_to_vec(grad_out)?.first().copied().unwrap_or(1.0);
+            let grad_scale = upstream * scale_for_grad;
+
             // Gradient w.r.t. logits: softmax(logits) - target
-            // For cross-entropy with softmax: this is the simplified gradient
-            let log_probs_grad = ops.log_softmax(&logits_for_grad)?;
+            // Recompute row-wise log-softmax in backward for correctness.
+            let logits_vec = ops.tensor_to_vec(&logits_for_grad)?;
+            if logits_vec.len() != batch_for_grad * classes_for_grad {
+                return Err(rustral_core::CoreError::InvalidArgument(format!(
+                    "cross_entropy_loss backward: logits had {} elements, expected {}",
+                    logits_vec.len(),
+                    batch_for_grad * classes_for_grad
+                )));
+            }
+            let mut log_probs_vec = vec![0.0f32; batch_for_grad * classes_for_grad];
+            for i in 0..batch_for_grad {
+                let row = &logits_vec[i * classes_for_grad..i * classes_for_grad + classes_for_grad];
+                let mut row_max = f32::NEG_INFINITY;
+                for &v in row {
+                    if v > row_max {
+                        row_max = v;
+                    }
+                }
+                let mut sum_exp = 0.0f32;
+                for &v in row {
+                    sum_exp += (v - row_max).exp();
+                }
+                let log_denom = row_max + sum_exp.ln();
+                for j in 0..classes_for_grad {
+                    log_probs_vec[i * classes_for_grad + j] = row[j] - log_denom;
+                }
+            }
+            let log_probs_grad = ops.tensor_from_vec(log_probs_vec, &[batch_for_grad, classes_for_grad])?;
             let softmax_out = ops.exp(&log_probs_grad)?;
-            let grad_logits = ops.sub(&softmax_out, &target_for_grad)?;
+            let grad_logits_unscaled = ops.sub(&softmax_out, &target_one_hot_for_grad)?;
+            let grad_logits = ops.mul_scalar(&grad_logits_unscaled, grad_scale)?;
 
-            // Gradient w.r.t. target: -log_softmax(logits)
-            let grad_target = ops.neg(&log_probs_grad)?;
+            // Targets are treated as constants (especially for index targets).
+            // Provide a zero gradient with the same shape as the provided target tensor.
+            let grad_target = ops.zeros(&ops.shape(&target_one_hot_for_grad))?;
 
             Ok(vec![grad_logits, grad_target])
+        }))
+    }
+
+    /// Mean-squared error loss.
+    ///
+    /// Computes: \(\mathrm{mean}((pred - target)^2)\) over all elements.
+    /// Returns a scalar loss tensor and records gradients.
+    pub fn mse_loss(&mut self, pred: TensorId, target: TensorId, ctx: &mut ForwardCtx<B>) -> Result<TensorId>
+    where
+        B::Tensor: Clone,
+    {
+        let pred_val = self.get_value(pred)?.clone();
+        let target_val = self.get_value(target)?.clone();
+        let ops = ctx.backend().ops();
+        let shape = ops.shape(&pred_val);
+        let elem_count: usize = shape.iter().product();
+        if elem_count == 0 {
+            return Err(rustral_core::CoreError::InvalidArgument("mse_loss: empty tensor".into()));
+        }
+        let inv_n = 1.0 / elem_count as f32;
+
+        let diff = ops.sub(&pred_val, &target_val)?;
+        let sq = ops.mul(&diff, &diff)?;
+        let sum = ops.sum_all(&sq)?;
+        let loss = ops.mul_scalar(&sum, inv_n)?;
+
+        let pred_for_grad = pred_val.clone();
+        let target_for_grad = target_val.clone();
+        Ok(self.record(&[pred, target], loss, move |grad_out, _store, ops| {
+            let upstream = ops.tensor_to_vec(grad_out)?.first().copied().unwrap_or(1.0);
+            let scale = upstream * (2.0 * inv_n);
+            let diff = ops.sub(&pred_for_grad, &target_for_grad)?;
+            let grad_pred = ops.mul_scalar(&diff, scale)?;
+            let grad_target = ops.mul_scalar(&diff, -scale)?;
+            Ok(vec![grad_pred, grad_target])
         }))
     }
 
@@ -1072,17 +1241,49 @@ mod tests {
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
         let mut tape = Tape::<CpuBackend>::new();
 
-        let logits = tape.watch(backend.tensor_from_vec(vec![1.0, 2.0, 3.0], &[3]).unwrap());
-        let target = tape.watch(backend.tensor_from_vec(vec![0.0, 0.0, 1.0], &[3]).unwrap());
+            let logits = tape.watch(backend.tensor_from_vec(vec![1.0, 2.0, 3.0, 0.0, -1.0, 2.0], &[2, 3]).unwrap());
+
+            // Index targets (encoded as f32 ids): [batch]
+            let target = tape.watch(backend.tensor_from_vec(vec![2.0, 0.0], &[2]).unwrap());
         let loss = tape.cross_entropy_loss(logits, target, &mut ctx).unwrap();
 
-        let loss_val: Vec<f32> = tape.value(loss).unwrap().values().to_vec();
+            let loss_val: Vec<f32> = tape.value(loss).unwrap().values().to_vec();
         assert_eq!(loss_val.len(), 1);
         assert!(loss_val[0] > 0.0);
 
         let grads =
             tape.backward(loss, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
         assert!(grads.contains_key(&logits));
+        assert!(grads.contains_key(&target));
+
+            // For cross-entropy, per-row gradient sums to ~0 (softmax - one_hot).
+            let grad_logits = grads.get(&logits).unwrap();
+            let g = backend.ops().tensor_to_vec(grad_logits).unwrap();
+            assert_eq!(g.len(), 2 * 3);
+            for row in 0..2 {
+                let s: f32 = g[row * 3..row * 3 + 3].iter().sum();
+                assert!(s.abs() <= 1e-5, "row {row} grad sum expected ~0, got {s}");
+            }
+    }
+
+    #[test]
+    fn test_mse_loss() {
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+
+        let pred = tape.watch(backend.tensor_from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2]).unwrap());
+        let target = tape.watch(backend.tensor_from_vec(vec![0.0, 0.0, 0.0, 0.0], &[2, 2]).unwrap());
+        let loss = tape.mse_loss(pred, target, &mut ctx).unwrap();
+
+        let loss_val: Vec<f32> = tape.value(loss).unwrap().values().to_vec();
+        assert_eq!(loss_val.len(), 1);
+        // mean([1,4,9,16]) = 7.5
+        assert!((loss_val[0] - 7.5).abs() < 1e-4);
+
+        let grads =
+            tape.backward(loss, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        assert!(grads.contains_key(&pred));
         assert!(grads.contains_key(&target));
     }
 

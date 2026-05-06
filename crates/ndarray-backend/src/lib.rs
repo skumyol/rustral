@@ -13,7 +13,7 @@
 
 use rand::thread_rng;
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use rustral_core::{Backend, CoreError, Parameter, Result, ShapeExt, TensorOps};
+use rustral_core::{AxisTensorOps, Backend, CoreError, Parameter, Result, ShapeExt, TensorOps};
 use serde::{Deserialize, Serialize};
 
 /// Dense row-major CPU tensor used by the reference backend.
@@ -736,6 +736,177 @@ impl TensorOps<CpuBackend> for CpuOps {
     }
 }
 
+impl AxisTensorOps<CpuBackend> for CpuOps {
+    fn softmax_dim(&self, x: &CpuTensor, dim: usize) -> Result<CpuTensor> {
+        let shape = &x.shape;
+        if dim >= shape.len() {
+            return Err(CoreError::InvalidArgument(format!(
+                "softmax_dim: dim {} out of range for shape {:?}",
+                dim, shape
+            )));
+        }
+        let outer: usize = shape[..dim].iter().product();
+        let axis = shape[dim];
+        let inner: usize = shape[dim + 1..].iter().product();
+        if axis == 0 {
+            return Err(CoreError::InvalidArgument("softmax_dim: axis size is 0".into()));
+        }
+        let mut out = vec![0.0f32; x.values.len()];
+
+        for o in 0..outer {
+            for i in 0..inner {
+                // Find max for numerical stability.
+                let mut max = f32::NEG_INFINITY;
+                for a in 0..axis {
+                    let idx = o * axis * inner + a * inner + i;
+                    max = max.max(x.values[idx]);
+                }
+                // exp and sum
+                let mut sum = 0.0f32;
+                for a in 0..axis {
+                    let idx = o * axis * inner + a * inner + i;
+                    let e = (x.values[idx] - max).exp();
+                    out[idx] = e;
+                    sum += e;
+                }
+                let inv_sum = 1.0 / sum;
+                for a in 0..axis {
+                    let idx = o * axis * inner + a * inner + i;
+                    out[idx] *= inv_sum;
+                }
+            }
+        }
+
+        CpuTensor::new(out, shape)
+    }
+
+    fn log_softmax_dim(&self, x: &CpuTensor, dim: usize) -> Result<CpuTensor> {
+        let shape = &x.shape;
+        if dim >= shape.len() {
+            return Err(CoreError::InvalidArgument(format!(
+                "log_softmax_dim: dim {} out of range for shape {:?}",
+                dim, shape
+            )));
+        }
+        let outer: usize = shape[..dim].iter().product();
+        let axis = shape[dim];
+        let inner: usize = shape[dim + 1..].iter().product();
+        if axis == 0 {
+            return Err(CoreError::InvalidArgument("log_softmax_dim: axis size is 0".into()));
+        }
+        let mut out = vec![0.0f32; x.values.len()];
+
+        for o in 0..outer {
+            for i in 0..inner {
+                let mut max = f32::NEG_INFINITY;
+                for a in 0..axis {
+                    let idx = o * axis * inner + a * inner + i;
+                    max = max.max(x.values[idx]);
+                }
+                let mut sum = 0.0f32;
+                for a in 0..axis {
+                    let idx = o * axis * inner + a * inner + i;
+                    sum += (x.values[idx] - max).exp();
+                }
+                let log_denom = max + sum.ln();
+                for a in 0..axis {
+                    let idx = o * axis * inner + a * inner + i;
+                    out[idx] = x.values[idx] - log_denom;
+                }
+            }
+        }
+
+        CpuTensor::new(out, shape)
+    }
+
+    fn sum_dim(&self, x: &CpuTensor, dim: usize, keepdim: bool) -> Result<CpuTensor> {
+        let shape = &x.shape;
+        if dim >= shape.len() {
+            return Err(CoreError::InvalidArgument(format!(
+                "sum_dim: dim {} out of range for shape {:?}",
+                dim, shape
+            )));
+        }
+        let outer: usize = shape[..dim].iter().product();
+        let axis = shape[dim];
+        let inner: usize = shape[dim + 1..].iter().product();
+
+        let mut out_shape = shape.clone();
+        if keepdim {
+            out_shape[dim] = 1;
+        } else {
+            out_shape.remove(dim);
+            if out_shape.is_empty() {
+                out_shape.push(1);
+            }
+        }
+        let out_len: usize = out_shape.iter().product();
+        let mut out = vec![0.0f32; out_len];
+
+        for o in 0..outer {
+            for i in 0..inner {
+                let mut s = 0.0f32;
+                for a in 0..axis {
+                    let idx = o * axis * inner + a * inner + i;
+                    s += x.values[idx];
+                }
+                // write at [o, i] in (outer, inner) flattened space
+                let out_idx = o * inner + i;
+                out[out_idx] = s;
+            }
+        }
+
+        CpuTensor::new(out, &out_shape)
+    }
+
+    fn mean_dim(&self, x: &CpuTensor, dim: usize, keepdim: bool) -> Result<CpuTensor> {
+        let shape = &x.shape;
+        if dim >= shape.len() {
+            return Err(CoreError::InvalidArgument(format!(
+                "mean_dim: dim {} out of range for shape {:?}",
+                dim, shape
+            )));
+        }
+        let axis = shape[dim];
+        if axis == 0 {
+            return Err(CoreError::InvalidArgument("mean_dim: axis size is 0".into()));
+        }
+        let sum = self.sum_dim(x, dim, keepdim)?;
+        self.mul_scalar(&sum, 1.0 / axis as f32)
+    }
+
+    fn var_dim(&self, x: &CpuTensor, dim: usize, unbiased: bool, keepdim: bool) -> Result<CpuTensor> {
+        let shape = &x.shape;
+        if dim >= shape.len() {
+            return Err(CoreError::InvalidArgument(format!(
+                "var_dim: dim {} out of range for shape {:?}",
+                dim, shape
+            )));
+        }
+        let axis = shape[dim];
+        if axis == 0 {
+            return Err(CoreError::InvalidArgument("var_dim: axis size is 0".into()));
+        }
+        if unbiased && axis < 2 {
+            return Err(CoreError::InvalidArgument("var_dim: unbiased variance requires axis >= 2".into()));
+        }
+
+        // mean with keepdim so we can broadcast-sub.
+        let mean_keep = self.mean_dim(x, dim, true)?;
+        let mean_b = self.broadcast_to(&mean_keep, shape)?;
+        let diff = self.sub(x, &mean_b)?;
+        let sq = self.mul(&diff, &diff)?;
+        let mut var = self.sum_dim(&sq, dim, keepdim)?;
+        let denom = if unbiased { (axis - 1) as f32 } else { axis as f32 };
+        var = self.mul_scalar(&var, 1.0 / denom)?;
+        Ok(var)
+    }
+
+    fn broadcast_to(&self, x: &CpuTensor, shape: &[usize]) -> Result<CpuTensor> {
+        self.broadcast(x, shape)
+    }
+}
+
 impl rustral_core::TensorView<CpuBackend> for CpuOps {
     fn as_slice_f32<'a>(&self, tensor: &'a CpuTensor) -> Result<&'a [f32]> {
         Ok(&tensor.values)
@@ -771,5 +942,43 @@ impl rustral_core::TensorInPlaceOps<CpuBackend> for CpuOps {
             *yi += a * xi;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod axis_ops_tests {
+    use super::*;
+    use rustral_core::AxisTensorOps;
+
+    fn assert_close(a: &[f32], b: &[f32], tol: f32) {
+        assert_eq!(a.len(), b.len());
+        for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
+            let d = (x - y).abs();
+            assert!(d <= tol, "idx={i} x={x} y={y} diff={d} tol={tol}");
+        }
+    }
+
+    #[test]
+    fn softmax_dim_row_sums_to_one() {
+        let backend = CpuBackend::default();
+        let ops = backend.ops;
+        let x = ops.tensor_from_vec(vec![1.0, 2.0, 3.0, 0.0, -1.0, 2.0], &[2, 3]).unwrap();
+        let y = ops.softmax_dim(&x, 1).unwrap();
+        let v = y.values();
+        for row in 0..2 {
+            let s: f32 = v[row * 3..row * 3 + 3].iter().sum();
+            assert!((s - 1.0).abs() <= 1e-6, "row {row} sum={s}");
+        }
+    }
+
+    #[test]
+    fn log_softmax_dim_matches_ln_softmax_dim() {
+        let backend = CpuBackend::default();
+        let ops = backend.ops;
+        let x = ops.tensor_from_vec(vec![1.0, 2.0, 3.0, 0.0, -1.0, 2.0], &[2, 3]).unwrap();
+        let ls = ops.log_softmax_dim(&x, 1).unwrap();
+        let s = ops.softmax_dim(&x, 1).unwrap();
+        let ln_s = ops.log(&s).unwrap();
+        assert_close(ls.values(), ln_s.values(), 1e-5);
     }
 }

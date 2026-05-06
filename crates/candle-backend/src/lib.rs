@@ -14,7 +14,7 @@
 //! ```
 
 use candle_core::{Device, IndexOp, Tensor};
-use rustral_core::{Backend, CoreError, Parameter, Result, TensorOps};
+use rustral_core::{AxisTensorOps, Backend, CoreError, Parameter, Result, TensorOps};
 use thiserror::Error;
 
 /// Errors specific to the candle backend.
@@ -371,9 +371,127 @@ impl TensorOps<CandleBackend> for CandleOps {
     }
 }
 
+impl AxisTensorOps<CandleBackend> for CandleOps {
+    fn softmax_dim(&self, x: &Tensor, dim: usize) -> Result<Tensor> {
+        let dims = x.dims();
+        if dim >= dims.len() {
+            return Err(CoreError::InvalidArgument(format!(
+                "softmax_dim: dim {} out of range for shape {:?}",
+                dim, dims
+            )));
+        }
+
+        // max over dim (reduced rank), then reshape to keepdim so we can broadcast.
+        let max_val = x.max(dim).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let mut keep_shape = dims.to_vec();
+        keep_shape[dim] = 1;
+        let max_keep = max_val.reshape(keep_shape.as_slice()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let max_b = max_keep.broadcast_as(dims).map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        let shifted = (x - max_b).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let exp_shifted = shifted.exp().map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        let sum_exp = exp_shifted.sum(dim).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let sum_keep = sum_exp.reshape(keep_shape.as_slice()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let sum_b = sum_keep.broadcast_as(dims).map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        (exp_shifted / sum_b).map_err(|e| CoreError::Backend(e.to_string()))
+    }
+
+    fn log_softmax_dim(&self, x: &Tensor, dim: usize) -> Result<Tensor> {
+        let dims = x.dims();
+        if dim >= dims.len() {
+            return Err(CoreError::InvalidArgument(format!(
+                "log_softmax_dim: dim {} out of range for shape {:?}",
+                dim, dims
+            )));
+        }
+
+        // log_softmax(x) = (x - max) - log(sum(exp(x - max)))
+        let max_val = x.max(dim).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let mut keep_shape = dims.to_vec();
+        keep_shape[dim] = 1;
+        let max_keep = max_val.reshape(keep_shape.as_slice()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let max_b = max_keep.broadcast_as(dims).map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        let shifted = (x - max_b).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let exp_shifted = shifted.exp().map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        let sum_exp = exp_shifted.sum(dim).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let log_sum = sum_exp.log().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let log_keep = log_sum.reshape(keep_shape.as_slice()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let log_b = log_keep.broadcast_as(dims).map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        (shifted - log_b).map_err(|e| CoreError::Backend(e.to_string()))
+    }
+
+    fn sum_dim(&self, x: &Tensor, dim: usize, keepdim: bool) -> Result<Tensor> {
+        let s = x.sum(dim).map_err(|e| CoreError::Backend(e.to_string()))?;
+        if keepdim {
+            // Insert a singleton dimension at `dim`.
+            let mut new_shape = x.dims().to_vec();
+            if dim >= new_shape.len() {
+                return Err(CoreError::InvalidArgument(format!(
+                    "sum_dim: dim {} out of range for shape {:?}",
+                    dim,
+                    x.dims()
+                )));
+            }
+            new_shape[dim] = 1;
+            s.reshape(new_shape).map_err(|e| CoreError::Backend(e.to_string()))
+        } else {
+            Ok(s)
+        }
+    }
+
+    fn mean_dim(&self, x: &Tensor, dim: usize, keepdim: bool) -> Result<Tensor> {
+        let dims = x.dims();
+        let n = dims.get(dim).copied().ok_or_else(|| {
+            CoreError::InvalidArgument(format!("mean_dim: dim {} out of range for shape {:?}", dim, dims))
+        })?;
+        if n == 0 {
+            return Err(CoreError::InvalidArgument("mean_dim: axis size is 0".into()));
+        }
+        let s = self.sum_dim(x, dim, keepdim)?;
+        let scale = 1.0 / (n as f32);
+        let t = Tensor::from_vec(vec![scale], &[], &self.device).map_err(|e| CoreError::Backend(e.to_string()))?;
+        (s * t).map_err(|e| CoreError::Backend(e.to_string()))
+    }
+
+    fn var_dim(&self, x: &Tensor, dim: usize, unbiased: bool, keepdim: bool) -> Result<Tensor> {
+        let dims = x.dims();
+        let n = dims.get(dim).copied().ok_or_else(|| {
+            CoreError::InvalidArgument(format!("var_dim: dim {} out of range for shape {:?}", dim, dims))
+        })?;
+        if n == 0 {
+            return Err(CoreError::InvalidArgument("var_dim: axis size is 0".into()));
+        }
+        if unbiased && n < 2 {
+            return Err(CoreError::InvalidArgument("var_dim: unbiased variance requires axis >= 2".into()));
+        }
+
+        // mean keepdim for broadcasting
+        let mean_keep = self.mean_dim(x, dim, true)?;
+        let mean_b = mean_keep.broadcast_as(dims).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let diff = (x - mean_b).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let sq = (&diff * &diff).map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        let s = self.sum_dim(&sq, dim, keepdim)?;
+        let denom = if unbiased { (n - 1) as f32 } else { n as f32 };
+        let scale = 1.0 / denom;
+        let t = Tensor::from_vec(vec![scale], &[], &self.device).map_err(|e| CoreError::Backend(e.to_string()))?;
+        (s * t).map_err(|e| CoreError::Backend(e.to_string()))
+    }
+
+    fn broadcast_to(&self, x: &Tensor, shape: &[usize]) -> Result<Tensor> {
+        x.broadcast_as(shape).map_err(|e| CoreError::Backend(e.to_string()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustral_core::AxisTensorOps;
 
     #[test]
     fn test_candle_backend_cpu() {
@@ -510,5 +628,33 @@ mod tests {
         let a = backend.tensor_from_vec(vec![1.0f32; 40], &[1, 40]).unwrap();
         let c = ops.softmax(&a).unwrap();
         assert_eq!(c.dims().to_vec(), vec![1, 40]);
+    }
+
+    #[test]
+    fn test_candle_softmax_dim_row_sums_to_one() {
+        let backend = CandleBackend::cpu();
+        let x = backend.tensor_from_vec(vec![1.0, 2.0, 3.0, 0.0, -1.0, 2.0], &[2, 3]).unwrap();
+        let y = backend.ops.softmax_dim(&x, 1).unwrap();
+        let v = backend.to_vec(&y);
+        for row in 0..2 {
+            let s: f32 = v[row * 3..row * 3 + 3].iter().sum();
+            assert!((s - 1.0).abs() <= 1e-6, "row {row} sum={s}");
+        }
+    }
+
+    #[test]
+    fn test_candle_log_softmax_dim_matches_ln_softmax_dim() {
+        let backend = CandleBackend::cpu();
+        let x = backend.tensor_from_vec(vec![1.0, 2.0, 3.0, 0.0, -1.0, 2.0], &[2, 3]).unwrap();
+        let ls = backend.ops.log_softmax_dim(&x, 1).unwrap();
+        let s = backend.ops.softmax_dim(&x, 1).unwrap();
+        let ln_s = s.log().unwrap();
+        let a = backend.to_vec(&ls);
+        let b = backend.to_vec(&ln_s);
+        assert_eq!(a.len(), b.len());
+        for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
+            let d = (x - y).abs();
+            assert!(d <= 1e-5, "idx={i} x={x} y={y} diff={d}");
+        }
     }
 }

@@ -17,6 +17,9 @@ workspace = true
 [features]
 default = []
 autodiff = ["dep:rustral-autodiff"]
+# Backwards-compatible feature name used by docs/tests/scripts.
+# For now this is equivalent to enabling autodiff (tape lives in rustral-autodiff).
+tape = ["autodiff"]
 
 [dependencies]
 rustral-core = { path = "../core", version = "0.1.0" }

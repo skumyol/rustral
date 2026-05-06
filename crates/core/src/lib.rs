@@ -11,7 +11,7 @@ mod module;
 mod parameter;
 mod shape;
 
-pub use backend::{Backend, TensorInPlaceOps, TensorOps, TensorView};
+pub use backend::{AxisTensorOps, Backend, TensorInPlaceOps, TensorOps, TensorView};
 pub use context::{ForwardCtx, Mode, RunId};
 pub use error::{CoreError, Result};
 pub use memory_profiler::{

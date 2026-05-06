@@ -1,6 +1,6 @@
 #![cfg(feature = "autodiff")]
 
-use rustral_autodiff::Tape;
+use rustral_autodiff::{GradExtFromStore, Tape};
 use rustral_core::{Backend, ForwardCtx, Mode};
 use rustral_ndarray_backend::CpuBackend;
 use rustral_nn::tape::TapeModule;

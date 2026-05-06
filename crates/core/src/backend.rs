@@ -1,4 +1,4 @@
-use crate::{Parameter, Result};
+use crate::{CoreError, Parameter, Result};
 
 /// Execution backend contract.
 ///
@@ -218,4 +218,40 @@ pub trait TensorInPlaceOps<B: Backend>: TensorOps<B> {
 
     /// Compute `y = a * x + y` (axpy) in-place on `y`.
     fn axpy(&self, y: &mut B::Tensor, a: f32, x: &B::Tensor) -> Result<()>;
+}
+
+/// Optional axis-aware tensor ops.
+///
+/// This is intentionally a separate trait so we can add richer semantics without forcing every
+/// backend (including experimental ones) to implement them immediately.
+///
+/// Backends that implement this trait should follow common ML conventions:
+/// - `softmax_dim` and `log_softmax_dim` operate along a single axis.
+/// - reductions (`sum_dim`, `mean_dim`, `var_dim`) reduce over an axis; if `keepdim` is true the
+///   reduced axis is retained with size 1.
+/// - `broadcast_to` follows numpy-style broadcasting rules.
+pub trait AxisTensorOps<B: Backend>: TensorOps<B> {
+    fn softmax_dim(&self, _x: &B::Tensor, _dim: usize) -> Result<B::Tensor> {
+        Err(CoreError::Other("softmax_dim not supported by this backend".into()))
+    }
+
+    fn log_softmax_dim(&self, _x: &B::Tensor, _dim: usize) -> Result<B::Tensor> {
+        Err(CoreError::Other("log_softmax_dim not supported by this backend".into()))
+    }
+
+    fn sum_dim(&self, _x: &B::Tensor, _dim: usize, _keepdim: bool) -> Result<B::Tensor> {
+        Err(CoreError::Other("sum_dim not supported by this backend".into()))
+    }
+
+    fn mean_dim(&self, _x: &B::Tensor, _dim: usize, _keepdim: bool) -> Result<B::Tensor> {
+        Err(CoreError::Other("mean_dim not supported by this backend".into()))
+    }
+
+    fn var_dim(&self, _x: &B::Tensor, _dim: usize, _unbiased: bool, _keepdim: bool) -> Result<B::Tensor> {
+        Err(CoreError::Other("var_dim not supported by this backend".into()))
+    }
+
+    fn broadcast_to(&self, _x: &B::Tensor, _shape: &[usize]) -> Result<B::Tensor> {
+        Err(CoreError::Other("broadcast_to not supported by this backend".into()))
+    }
 }

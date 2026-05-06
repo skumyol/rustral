@@ -119,6 +119,14 @@ cd examples && cargo run --bin xor
 
 **Why this matters:** XOR isn't linearly separable—you need at least one hidden layer. This proves the network actually learns something non-trivial.
 
+### 4. Run a Tape-based Training Demo (MSE regression)
+
+```bash
+cargo run -p rustral-runtime --features training --example tape_train_demo
+```
+
+This uses the generic tape trainer (`TapeTrainer`) plus the model-level save/load helpers (`save_model` / `load_model`) are available under the same `training` feature.
+
 ### 4. Run a Transformer Example
 
 ```bash
@@ -353,6 +361,31 @@ Some crates also provide standalone examples:
 ## Building a Model
 
 The model surface is ordinary Rust: store layers as fields, initialize them from a backend, and thread a `ForwardCtx` through the forward pass. That keeps the easy path readable while still making backend ownership and execution mode explicit.
+
+### How `ForwardCtx` flows (and why it matters)
+
+In Rustral, there is no hidden global `train()` / `eval()` flag. The execution context is passed explicitly, so every layer sees the same mode/backend/run state.
+
+```mermaid
+flowchart TD
+  subgraph CallSite["Call site (service / trainer / eval loop)"]
+    X["Input tensor(s)"]
+    CTX["ForwardCtx { backend, mode, run_state }"]
+  end
+
+  subgraph Model["Transformer block (example)"]
+    LN1["LayerNorm.forward(.., &mut ctx)"]
+    ATTN["SelfAttention.forward(.., &mut ctx)"]
+    LN2["LayerNorm.forward(.., &mut ctx)"]
+    FFN["FFN.forward(.., &mut ctx)"]
+  end
+
+  X --> LN1 --> ATTN --> LN2 --> FFN --> Y["Output tensor(s)"]
+  CTX -. threads through .-> LN1
+  CTX -. threads through .-> ATTN
+  CTX -. threads through .-> LN2
+  CTX -. threads through .-> FFN
+```
 
 ```rust
 use rustral_core::{Backend, ForwardCtx, Module, Mode};
