@@ -17,7 +17,8 @@
 # Rust Backup & Generated
 # ============================================================================
 **/*.rs.bk
-Cargo.lock
+# Cargo.lock is tracked because the workspace ships binaries (runtime examples,
+# benchmark binaries) and we want fully reproducible clones.
 *.rs~*
 
 # ============================================================================
@@ -64,6 +65,11 @@ temp/
 checkpoints/
 models/
 datasets/
+# Allow the in-tree dataset loader modules to be tracked even though we ignore
+# `datasets/` for downloaded artifacts. Without this the rustral-data fetch loaders
+# go missing on a fresh clone.
+!crates/data/src/datasets/
+!crates/data/src/datasets/**/*.rs
 
 # ============================================================================
 # Environment & Secrets

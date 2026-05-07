@@ -34,6 +34,9 @@ mod transformer;
 #[cfg(feature = "autodiff")]
 pub mod tape;
 
+#[cfg(feature = "autodiff")]
+pub mod tape_transformer;
+
 pub use attention::{
     causal_mask, FlashAttention, MultiHeadAttention, SelfAttention, SelfAttentionConfig,
     TransformerEncoderBlock,

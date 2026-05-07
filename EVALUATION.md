@@ -8,8 +8,8 @@ If a reported number disagrees with this file, treat the run as suspicious until
 
 | Task | Corpus | Source | Split | Tokenizer | Reported metric |
 |---|---|---|---|---|---|
-| Sentiment classification | SST-2 (binary) | GLUE mirror (`dl.fbaipublicfiles.com/glue/data/SST-2`) | `train.tsv` / `dev.tsv` | `rustral-data WordLevelTokenizer` (lowercase, whitespace, max_vocab=8192) | dev accuracy |
-| Word-level language modelling | WikiText-2 raw v1 | `s3.amazonaws.com/research.metamind.io/wikitext` | `wiki.{train,valid,test}.raw` | `rustral-data WordLevelTokenizer` (lowercase, whitespace, max_vocab=16384) | dev perplexity (`exp(mean cross-entropy nats)`) |
+| Sentiment classification | SST-2 (binary) | HuggingFace `SetFit/sst2` mirror | `train.jsonl` / `dev.jsonl` | `rustral-data WordLevelTokenizer` (lowercase, whitespace, max_vocab=8192) | dev accuracy |
+| Word-level language modelling | WikiText-2 raw v1 | `wikitext.smerity.com/wikitext-2-raw-v1.zip` | `wiki.{train,valid,test}.raw` | `rustral-data WordLevelTokenizer` (lowercase, whitespace, max_vocab=16384) | dev perplexity (`exp(mean cross-entropy nats)`) |
 
 Tokenization is deliberately word-level. WikiText-2 is commonly reported that way, SST-2 works cleanly with it, and it keeps the dependency tree small. HuggingFace `tokenizers` can come later when a BPE or WordPiece baseline needs it. See `crates/data/src/tokenizer.rs`.
 
@@ -82,22 +82,25 @@ Both examples support online and offline runs through `rustral-data` environment
 - `RUSTRAL_DATASET_OFFLINE=1`: refuse to network-fetch; require everything to already be
   in the cache. CI runs always set this.
 - `RUSTRAL_DATASET_SKIP_CHECKSUM=1`: trust the cache without recomputing SHA-256.
-  Required while the upstream SHAs in `crates/data/src/datasets/{sst2,wikitext2}.rs` are
-  still placeholder zeros. See the pinning section below.
+  Useful when staging hand-curated splits (CI uses this for synthetic smoke fixtures).
 
 ## Pinning upstream artifacts
 
 `crates/data/src/datasets/sst2.rs` and `crates/data/src/datasets/wikitext2.rs` declare
-canonical URLs and a `*_SHA256` constant for each artifact. The hashes are currently
-**placeholders** (all zeros) so first authoritative download verification is deferred to
-the next time someone runs an online fetch on a clean cache; that operator must:
+canonical URLs and a `*_SHA256` constant for each artifact. The hashes are real
+SHA-256 values verified against the downloaded files on the dates listed below; if
+upstream rotates a file the loader fails loudly with `ChecksumMismatch` and a maintainer
+must re-pin deliberately.
 
-1. Run the example without `RUSTRAL_DATASET_SKIP_CHECKSUM`, observe the
-   `ChecksumMismatch` error reporting `actual = <real_hash>`.
-2. Replace the placeholder constant with the reported `actual` hash.
-3. Open a small PR with the change and a note in `CHANGELOG.md`.
+| Artifact | URL | Verified SHA-256 |
+|---|---|---|
+| SST-2 train | `https://huggingface.co/datasets/SetFit/sst2/resolve/main/train.jsonl` | `7a4b1cfdd65be1dc48339404db86528bb2427e1d8772860ef838b76b8c38c4a8` |
+| SST-2 dev | `https://huggingface.co/datasets/SetFit/sst2/resolve/main/dev.jsonl` | `573c3ed18d96aa0a79a6e5980a544b80543317a319f18bd4f1660c16b2f6b939` |
+| WikiText-2 raw v1 zip | `https://wikitext.smerity.com/wikitext-2-raw-v1.zip` | `ef7edb566e3e2b2d31b29c1fdb0c89a4cc683597484c3dc2517919c615435a11` |
 
-This keeps offline CI useful today without pretending we have verified a hash that nobody has checked yet.
+Updating a pinned hash is a small PR: run the example without `RUSTRAL_DATASET_SKIP_CHECKSUM`,
+copy the `actual = <hash>` field reported by the `ChecksumMismatch` error into the
+`*_SHA256` constant, and add a `CHANGELOG.md` line.
 
 ## Smoke tests
 

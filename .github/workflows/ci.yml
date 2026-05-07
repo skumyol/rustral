@@ -19,9 +19,6 @@ jobs:
         run: cargo test -p rustral-wgpu-backend
         continue-on-error: true
       - run: cargo build --manifest-path examples/Cargo.toml --workspace
-        # The standalone examples crate is currently broken (missing source files for declared bins);
-        # treat its build as informational while the gap is being addressed separately.
-        continue-on-error: true
 
   # Phase 2 P2: CPU benchmark artifact upload + schema validation.
   #

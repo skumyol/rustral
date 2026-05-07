@@ -639,7 +639,7 @@ let moe = ExpertLayer::new(&backend, config, 42)?;
 
 - **Library tests:** ~**639** passed across workspace crates with `cargo test --workspace --exclude rustral-wgpu-backend` (exact count changes as tests land).
 - **`rustral-wgpu-backend`:** run separately; CI executes it with `continue-on-error` because some platforms abort during teardown.
-- **Examples:** built in a nested workspace under `examples/` (`cargo build --manifest-path examples/Cargo.toml --workspace`).
+- **Examples:** the working code lives in `crates/runtime/examples/`. The nested `examples/` workspace is now a tiny pointer crate that builds a stub binary so `cargo build --manifest-path examples/Cargo.toml --workspace` stays green.
 - **NLP smoke tests:** CI runs offline `--quick` smoke tests for SST-2 and WikiText-2 so the examples keep compiling and writing manifests.
 - **Benchmark artifacts:** CI uploads CPU benchmark JSON and validates it against `benchmarks/schema_v2.json`. GPU benchmarks are opt-in because public GitHub runners do not provide the needed hardware.
 

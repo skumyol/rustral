@@ -2,68 +2,22 @@
 name = "rustral-examples"
 version = "0.1.0"
 edition = "2021"
+publish = false
+description = "Pointer crate. The real, working examples live under crates/runtime/examples/."
 
 [workspace]
 
-# Basic Examples - Learning fundamentals
+# Single placeholder binary so `cargo build --manifest-path examples/Cargo.toml --workspace`
+# compiles cleanly. The actual examples live in `crates/runtime/examples/` and are built via
+# `cargo run -p rustral-runtime --features training --example <name>` (see examples/README.md).
 [[bin]]
-name = "xor"
-path = "basics/xor.rs"
-
-[[bin]]
-name = "train_demo"
-path = "basics/train_demo.rs"
-
-[[bin]]
-name = "mnist"
-path = "basics/mnist.rs"
-
-[[bin]]
-name = "char_rnn"
-path = "basics/char_rnn.rs"
-
-[[bin]]
-name = "serious_train"
-path = "basics/serious_train.rs"
-
-[[bin]]
-name = "nanogpt"
-path = "nlp/nanogpt.rs"
-
-# Vision Examples - Computer vision and image processing
-[[example]]
-name = "building_blocks"
-path = "vision/building_blocks.rs"
-
-[[example]]
-name = "resnet_image_classification"
-path = "vision/resnet_image_classification.rs"
-
-[[example]]
-name = "diffusion_model"
-path = "vision/diffusion_model.rs"
-
-# NLP Examples - Natural language processing
-[[example]]
-name = "bert_fine_tuning"
-path = "nlp/bert_fine_tuning.rs"
-
-[[example]]
-name = "gpt_training"
-path = "nlp/gpt_training.rs"
-
-# Advanced Examples - Complex architectures and techniques
-[[example]]
-name = "moe_training"
-path = "advanced/moe_training.rs"
-
-[[example]]
-name = "custom_layer"
-path = "advanced/custom_layer.rs"
+name = "rustral_examples_pointer"
+path = "src/main.rs"
 
 [features]
 default = []
 cuda = ["rustral-candle-backend/cuda"]
+metal = ["rustral-candle-backend/metal"]
 
 [dependencies]
 rustral-core = { path = "../crates/core", version = "0.1.0" }
@@ -76,6 +30,3 @@ rustral-distributed = { path = "../crates/distributed", version = "0.1.0" }
 rustral-runtime = { path = "../crates/runtime", version = "0.1.0", features = ["training"] }
 rustral-symbolic = { path = "../crates/symbolic", version = "0.1.0" }
 rustral-candle-backend = { path = "../crates/candle-backend", version = "0.1.0" }
-candle-core = "0.10.2"
-rand = "0.8"
-anyhow = "1"

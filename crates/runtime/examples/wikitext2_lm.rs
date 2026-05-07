@@ -1,14 +1,16 @@
 //! WikiText-2 small word-level language model (Phase 2 P1 H3).
 //!
-//! Reproducible end-to-end run on the WikiText-2 raw corpus. Architecture is intentionally
-//! tiny so a `--quick` smoke run finishes in seconds: an embedding table + a flat Linear
-//! head over a fixed-size context window. Training reports per-epoch loss and final dev
-//! perplexity; manifest captures full provenance.
+//! Reproducible end-to-end run on the WikiText-2 raw corpus. The model is a small Rustral
+//! transformer LM with causal self-attention: word embedding + learned positional embedding
+//! plus N transformer encoder layers with a `[block_size, block_size]` causal additive mask,
+//! pooled by taking the last position's hidden state and projected to vocabulary logits.
+//! Training reports per-epoch loss and final dev perplexity; the manifest captures full
+//! provenance.
 //!
 //! Output artifacts (`--out-dir`, default `./out/wikitext2`):
-//! - `manifest.json`  — git SHA, seed, hyperparameters, vocab size, dev perplexity,
-//!   throughput, dataset stats.
-//! - `vocab.txt`      — one token per line.
+//! - `manifest.json` — git SHA, seed, hyperparameters, vocab size, dev perplexity,
+//!   throughput, dataset stats, model parameter count.
+//! - `vocab.txt` — one token per line.
 //!
 //! Online run (downloads + extracts the WikiText-2 raw zip via `unzip`):
 //!
@@ -41,49 +43,132 @@ mod runner {
     use std::time::Instant;
 
     use rustral_autodiff::{Tape, TensorId};
-    use rustral_core::{Backend, ForwardCtx, Mode, Module, NamedParameters, Result};
+    use rustral_core::{Backend, ForwardCtx, Mode, NamedParameters, Parameter, Result};
     use rustral_data::datasets::wikitext2::load_wikitext2;
     use rustral_data::tokenizer::{WordLevelConfig, WordLevelTokenizer};
     use rustral_ndarray_backend::CpuBackend;
     use rustral_nn::tape::TapeModule;
+    use rustral_nn::tape_transformer::{
+        causal_mask_tape, TapeTransformerEncoderConfig, TapeTransformerEncoderLayer,
+    };
     use rustral_nn::{Embedding, EmbeddingConfig, Linear, LinearBuilder};
     use rustral_optim::Adam;
     use rustral_runtime::{SupervisedTapeModel, TapeTrainer, TapeTrainerConfig, TrainingReport};
 
     const DEFAULT_SEED: u64 = 0xC0FFEE;
-    const BLOCK_SIZE: usize = 16;
-    const EMBED_DIM: usize = 32;
+    const BLOCK_SIZE: usize = 32;
+    const D_MODEL: usize = 64;
+    const NUM_HEADS: usize = 4;
+    const FFN_DIM: usize = 128;
+    const NUM_LAYERS: usize = 2;
     const MAX_VOCAB: usize = 16_384;
     const DEFAULT_EPOCHS: usize = 1;
     const DEFAULT_BATCH: usize = 32;
-    const DEFAULT_LR: f32 = 5e-3;
+    const DEFAULT_LR: f32 = 5e-4;
     const DEFAULT_TRAIN_TOKENS_QUICK: usize = 4_000;
     const DEFAULT_TRAIN_TOKENS: usize = 50_000;
 
-    /// Tiny LM: `Embedding(V, D) -> reshape([1, block*D]) -> Linear(block*D, V)`.
-    pub struct WordLm<B: Backend> {
-        pub embed: Embedding<B>,
+    /// Small Rustral-native causal-attention LM for WikiText-2.
+    pub struct WikiTextLm<B: Backend> {
+        pub tok_embed: Embedding<B>,
+        pub pos_embed: Embedding<B>,
+        pub layers: Vec<TapeTransformerEncoderLayer<B>>,
         pub head: Linear<B>,
         pub block: usize,
-        pub embed_dim: usize,
     }
 
-    impl<B: Backend> NamedParameters<B> for WordLm<B> {
-        fn visit_parameters(&self, f: &mut dyn FnMut(&str, &rustral_core::Parameter<B>)) {
-            self.embed.visit_parameters(&mut |n, p| f(&format!("embed.{n}"), p));
+    impl<B: Backend> NamedParameters<B> for WikiTextLm<B> {
+        fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+            self.tok_embed.visit_parameters(&mut |n, p| f(&format!("tok_embed.{n}"), p));
+            self.pos_embed.visit_parameters(&mut |n, p| f(&format!("pos_embed.{n}"), p));
+            for (i, layer) in self.layers.iter().enumerate() {
+                layer.visit_parameters(&mut |n, p| f(&format!("layers.{i}.{n}"), p));
+            }
             self.head.visit_parameters(&mut |n, p| f(&format!("head.{n}"), p));
         }
-
-        fn visit_parameters_mut(
-            &mut self,
-            f: &mut dyn FnMut(&str, &mut rustral_core::Parameter<B>),
-        ) {
-            self.embed.visit_parameters_mut(&mut |n, p| f(&format!("embed.{n}"), p));
+        fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+            self.tok_embed.visit_parameters_mut(&mut |n, p| f(&format!("tok_embed.{n}"), p));
+            self.pos_embed.visit_parameters_mut(&mut |n, p| f(&format!("pos_embed.{n}"), p));
+            for (i, layer) in self.layers.iter_mut().enumerate() {
+                layer.visit_parameters_mut(&mut |n, p| f(&format!("layers.{i}.{n}"), p));
+            }
             self.head.visit_parameters_mut(&mut |n, p| f(&format!("head.{n}"), p));
         }
     }
 
-    impl<B: Backend> SupervisedTapeModel<B, Vec<usize>, usize> for WordLm<B>
+    impl<B: Backend> WikiTextLm<B>
+    where
+        B::Tensor: Clone,
+    {
+        pub fn new(backend: &B, vocab: usize, seed: u64) -> Result<Self> {
+            let tok_embed = Embedding::new(
+                backend,
+                EmbeddingConfig::new(vocab, D_MODEL),
+                seed.wrapping_add(1),
+            )?;
+            let pos_embed = Embedding::new(
+                backend,
+                EmbeddingConfig::new(BLOCK_SIZE, D_MODEL),
+                seed.wrapping_add(2),
+            )?;
+            let mut layers = Vec::with_capacity(NUM_LAYERS);
+            for i in 0..NUM_LAYERS {
+                let cfg = TapeTransformerEncoderConfig::new(D_MODEL, NUM_HEADS, FFN_DIM);
+                let layer =
+                    TapeTransformerEncoderLayer::new(backend, cfg, seed.wrapping_add(100 + i as u64))?;
+                layers.push(layer);
+            }
+            let head = LinearBuilder::new(D_MODEL, vocab)
+                .with_bias(true)
+                .seed(seed.wrapping_add(999))
+                .build(backend)?;
+            Ok(Self { tok_embed, pos_embed, layers, head, block: BLOCK_SIZE })
+        }
+
+        /// Single-window inference: returns `[vocab_size]` logits for the next-token prediction.
+        pub fn logits(&self, backend: &B, ids: &[usize]) -> Result<Vec<f32>> {
+            let mut ctx = ForwardCtx::new(backend, Mode::Inference);
+            let mut tape = Tape::<B>::new();
+            let logits_id = self.forward_tape_internal(backend, ids, &mut tape, &mut ctx)?;
+            let t = tape.value(logits_id).expect("forward produced a value");
+            backend.ops().tensor_to_vec(t)
+        }
+
+        fn forward_tape_internal(
+            &self,
+            backend: &B,
+            ids: &[usize],
+            tape: &mut Tape<B>,
+            ctx: &mut ForwardCtx<B>,
+        ) -> Result<TensorId> {
+            assert_eq!(ids.len(), self.block, "block size mismatch in forward");
+            let ops = backend.ops();
+            let tok_ids_f32: Vec<f32> = ids.iter().map(|&i| i as f32).collect();
+            let tok_ids_t = ops.tensor_from_vec(tok_ids_f32, &[self.block])?;
+            let tok_ids_id = tape.watch(tok_ids_t);
+            let tok_emb = self.tok_embed.forward_tape(tok_ids_id, tape, ctx)?;
+
+            let pos_ids_f32: Vec<f32> = (0..self.block).map(|i| i as f32).collect();
+            let pos_ids_t = ops.tensor_from_vec(pos_ids_f32, &[self.block])?;
+            let pos_ids_id = tape.watch(pos_ids_t);
+            let pos_emb = self.pos_embed.forward_tape(pos_ids_id, tape, ctx)?;
+
+            let mut x = tape.add(tok_emb, pos_emb, ctx)?;
+
+            // Causal mask once for the whole stack.
+            let mask = causal_mask_tape::<B>(self.block, tape, ctx)?;
+            for layer in &self.layers {
+                x = layer.forward_tape_with_mask(x, Some(mask), tape, ctx)?;
+            }
+
+            // Take the last position [seq=block-1, :] -> shape [1, d_model] via slice_tape (dim 0).
+            let last_hidden = tape.slice_tape(x, self.block - 1, self.block, ctx)?;
+            // Project to vocab logits.
+            self.head.forward_tape(last_hidden, tape, ctx)
+        }
+    }
+
+    impl<B: Backend> SupervisedTapeModel<B, Vec<usize>, usize> for WikiTextLm<B>
     where
         B::Tensor: Clone,
     {
@@ -93,13 +178,10 @@ mod runner {
             tape: &mut Tape<B>,
             ctx: &mut ForwardCtx<B>,
         ) -> Result<TensorId> {
-            assert_eq!(input.len(), self.block);
-            let ids_f32: Vec<f32> = input.iter().map(|&i| i as f32).collect();
-            let ids_t = ctx.backend().ops().tensor_from_vec(ids_f32, &[self.block])?;
-            let ids_id = tape.watch(ids_t);
-            let emb = self.embed.forward_tape(ids_id, tape, ctx)?;
-            let flat = tape.reshape_tape(emb, &[1, self.block * self.embed_dim], ctx)?;
-            self.head.forward_tape(flat, tape, ctx)
+            let backend_ptr = ctx.backend() as *const B;
+            // SAFETY: see comment in sst2_classifier::TransformerSst2::forward_tape.
+            let backend = unsafe { &*backend_ptr };
+            self.forward_tape_internal(backend, &input, tape, ctx)
         }
 
         fn loss_tape(
@@ -112,28 +194,6 @@ mod runner {
             let t = ctx.backend().ops().tensor_from_vec(vec![target as f32], &[1])?;
             let t = tape.watch(t);
             tape.cross_entropy_loss(logits, t, ctx)
-        }
-    }
-
-    impl<B: Backend> WordLm<B>
-    where
-        B::Tensor: Clone,
-    {
-        pub fn new(backend: &B, vocab: usize, block: usize, embed_dim: usize, seed: u64) -> Result<Self> {
-            let embed = Embedding::new(backend, EmbeddingConfig::new(vocab, embed_dim), seed)?;
-            let head = LinearBuilder::new(block * embed_dim, vocab)
-                .with_bias(true)
-                .seed(seed.wrapping_add(101))
-                .build(backend)?;
-            Ok(Self { embed, head, block, embed_dim })
-        }
-
-        pub fn logits(&self, backend: &B, ids: &[usize]) -> Result<Vec<f32>> {
-            let mut ctx = ForwardCtx::new(backend, Mode::Inference);
-            let emb = self.embed.forward(ids.to_vec(), &mut ctx)?;
-            let flat = backend.ops().reshape(&emb, &[1, self.block * self.embed_dim])?;
-            let logits = self.head.forward(flat, &mut ctx)?;
-            backend.ops().tensor_to_vec(&logits)
         }
     }
 
@@ -154,7 +214,7 @@ mod runner {
     /// Compute mean cross-entropy over `examples`, returning (loss_nats, perplexity).
     fn evaluate<B: Backend>(
         backend: &B,
-        model: &WordLm<B>,
+        model: &WikiTextLm<B>,
         examples: &[(Vec<usize>, usize)],
     ) -> Result<(f32, f32)>
     where
@@ -219,6 +279,16 @@ mod runner {
             .unwrap_or_else(|| "unknown".into())
     }
 
+    fn count_total_params<B: Backend, M: NamedParameters<B>>(backend: &B, model: &M) -> u64 {
+        let mut total: u64 = 0;
+        let ops = backend.ops();
+        model.visit_parameters(&mut |_, p| {
+            let shape = ops.shape(p.tensor());
+            total = total.saturating_add(shape.iter().product::<usize>() as u64);
+        });
+        total
+    }
+
     pub fn run() -> anyhow::Result<()> {
         let args: Vec<String> = std::env::args().collect();
         let quick = parse_flag(&args, "--quick");
@@ -235,11 +305,14 @@ mod runner {
             PathBuf::from(parse_arg::<String>(&args, "--out-dir", "out/wikitext2".into()));
         fs::create_dir_all(&out_dir)?;
 
-        println!("WikiText-2 small LM (rustral)");
-        println!("=============================");
+        println!("WikiText-2 transformer LM (rustral)");
+        println!("===================================");
         println!("seed         : {seed}");
         println!("block_size   : {BLOCK_SIZE}");
-        println!("embed_dim    : {EMBED_DIM}");
+        println!("d_model      : {D_MODEL}");
+        println!("num_heads    : {NUM_HEADS}");
+        println!("ffn_dim      : {FFN_DIM}");
+        println!("num_layers   : {NUM_LAYERS}");
         println!("max_vocab    : {MAX_VOCAB}");
         println!("epochs       : {epochs}");
         println!("batch_size   : {batch}");
@@ -278,8 +351,9 @@ mod runner {
         let dataset_hash = fnv1a_hex(splits.train.as_bytes());
 
         let backend = CpuBackend::default();
-        let mut model =
-            WordLm::<CpuBackend>::new(&backend, tok.vocab_size(), BLOCK_SIZE, EMBED_DIM, seed)?;
+        let mut model = WikiTextLm::<CpuBackend>::new(&backend, tok.vocab_size(), seed)?;
+        let total_params = count_total_params::<CpuBackend, _>(&backend, &model);
+        println!("total parameters: {}", total_params);
 
         let cfg = TapeTrainerConfig {
             epochs,
@@ -311,10 +385,15 @@ mod runner {
 
         let manifest = serde_json_minimal::Object::new()
             .insert_str("task", "wikitext2_word_lm")
+            .insert_str("model_type", "transformer_lm")
             .insert_str("git_sha", &detect_git_sha())
             .insert_u64("seed", seed)
             .insert_u64("block_size", BLOCK_SIZE as u64)
-            .insert_u64("embed_dim", EMBED_DIM as u64)
+            .insert_u64("d_model", D_MODEL as u64)
+            .insert_u64("num_heads", NUM_HEADS as u64)
+            .insert_u64("ffn_dim", FFN_DIM as u64)
+            .insert_u64("num_layers", NUM_LAYERS as u64)
+            .insert_u64("total_params", total_params)
             .insert_u64("max_vocab", MAX_VOCAB as u64)
             .insert_u64("vocab_size", tok.vocab_size() as u64)
             .insert_u64("epochs", epochs as u64)
@@ -328,7 +407,7 @@ mod runner {
             .insert_f32("dev_perplexity", val_ppl)
             .insert_f32("windows_per_sec", throughput)
             .insert_f32("train_elapsed_sec", train_elapsed.as_secs_f32())
-            .insert_str("dataset", "WikiText-2 raw v1")
+            .insert_str("dataset", "WikiText-2 raw v1 (smerity.com mirror)")
             .insert_str("tokenizer", "rustral-data WordLevelTokenizer (whitespace, lowercased)")
             .insert_bool("quick_mode", quick);
         let manifest_path = out_dir.join("manifest.json");

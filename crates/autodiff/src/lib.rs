@@ -341,38 +341,54 @@ impl<B: Backend> Tape<B> {
         }))
     }
 
-    /// Softmax activation (row-wise for 2D tensors).
+    /// Softmax activation along the last dimension.
     ///
-    /// For a tensor of shape [..., features], applies softmax across the last dimension.
+    /// Accepts rank-1 `[features]` (treated as a single row) or rank-2 `[batch, features]`.
+    /// Returns the same shape with each row summing to 1.
+    ///
+    /// Backward implements the full Jacobian:
+    ///
+    /// ```text
+    /// dL/dx[i,j] = y[i,j] * (dL/dy[i,j] - sum_k(dL/dy[i,k] * y[i,k]))
+    /// ```
+    ///
+    /// For rank-2 input we use axis-aware `sum_dim` + `broadcast_to`. For rank-1 input we
+    /// fall back to the simpler `sum_all` + `broadcast` path which is exactly the same
+    /// formula because the row dimension is implicit.
     pub fn softmax(&mut self, a: TensorId, ctx: &mut ForwardCtx<B>) -> Result<TensorId>
     where
         B::Tensor: Clone,
     {
         let a_val = self.get_value(a)?.clone();
-        let out = ctx.backend().ops().softmax(&a_val)?;
+        let ops_for_shape = ctx.backend().ops();
+        let in_shape = ops_for_shape.shape(&a_val);
+        let is_rank1 = in_shape.len() == 1;
+        if !is_rank1 && in_shape.len() != 2 {
+            return Err(rustral_core::CoreError::InvalidArgument(format!(
+                "tape softmax expects rank-1 [features] or rank-2 [batch, features], got shape {:?}",
+                in_shape
+            )));
+        }
+        // Prefer axis-aware softmax when supported; fall back to row-wise default softmax.
+        let last_dim = in_shape.len() - 1;
+        let out = match ops_for_shape.softmax_dim(&a_val, last_dim) {
+            Ok(t) => t,
+            Err(_) => ops_for_shape.softmax(&a_val)?,
+        };
+        let out_shape = in_shape.clone();
 
-        // Store output value for backward computation
         Ok(self.record(&[a], out.clone(), move |grad_out, _store, ops| {
-            // Softmax backward: y * (grad_out - sum(grad_out * y, axis=-1, keepdims=True))
-            // where y is the softmax output
             let y = &out;
-
-            // Element-wise multiply: grad_out * y
             let grad_times_y = ops.mul(grad_out, y)?;
-
-            // Sum over last dimension (features axis)
-            // This is a simplified implementation - assumes 2D tensor [batch, features]
-            // For proper implementation, we'd need axis-specific sum reduction
-            let _sum_grad_y = ops.sum_all(&grad_times_y)?;
-
-            // Broadcast sum back to original shape by replicating
-            // Simplified: approximate by just using grad_times_y for now
-            // Full implementation would need proper broadcasting
-
-            // grad_out - sum_grad_y_broadcasted
-            // For now, simplified: y * grad_out - y * sum_grad_y
-            let grad = ops.mul(y, grad_out)?;
-
+            let row_sum_broadcast = if is_rank1 {
+                let scalar = ops.sum_all(&grad_times_y)?;
+                ops.broadcast(&scalar, &out_shape)?
+            } else {
+                let row_sum = ops.sum_dim(&grad_times_y, 1, true)?;
+                ops.broadcast_to(&row_sum, &out_shape)?
+            };
+            let inner = ops.sub(grad_out, &row_sum_broadcast)?;
+            let grad = ops.mul(y, &inner)?;
             Ok(vec![grad])
         }))
     }
@@ -763,8 +779,9 @@ impl<B: Backend> Tape<B> {
 
     /// Slice a tensor along dimension 0.
     ///
-    /// Forward: `output = input[start..end]`
-    /// Backward: `grad_input` is zeros except for `grad_output` placed at `[start..end]`
+    /// Forward: `output = input[start..end]` along dim 0.
+    /// Backward: routes `grad_out` back into the correct slice of an otherwise-zero tensor
+    /// of the input shape, using `concat([zeros_before, grad_out, zeros_after], dim=0)`.
     pub fn slice_tape(
         &mut self,
         input: TensorId,
@@ -778,19 +795,33 @@ impl<B: Backend> Tape<B> {
         let input_val = self.get_value(input)?.clone();
         let ops = ctx.backend().ops();
 
-        // Forward: slice
         let output = ops.slice(&input_val, start, end)?;
-
-        // Store for backward
         let input_shape = ops.shape(&input_val);
 
-        Ok(self.record(&[input], output, move |_grad_out, _store, ops| {
-            // Backward: create zeros of input shape, then place grad_out at [start:end]
-            let grad_input = ops.zeros(&input_shape)?;
+        Ok(self.record(&[input], output, move |grad_out, _store, ops| {
+            let dim0 = input_shape[0];
+            // Fast paths.
+            if start == 0 && end == dim0 {
+                return Ok(vec![grad_out.clone()]);
+            }
+            // Build [zeros_before? , grad_out, zeros_after?] then concat along dim 0.
+            let mut before_shape = input_shape.clone();
+            before_shape[0] = start;
+            let mut after_shape = input_shape.clone();
+            after_shape[0] = dim0.saturating_sub(end);
 
-            // Place grad_out at the correct position
-            // This is simplified - full impl needs in-place slice assignment
-            // For now, just return the zeros (approximate)
+            let zeros_before = if start > 0 { Some(ops.zeros(&before_shape)?) } else { None };
+            let zeros_after = if dim0 > end { Some(ops.zeros(&after_shape)?) } else { None };
+            let mut owned: Vec<B::Tensor> = Vec::new();
+            if let Some(z) = zeros_before {
+                owned.push(z);
+            }
+            owned.push(grad_out.clone());
+            if let Some(z) = zeros_after {
+                owned.push(z);
+            }
+            let refs: Vec<&B::Tensor> = owned.iter().collect();
+            let grad_input = ops.concat(&refs, 0)?;
             Ok(vec![grad_input])
         }))
     }
