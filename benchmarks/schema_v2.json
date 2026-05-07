@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Rustral benchmark suite document (v2.0.0)",
+  "description": "Per-suite JSON document emitted by every workload runner (rustral_workloads, candle_workloads, baselines.py, ...). The orchestrator scripts/bench/run_all.py joins multiple suite documents into a combined output.",
+  "type": "object",
+  "required": ["suite", "schema_version", "machine", "samples"],
+  "additionalProperties": false,
+  "properties": {
+    "suite": {
+      "type": "string",
+      "description": "Suite name: rustral, candle, pytorch, ..."
+    },
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version, must be 2.x.y for this validator.",
+      "pattern": "^2\\."
+    },
+    "machine": {
+      "type": "object",
+      "required": ["os", "arch", "hostname"],
+      "additionalProperties": true,
+      "properties": {
+        "os": { "type": "string" },
+        "arch": { "type": "string" },
+        "hostname": { "type": "string" },
+        "rustc": { "type": "string" },
+        "commit": { "type": "string" },
+        "features": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "torch_version": { "type": "string" },
+        "python": { "type": "string" }
+      }
+    },
+    "samples": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Sample" }
+    }
+  },
+  "definitions": {
+    "Sample": {
+      "type": "object",
+      "required": [
+        "name",
+        "backend",
+        "device",
+        "dtype",
+        "params",
+        "runs_ms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "backend": { "type": "string" },
+        "device": {
+          "type": "string",
+          "description": "cpu | cuda:0 | metal:0 | wgpu:0"
+        },
+        "dtype": {
+          "type": "string",
+          "description": "f32 | f16 | bf16"
+        },
+        "model_params": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "runs_ms": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0 },
+          "minItems": 1
+        },
+        "mean_ms": { "type": "number", "minimum": 0 },
+        "std_ms": { "type": "number", "minimum": 0 },
+        "min_ms": { "type": "number", "minimum": 0 },
+        "max_ms": { "type": "number", "minimum": 0 },
+        "p50_ms": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

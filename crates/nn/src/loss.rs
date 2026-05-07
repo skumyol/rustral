@@ -117,8 +117,8 @@ impl CrossEntropyLoss {
     /// Compute loss from class indices (not one-hot).
     ///
     /// # Arguments
-    /// * `logits` - The model's raw output [batch_size, num_classes]
-    /// * `target_indices` - Class indices [batch_size]
+    /// * `logits` - The model's raw output `[batch_size, num_classes]`
+    /// * `target_indices` - Class indices `[batch_size]`
     /// * `ctx` - Forward context for operations
     ///
     /// # Returns

@@ -6,9 +6,9 @@
 //! ## Transformer Architectures
 //!
 //! Complete transformer implementations:
-//! - [`TransformerEncoder`](transformer::TransformerEncoder): BERT-style bidirectional encoder
-//! - [`TransformerDecoder`](transformer::TransformerDecoder): GPT-style autoregressive decoder
-//! - [`TransformerEncoderDecoder`](transformer::TransformerEncoderDecoder): T5/BART-style seq2seq
+//! - [`TransformerEncoder`]: BERT-style bidirectional encoder
+//! - [`TransformerDecoder`]: GPT-style autoregressive decoder
+//! - [`TransformerEncoderDecoder`]: T5/BART-style seq2seq
 //!
 //! See `TRANSFORMERS.md` for detailed documentation and examples.
 

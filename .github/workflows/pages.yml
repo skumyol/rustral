@@ -1,0 +1,58 @@
+name: pages
+
+# Phase 2 P4 K6: render the per-release benchmark dashboard from `benchmarks/runs/` and
+# deploy it to GitHub Pages. The renderer is dependency-free Python 3 stdlib, so this
+# workflow does not need a Rust toolchain.
+#
+# Triggers:
+#   - push to `main` whenever the snapshot directory or the renderer changes
+#   - tag pushes (so a release snapshot lands on Pages immediately after the tag)
+#   - manual dispatch
+#
+# If `benchmarks/runs/` is empty the renderer still produces a valid landing page that
+# says "No snapshots have been captured yet", so the deploy never fails on an empty
+# repository.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "benchmarks/runs/**"
+      - "scripts/bench/render_site.py"
+      - ".github/workflows/pages.yml"
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Render site
+        run: python3 scripts/bench/render_site.py --out docs/site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

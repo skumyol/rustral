@@ -17,6 +17,7 @@ workspace = true
 [features]
 default = []
 cuda = ["candle-core/cuda"]
+metal = ["candle-core/metal"]
 
 [dependencies]
 rustral-core = { path = "../core", version = "0.1.0" }

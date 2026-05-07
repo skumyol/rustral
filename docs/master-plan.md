@@ -1,4 +1,4 @@
-# Rustral docs — consolidated master plan
+# Rustral docs: consolidated master plan
 
 This is the **single source of truth** for Rustral’s architecture direction, current status, and the next implementation steps. Other documents in `docs/` should be treated as **supporting references** and should link back here rather than restating roadmaps.
 
@@ -11,8 +11,10 @@ This is the **single source of truth** for Rustral’s architecture direction, c
 Rustral is a Rust-first neural network workspace with:
 
 - **Explicit execution**: `ForwardCtx` + `Mode`, no hidden global state.
-- **Backend abstraction**: `Backend` + `TensorOps` (CPU reference backend; Candle CPU/CUDA; wgpu experimental).
+- **Backend abstraction**: `Backend` + `TensorOps` (CPU reference backend; Candle CPU/CUDA/Metal; wgpu experimental).
 - **Training utilities**: tape-based autodiff, optimizers, and a runtime trainer that exercises end-to-end training + checkpoint I/O.
+- **Real evaluation artifacts**: SST-2 and WikiText-2 examples write reproducibility manifests and can run in offline CI smoke tests.
+- **Benchmark evidence**: schema-v2 JSON harness, CPU CI artifacts, optional CUDA/Metal suites, bencher.dev upload, and a Pages dashboard for release snapshots.
 - **Distributed APIs**: a `ProcessGroup` abstraction and higher-level DP/TP/ZeRO-style components (correctness-first; performance backend collectives are future work).
 
 Important caveat: a lot of the “big” distributed and model-parallel APIs exist as **library surfaces** and tests, but they are not yet a production multi-node system.
@@ -48,6 +50,7 @@ Backends (ndarray, Candle, wgpu) implement `TensorOps`; orchestration lives abov
 
 - **CPU-only** builds and tests must remain the default and should work on Linux/macOS/Windows.
 - **CUDA builds** are opt-in (`--features cuda`) and require a CUDA toolkit.
+- **Metal builds** are opt-in (`--features metal`) and are mainly for local macOS / Apple Silicon benchmarking.
 - To avoid carrying source patches, CUDA builds require:
   - **CUDA toolkit ≥ 12.2** (see `scripts/check_cuda_env.sh`).
 
@@ -73,9 +76,32 @@ This validates the plumbing (forward → loss → backward → step → save/loa
 
 ---
 
-## Next implementation plan (the “make examples trainable” arc)
+## What shipped in the publishable evidence work
 
-This is the next big step to match the design and usability goals:
+### Real-corpus NLP
+
+- `crates/runtime/examples/sst2_classifier.rs` trains a small SST-2 classifier and reports dev accuracy.
+- `crates/runtime/examples/wikitext2_lm.rs` trains a small word-level WikiText-2 LM and reports dev perplexity.
+- Both examples write `manifest.json` with git SHA, seed, dataset hash, hyperparameters, throughput, and metric output.
+- `EVALUATION.md` explains tokenization, splits, metrics, online/offline data fetch, and smoke test commands.
+
+### Benchmark and CI evidence
+
+- `crates/bench/src/lib.rs` emits schema-v2 samples with backend, device, dtype, model parameter count, machine metadata, and raw runs.
+- `scripts/bench/run_all.py` runs the CPU suites and optional PyTorch / CUDA / Metal suites.
+- `scripts/bench/validate_schema.py` validates benchmark JSON in CI.
+- `.github/workflows/ci.yml` uploads CPU benchmark artifacts and runs offline NLP smoke tests.
+- `.github/workflows/bench-gpu.yml` runs CUDA benchmarks only when requested.
+- `scripts/bench/to_bencher_bmf.py` converts results for bencher.dev trend tracking.
+- `scripts/bench/render_site.py` renders the Pages dashboard from `benchmarks/runs/<version>/`.
+
+Known gaps are explicit, not hidden: transformer train-step still needs tape support for attention layers, and LSTM workload promotion waits on the `LstmCell` weight-layout fix.
+
+---
+
+## Next implementation plan
+
+The next big step is to turn the current forward and simple-train benchmarks into fuller model-level train-step coverage:
 
 1. **Tape-aware module execution**
    - Add a `TapeModule`-style trait (or equivalent) so `rustral-nn` layers can be executed while recording ops into a `Tape` without rewriting every example.
@@ -86,10 +112,9 @@ This is the next big step to match the design and usability goals:
 4. **Efficient checkpointing**
    - Prefer `tensor_to_vec` (bulk reads) over per-element reads; checkpointing must not accidentally serialize GPU scalars one-by-one.
 5. **Performance suite**
-   - Keep `tests/system_tests` as the umbrella suite.
-   - Run example binaries and GPU perf **opt-in** via env vars:
-     - `RUSTRAL_RUN_EXAMPLE_PERF=1`
-     - `RUSTRAL_RUN_GPU_PERF=1` + `--features cuda`
+   - Keep schema-v2 JSON as the public benchmark format.
+   - Capture the first release snapshot under `benchmarks/runs/<version>/`.
+   - Keep GPU perf opt-in through `.github/workflows/bench-gpu.yml`.
 
 ---
 
@@ -102,21 +127,26 @@ This is the next big step to match the design and usability goals:
 - **`docs/concepts.md`**: tutorial/guide; should avoid repeating roadmap claims.
 - **`docs/WGPU_UPGRADE.md`**: wgpu upgrade procedure (experimental backend).
 - **`docs/SECURITY.md`**: security guidelines and disclosure process.
-| `rustral-wgpu-backend` | Experimental GPU |
-| `rustral-candle-backend` | Candle CPU/CUDA |
-| `rustral-bench` | Local criterion benches |
+- **`EVALUATION.md`**: SST-2 and WikiText-2 methodology.
+- **`BENCHMARKS.md`**: benchmark harness, schema v2, backend matrix, snapshots, bencher.dev, and Pages dashboard.
 
 ---
 
 ## Performance
 
-Run `cargo bench -p rustral-bench` (and backend-specific benches) on **your** hardware. Older numeric targets that appeared in this document have been removed until they are reproducible from CI/bench configs.
+For local numbers, run:
+
+```bash
+python3 scripts/bench/run_all.py --suite rustral --suite candle --repeats 5 --warmup 1
+```
+
+For microbench work, `cargo bench -p rustral-bench` still exists. For publishable numbers, use the unified harness and commit only curated release snapshots under `benchmarks/runs/<version>/`.
 
 ---
 
 ## Comparison with Python stacks
 
-PyTorch/JAX ship mature kernels, distributed runtimes, and ecosystems Rustral does **not** replace overnight. Rustral’s niche is **Rust-native**, explicit-state experimentation—not drop-in datacenter training without extra engineering.
+PyTorch/JAX ship mature kernels, distributed runtimes, and ecosystems Rustral does **not** replace overnight. Rustral’s niche is **Rust-native**, explicit-state experimentation, not drop-in datacenter training without extra engineering.
 
 ---
 
@@ -126,15 +156,18 @@ PyTorch/JAX ship mature kernels, distributed runtimes, and ecosystems Rustral do
 |------|------------|
 | Experimental GPU backend | Prefer Candle for reliability until `wgpu` upgrades land |
 | Distributed **simulation vs cluster** | Read API docs; don’t assume NCCL/MPI cluster parity |
-| Benchmark regression | Add benches to CI when stable |
+| Benchmark regression | CI uploads schema-checked CPU artifacts; bencher.dev upload is opt-in |
+| Real-corpus metric drift | Cite `manifest.json` and rerun from `EVALUATION.md` commands |
 
 ---
 
 ## Next actions (maintainers)
 
-1. Keep README / master-plan aligned with **honest** scope each release.
-2. Upgrade `wgpu` and revisit GPU RNG/dropout stories.
-3. Wire metrics (`rustral-metrics`) to real sinks where desired.
+1. Capture the first release benchmark snapshot under `benchmarks/runs/<version>/`.
+2. Add tape support for attention layers so transformer train-step benchmarks become real train-step benchmarks.
+3. Fix the `LstmCell` weight layout so LSTM workloads can enter the JSON harness.
+4. Upgrade `wgpu` and revisit GPU RNG/dropout stories.
+5. Wire metrics (`rustral-metrics`) to real sinks where desired.
 
 ---
 

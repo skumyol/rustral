@@ -112,3 +112,11 @@ vendor/*
 IMPROVEMENT_PLAN.md
 docs/assets/rustral_system_diagram_download.zip
 docs/assets/rustral_system_diagram_download/
+
+# EMNLP demo determinism reports (generated)
+emnlp_determinism_report.json
+benchmarks/results/
+
+# Pages dashboard output: rendered locally for previewing only; the deployed copy is
+# rebuilt by .github/workflows/pages.yml on every push.
+docs/site/

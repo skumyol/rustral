@@ -1,6 +1,8 @@
 # Rustral Examples Gallery
 
-This directory contains runnable examples demonstrating every aspect of Rustral. Each example is designed to teach specific concepts.
+This directory contains runnable examples for learning Rustral. The examples start small, then move into vision, NLP, and advanced model patterns.
+
+Some newer examples live inside their owning crates instead of this `examples/` workspace. The runtime NLP examples are in `crates/runtime/examples/` because they use the trainer, dataset cache, and manifest writer from `rustral-runtime`.
 
 ## Directory Structure
 
@@ -23,6 +25,15 @@ examples/
     └── custom_layer.rs
 ```
 
+Runtime examples worth knowing about:
+
+```text
+crates/runtime/examples/
+├── emnlp_char_lm.rs       # tiny char LM, determinism check, save/load/infer
+├── sst2_classifier.rs     # SST-2 dev accuracy, writes manifest.json
+└── wikitext2_lm.rs        # WikiText-2 dev perplexity, writes manifest.json
+```
+
 ## Getting Started
 
 All examples can be run with:
@@ -42,6 +53,23 @@ cargo run --example diffusion_model
 # NLP examples (natural language processing)
 cargo run --example bert_fine_tuning
 cargo run --example gpt_training
+
+# EMNLP-ready char-level next-token LM (lives in the runtime crate)
+# - one command for: train -> eval -> save -> load -> infer -> generate
+# - `--determinism-check` runs the same training 3 times and asserts bitwise equality
+cargo run -p rustral-runtime --features training --example emnlp_char_lm
+cargo run -p rustral-runtime --features training --example emnlp_char_lm -- --determinism-check
+
+# Real-corpus NLP examples
+# - SST-2 sentiment classifier with reproducibility manifest
+# - WikiText-2 small word-level LM with dev perplexity
+# Use --quick for a fast smoke run. See EVALUATION.md for the methodology.
+cargo run --release -p rustral-runtime --features training --example sst2_classifier
+cargo run --release -p rustral-runtime --features training --example wikitext2_lm
+
+# CI / offline-only runs, datasets pre-staged in $RUSTRAL_CACHE_DIR/datasets/
+RUSTRAL_DATASET_OFFLINE=1 RUSTRAL_DATASET_SKIP_CHECKSUM=1 \
+    cargo run --release -p rustral-runtime --features training --example sst2_classifier -- --quick
 
 # Advanced examples (complex architectures)
 cargo run --example moe_training
@@ -70,10 +98,10 @@ cargo run --bin xor
 - How to read predictions and compare to targets
 
 **Key abstractions shown:**
-- `Backend` — creates tensors
-- `Linear` layer — matrix multiplication + bias
-- `ForwardCtx` — explicit context for computation
-- `Mode::Inference` — we're not training, just predicting
+- `Backend`: creates tensors
+- `Linear` layer: matrix multiplication + bias
+- `ForwardCtx`: explicit context for computation
+- `Mode::Inference`: we're not training, just predicting
 
 **After this example, you should understand:**
 > A neural network is a series of mathematical transformations. Each layer takes numbers, does matrix multiplication, adds a bias, and applies an activation function. The output is the prediction.
@@ -94,11 +122,11 @@ cargo run --bin train_demo
 - What checkpointing means (saving/resuming training)
 
 **Key abstractions shown:**
-- `Tape` — records operations for automatic differentiation
-- `Tape::watch_parameter()` — mark weights for gradient tracking
-- `Tape::backward()` — compute gradients via chain rule
-- `Adam` optimizer — updates weights using gradients
-- `Optimizer::save_checkpoint()` — persist training state
+- `Tape`: records operations for automatic differentiation
+- `Tape::watch_parameter()`: mark weights for gradient tracking
+- `Tape::backward()`: compute gradients via chain rule
+- `Adam` optimizer: updates weights using gradients
+- `Optimizer::save_checkpoint()`: persist training state
 
 **The training loop pattern:**
 ```rust
@@ -145,10 +173,10 @@ cargo run --bin mnist --release
 - How to count parameters in a model
 
 **Key abstractions shown:**
-- `Conv2d` — detects patterns in images (edges, textures, shapes)
-- `max_pool2d` — reduces image size by taking maximum values
-- `Dataset` trait — standard interface for any data source
-- `DataLoader` — batches, shuffles, and loads data efficiently
+- `Conv2d`: detects patterns in images (edges, textures, shapes)
+- `max_pool2d`: reduces image size by taking maximum values
+- `Dataset` trait: standard interface for any data source
+- `DataLoader`: batches, shuffles, and loads data efficiently
 - `Mode::Inference` vs `Mode::Train`
 
 **Architecture flow:**
@@ -200,11 +228,11 @@ cargo run --bin char_rnn --release
 - What a DataLoader configuration looks like
 
 **Key abstractions shown:**
-- `Embedding` — converts discrete tokens to dense vectors
-- `StackedLstm` — memory cells for sequence modeling
-- `Readout` — converts hidden state to vocabulary predictions
-- `Vocabulary` — maps characters ↔ indices
-- `Dataset` with window sliding — creates training samples from text
+- `Embedding`: converts discrete tokens to dense vectors
+- `StackedLstm`: memory cells for sequence modeling
+- `Readout`: converts hidden state to vocabulary predictions
+- `Vocabulary`: maps characters to indices and back
+- `Dataset` with window sliding: creates training samples from text
 
 **The text generation process:**
 ```
@@ -235,9 +263,9 @@ cargo run --example resnet_image_classification
 - How to build complex architectures from simple blocks
 
 **Key abstractions shown:**
-- `ResidualBlock` — adds input to output (skip connection)
-- `BatchNorm2d` — normalizes activations per batch
-- `GlobalAvgPool2d` — replaces large FC layers
+- `ResidualBlock`: adds input to output (skip connection)
+- `BatchNorm2d`: normalizes activations per batch
+- `GlobalAvgPool2d`: replaces large FC layers
 - Composing blocks into stages
 
 **The residual trick:**
@@ -269,9 +297,9 @@ cargo run --example bert_fine_tuning
 - Why tokenization matters (converting text to numbers)
 
 **Key abstractions shown:**
-- `TransformerEncoder` — bidirectional transformer layers
-- `LayerNorm` — stabilizes transformer training
-- `Dropout` — prevents overfitting
+- `TransformerEncoder`: bidirectional transformer layers
+- `LayerNorm`: stabilizes transformer training
+- `Dropout`: prevents overfitting
 - Tokenization with [CLS] and [SEP] special tokens
 
 **The attention mechanism:**
@@ -304,8 +332,8 @@ cargo run --example gpt_training
 - Memory requirements for large language models
 
 **Key abstractions shown:**
-- `TransformerDecoder` — causal (autoregressive) transformer
-- `TransformerDecoderConfig` — sets causal=True
+- `TransformerDecoder`: causal (autoregressive) transformer
+- `TransformerDecoderConfig`: sets causal=True
 - Text generation with top-k sampling
 - Memory estimation for different model sizes
 
@@ -319,7 +347,7 @@ GPT (causal): The cat sat
 ```
 
 **After this example, you should understand:**
-> GPT predicts the next word given all previous words. This is why it can generate text—you just keep asking "what comes next?" The causal mask ensures it doesn't "cheat" by looking at future words during training.
+> GPT predicts the next word given all previous words. This is why it can generate text: you just keep asking "what comes next?" The causal mask ensures it doesn't "cheat" by looking at future words during training.
 
 ---
 
@@ -337,10 +365,10 @@ cargo run --example diffusion_model
 - Why noise scheduling matters (how fast to add/remove noise)
 
 **Key abstractions shown:**
-- `UNet2D` — noise-prediction network
-- `DDPMScheduler` — controls noise schedule
-- `VAEEncoder`/`VAEDecoder` — image ↔ latent space
-- `ClassifierFreeGuidance` — controls generation quality/diversity
+- `UNet2D`: noise-prediction network
+- `DDPMScheduler`: controls noise schedule
+- `VAEEncoder`/`VAEDecoder`: image to latent space and back
+- `ClassifierFreeGuidance`: controls generation quality/diversity
 
 **The diffusion process:**
 ```
@@ -375,9 +403,9 @@ cargo run --example moe_training
 - How all-to-all communication works in distributed systems
 
 **Key abstractions shown:**
-- `ExpertLayer` — container with multiple expert networks
-- `SwitchGating` / `TopKGating` — routing networks
-- `ExpertParallelConfig` — configures DP + EP + TP parallelism
+- `ExpertLayer`: container with multiple expert networks
+- `SwitchGating` / `TopKGating`: routing networks
+- `ExpertParallelConfig`: configures DP + EP + TP parallelism
 - Load balancing loss (auxiliary loss)
 
 **The MoE idea:**
@@ -531,7 +559,7 @@ fn main() {
 3. **Show intermediate outputs** (not just final results)
 4. **Include error handling** with helpful messages
 5. **Add a synthetic data fallback** if real data isn't available
-6. **Comment every non-obvious line** — remember, beginners will read this
+6. **Comment every non-obvious line**, remember, beginners will read this
 
 ---
 

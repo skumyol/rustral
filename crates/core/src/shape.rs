@@ -53,7 +53,7 @@ impl ShapeExt for [usize] {
 ///
 /// This trait is implemented by backend tensors to allow shape inspection
 /// during serialization and other operations without requiring full
-/// [`TensorOps`] functionality.
+/// `TensorOps` functionality.
 pub trait TensorShape {
     /// Return the tensor shape as a slice of dimensions.
     fn shape(&self) -> &[usize];

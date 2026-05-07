@@ -1,0 +1,54 @@
+name: bench-gpu
+
+# Optional GPU benchmark workflow (Phase 2 P3 J3).
+#
+# Triggered explicitly to avoid burning runner minutes on every PR:
+#   - PRs labelled `bench-gpu`
+#   - Manual `workflow_dispatch`
+#
+# Runs the CUDA workload binary on a self-hosted runner (label `gpu-cuda`) and uploads the
+# resulting JSON to the run's artifact store. Schema validation is the only blocking gate;
+# timing variance is reported but does not fail the workflow.
+#
+# Self-hosted runner expectations:
+#   - NVIDIA GPU + driver
+#   - CUDA toolkit on PATH
+#   - Rust stable toolchain
+#   - Python 3 with pip (for jsonschema)
+#
+# If the host does not have these, the workflow is a no-op (job skipped). To enable on a
+# fork, register a self-hosted runner with the `gpu-cuda` label and re-run the workflow.
+
+on:
+  pull_request:
+    types: [labeled, opened, synchronize, reopened]
+  workflow_dispatch:
+
+jobs:
+  bench-gpu-cuda:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'bench-gpu') }}
+    runs-on: [self-hosted, gpu-cuda]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip jsonschema
+      - name: Build + run CUDA suite
+        env:
+          GIT_SHA: ${{ github.sha }}
+          RUSTRAL_BENCH_FEATURES: "cuda"
+        run: |
+          python3 scripts/bench/run_all.py \
+            --suite rustral-cuda \
+            --repeats 5 --warmup 2 \
+            --out benchmarks/results/ci-cuda-${{ github.sha }}.json
+      - name: Validate schema v2
+        run: python3 scripts/bench/validate_schema.py benchmarks/results/ci-cuda-${{ github.sha }}.json
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-cuda-${{ github.sha }}
+          path: benchmarks/results/ci-cuda-${{ github.sha }}.json
+          retention-days: 14

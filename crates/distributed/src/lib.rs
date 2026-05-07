@@ -455,7 +455,7 @@ where
     }
 
     /// Perform all-reduce and return accumulated gradients.
-    /// Note: gradients remain as Vec<f32> since we don't have backend access.
+    /// Note: gradients remain as `Vec<f32>` since we don't have backend access.
     /// Caller must convert back to tensors.
     pub fn all_reduce(&mut self) -> DistributedResult<Vec<(rustral_core::ParameterId, Vec<f32>)>>
     where

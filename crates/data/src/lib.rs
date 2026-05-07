@@ -2,6 +2,15 @@
 //!
 //! Provides traits and implementations for handling datasets of various sizes,
 //! from small in-memory datasets to large streaming datasets.
+//!
+//! Real-corpus loaders (SST-2, WikiText-2) and HTTP fetch with checksum verification live
+//! under [`fetch`] and [`datasets`], gated by `feature = "fetch"`.
+
+#[cfg(feature = "fetch")]
+pub mod fetch;
+pub mod tokenizer;
+#[cfg(feature = "fetch")]
+pub mod datasets;
 
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;

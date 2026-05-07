@@ -624,7 +624,7 @@ impl<B: Backend> Tape<B> {
 
     /// Gather rows from a parameter table using indices.
     ///
-    /// Forward: output[i] = table[ids[i]]
+    /// Forward: `output[i] = table[ids[i]]`
     /// Backward: gradients accumulate into table rows
     pub fn gather_rows_tape(
         &mut self,
@@ -763,8 +763,8 @@ impl<B: Backend> Tape<B> {
 
     /// Slice a tensor along dimension 0.
     ///
-    /// Forward: output = input[start:end]
-    /// Backward: grad_input is zeros except for grad_output placed at [start:end]
+    /// Forward: `output = input[start..end]`
+    /// Backward: `grad_input` is zeros except for `grad_output` placed at `[start..end]`
     pub fn slice_tape(
         &mut self,
         input: TensorId,

@@ -11,7 +11,7 @@
 
 ## What is Rustral?
 
-**Rustral** is a deep learning toolkit in Rust for building and training neural networks—from small tutorials to transformers and mixture-of-experts experiments.
+**Rustral** is a deep learning toolkit in Rust for building and training neural networks, from small tutorials to transformers and mixture-of-experts experiments.
 
 Rustral is not trying to be a Python framework with Rust syntax. It is built around a different set of engineering bets:
 
@@ -20,6 +20,7 @@ Rustral is not trying to be a Python framework with Rust syntax. It is built aro
 - **Typed model boundaries.** The `Module` trait makes input and output contracts visible in Rust types. This is useful when experiments grow from one-off notebooks into reusable systems.
 - **Inspectable internals.** Autodiff, optimizers, layers, distributed training hooks, and runtime orchestration live in focused crates. The framework is meant to be read, modified, and audited.
 - **Rust-native deployment paths.** Trained logic can be compiled into ordinary Rust binaries and services, which reduces the gap between experiment code and production code.
+- **Evidence you can rerun.** Real-corpus NLP examples, schema-checked benchmark JSON, CI artifacts, and release snapshots are part of the repo, not a separate private workflow.
 
 The intended user experience is simple: define a model with normal Rust structs, choose a backend once, run forward passes through an explicit context, then keep the same model shape as you move from tutorials to training loops, checkpointing, and inference.
 
@@ -226,9 +227,9 @@ cd examples && cargo run --bin xor
 
 **What it does:** A 2-layer network learns that `0 XOR 0 = 0`, `0 XOR 1 = 1`, `1 XOR 0 = 1`, `1 XOR 1 = 0`.
 
-**Why this matters:** XOR isn't linearly separable—you need at least one hidden layer. This proves the network actually learns something non-trivial.
+**Why this matters:** XOR is not linearly separable. You need at least one hidden layer. This proves the network actually learns something non-trivial.
 
-### 4. Run a Tape-based Training Demo (MSE regression)
+### 4. Run a Tape-Based Training Demo (MSE Regression)
 
 ```bash
 cargo run -p rustral-runtime --features training --example tape_train_demo
@@ -236,12 +237,36 @@ cargo run -p rustral-runtime --features training --example tape_train_demo
 
 This uses the generic tape trainer (`TapeTrainer`) plus the model-level save/load helpers (`save_model` / `load_model`) are available under the same `training` feature.
 
-### 4. Run a Transformer Example
+### 5. Run a Real-Corpus NLP Example
+
+```bash
+# SST-2 sentiment classifier, reports dev accuracy and writes manifest.json
+cargo run --release -p rustral-runtime --features training --example sst2_classifier -- --quick
+
+# WikiText-2 word-level LM, reports dev perplexity and writes manifest.json
+cargo run --release -p rustral-runtime --features training --example wikitext2_lm -- --quick
+```
+
+These are intentionally small CPU-friendly baselines. They are not SOTA models, but they are real datasets, real metrics, and reproducible run artifacts. See [`EVALUATION.md`](EVALUATION.md).
+
+### 6. Run a Transformer Example
 
 ```bash
 cargo run -p rustral-nn --example linear_readout
 cargo run -p rustral-nn --example transformer_bert_encoder
 ```
+
+### 7. Run the Benchmark Harness
+
+```bash
+# CPU backend matrix, schema-v2 JSON, summary table
+python3 scripts/bench/run_all.py --suite rustral --suite candle --repeats 3 --warmup 1
+
+# Optional PyTorch comparison, requires torch in your Python environment
+python3 scripts/bench/run_all.py --suite rustral --suite candle --suite pytorch
+```
+
+The harness writes `benchmarks/results/<timestamp>.json` and `benchmarks/results/summary.md`. CI validates the JSON schema and uploads CPU benchmark artifacts for every PR. See [`BENCHMARKS.md`](BENCHMARKS.md).
 
 ---
 
@@ -317,20 +342,20 @@ examples and applications
 
 | Crate | What It Does |
 |-------|-------------|
-| `rustral_core` | **Tensors, backends, and the `Module` trait**—the foundation everything builds on |
+| `rustral_core` | **Tensors, backends, and the `Module` trait**, the foundation everything builds on |
 | `rustral_nn` | **Neural network layers**: Linear, Conv2d, LSTM, Transformer, Attention, MoE, Flash Attention |
-| `rustral_autodiff` | **Automatic differentiation**—computes gradients via reverse-mode autodiff |
+| `rustral_autodiff` | **Automatic differentiation**, computes gradients via reverse-mode autodiff |
 | `rustral_optim` | **Optimizers**: SGD, Adam, AdamW + learning rate schedules + mixed precision |
-| `rustral_distributed` | **Parallel training APIs** (ZeRO/FSDP-style sharding, threading/MPI hooks—see docs for current scope) |
+| `rustral_distributed` | **Parallel training APIs** (ZeRO/FSDP-style sharding, threading/MPI hooks; see docs for current scope) |
 | `rustral_data` | **Data loading**: batching, shuffling, transforms |
 | `rustral_io` | **Save/load models** in SafeTensors format |
-| `rustral_wgpu_backend` | **Experimental GPU** via WebGPU (Vulkan/Metal/DX12)—see **Backends** |
-| `rustral_candle_backend` | **Optimized CPU/CUDA backend** using candle-core (up to ~20x faster than ndarray on CPU) |
+| `rustral_wgpu_backend` | **Experimental GPU** via WebGPU (Vulkan/Metal/DX12), see **Backends** |
+| `rustral_candle_backend` | **Optimized CPU/CUDA/Metal backend** using candle-core (up to ~20x faster than ndarray on CPU) |
 | `rustral_ndarray_backend` | **Reference CPU backend** for correctness testing |
 | `rustral_metrics` | **Track training**: loss curves, accuracy, throughput |
 | `rustral_autotuner` | **Automatically find the fastest GPU settings** |
 | `rustral_symbolic` | **Vocabulary and label dictionaries** for NLP tasks |
-| `rustral_bench` | **Criterion benchmarks** for core operations |
+| `rustral_bench` | **Benchmark harness** for schema-v2 JSON, backend comparison, train-step workloads, GPU suites, and Criterion microbenches |
 | `rustral_runtime` | **Training/inference orchestration** (trainers, pools) |
 | `rustral_hf` | **Optional Hugging Face Hub** helpers for weights |
 
@@ -352,7 +377,7 @@ let backend = CpuBackend::default();
 | Backend | Hardware | Best For | Status |
 |---------|----------|----------|--------|
 | `rustral-ndarray-backend` | CPU | Reference/testing, correctness baselines | Stable |
-| `rustral-candle-backend` | CPU, CUDA (optional) | Production training, large models | Stable |
+| `rustral-candle-backend` | CPU, CUDA (optional), Metal (optional) | Production training, large models, backend-matrix benchmarks | Stable |
 | `rustral-wgpu-backend` | GPU (Vulkan/Metal/DX12) | Experiments / inference prototyping | **Experimental** |
 
 \* **Experimental:** uses WGSL compute for matmul, element-wise ops, etc. On some Linux + NVIDIA stacks, full test binaries have aborted during teardown (allocator/driver interaction with `wgpu` 0.19). CI runs these tests as non-blocking; use Candle for reliable GPU-ish throughput until `wgpu` is upgraded.
@@ -446,6 +471,9 @@ Examples live in the `examples/` directory, which is a separate workspace with i
 |---------|-------------|
 | BERT | `cd examples && cargo run --example bert_fine_tuning` |
 | GPT | `cd examples && cargo run --example gpt_training` |
+| EMNLP char LM | `cargo run -p rustral-runtime --features training --example emnlp_char_lm` |
+| SST-2 classifier | `cargo run --release -p rustral-runtime --features training --example sst2_classifier -- --quick` |
+| WikiText-2 word LM | `cargo run --release -p rustral-runtime --features training --example wikitext2_lm -- --quick` |
 
 ### Advanced
 
@@ -464,6 +492,16 @@ Some crates also provide standalone examples:
 | BERT Encoder | `cargo run -p rustral-nn --example transformer_bert_encoder` |
 | GPT Decoder | `cargo run -p rustral-nn --example transformer_gpt_decoder` |
 | Candle Benchmark | `cargo run -p rustral-candle-backend --example benchmark` |
+
+### Evaluation and Benchmarks
+
+Rustral now has a small evidence loop that is meant to be useful to both researchers and systems engineers:
+
+- `EVALUATION.md` explains exactly how the SST-2 and WikiText-2 examples tokenize, train, evaluate, and write `manifest.json`.
+- `BENCHMARKS.md` explains the schema-v2 benchmark harness, backend comparison, GPU opt-in suites, per-release snapshots, and bencher.dev trend upload.
+- `.github/workflows/ci.yml` runs CPU benchmark artifact generation and schema validation.
+- `.github/workflows/bench-gpu.yml` runs CUDA benchmarks only when a maintainer asks for them with the `bench-gpu` label or manual dispatch.
+- `.github/workflows/pages.yml` renders a GitHub Pages dashboard from `benchmarks/runs/<version>/`.
 
 ---
 
@@ -534,7 +572,7 @@ impl<B: Backend> MyModel<B> {
 
 ### Multi-GPU / distributed-style training
 
-v0.1.0 focuses on **correct, inspectable building blocks**. `ProcessGroup::new_threaded` and the data-parallel / ZeRO-style trainers run as **single-process simulations** (threads) for learning and tests—not a drop-in replacement for multi-node PyTorch yet. Optional `mpi` / `nccl` **feature flags** are hooks for future work; they do not provide a full production cluster stack out of the box.
+v0.1.0 focuses on **correct, inspectable building blocks**. `ProcessGroup::new_threaded` and the data-parallel / ZeRO-style trainers run as **single-process simulations** (threads) for learning and tests. They are not a drop-in replacement for multi-node PyTorch yet. Optional `mpi` / `nccl` **feature flags** are hooks for future work; they do not provide a full production cluster stack out of the box.
 
 ```rust
 use rustral_distributed::{DataParallelTrainer, ProcessGroup};
@@ -556,7 +594,7 @@ let optimizer = MixedPrecisionOptimizer::new(Adam::new(0.001))
 
 ### Candle Backend (Recommended for Production)
 
-The candle backend uses the [candle-core](https://github.com/huggingface/candle) library for highly optimized CPU (and optional CUDA) execution:
+The candle backend uses the [candle-core](https://github.com/huggingface/candle) library for highly optimized CPU execution, plus optional CUDA and Metal paths:
 
 ```rust
 use rustral_candle_backend::CandleBackend;
@@ -564,9 +602,18 @@ use rustral_candle_backend::CandleBackend;
 let backend = CandleBackend::cpu();
 // Or with CUDA (requires nvcc / CUDA toolkit):
 // let backend = CandleBackend::cuda(0)?;
+// Or with Metal on macOS:
+// let backend = CandleBackend::metal(0)?;
 ```
 
 On large linear layers, candle can be **up to ~20x faster** than the ndarray backend on CPU.
+
+The benchmark crate also ships CUDA and Metal workload binaries:
+
+```bash
+cargo run --release -p rustral-bench --features cuda --bin rustral_workloads_cuda -- --repeats 5 --warmup 2
+cargo run --release -p rustral-bench --features metal --bin rustral_workloads_metal -- --repeats 5 --warmup 2
+```
 
 ### Flash Attention
 
@@ -593,6 +640,8 @@ let moe = ExpertLayer::new(&backend, config, 42)?;
 - **Library tests:** ~**639** passed across workspace crates with `cargo test --workspace --exclude rustral-wgpu-backend` (exact count changes as tests land).
 - **`rustral-wgpu-backend`:** run separately; CI executes it with `continue-on-error` because some platforms abort during teardown.
 - **Examples:** built in a nested workspace under `examples/` (`cargo build --manifest-path examples/Cargo.toml --workspace`).
+- **NLP smoke tests:** CI runs offline `--quick` smoke tests for SST-2 and WikiText-2 so the examples keep compiling and writing manifests.
+- **Benchmark artifacts:** CI uploads CPU benchmark JSON and validates it against `benchmarks/schema_v2.json`. GPU benchmarks are opt-in because public GitHub runners do not provide the needed hardware.
 
 Run formatting, clippy, and tests locally:
 
@@ -616,7 +665,7 @@ cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warni
 ### macOS
 
 - **Candle CPU**: Works out of the box.
-- **Candle Metal**: Supported by candle-core (check upstream for feature flags).
+- **Candle Metal**: Enable with `--features metal` for the Metal benchmark binary and `CandleBackend::metal(0)`.
 - **wgpu**: Uses Metal natively.
 
 ### Windows
@@ -633,6 +682,9 @@ cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warni
 | [`docs/architecture.md`](docs/architecture.md) | System design and crate relationships |
 | [`docs/api-signatures.md`](docs/api-signatures.md) | Public function signatures |
 | [`docs/master-plan.md`](docs/master-plan.md) | Feature roadmap |
+| [`EVALUATION.md`](EVALUATION.md) | SST-2 and WikiText-2 methodology, metrics, manifests, and offline runs |
+| [`BENCHMARKS.md`](BENCHMARKS.md) | Benchmark harness, schema v2, backend matrix, release snapshots, bencher.dev, and Pages dashboard |
+| [`benchmarks/runs/INDEX.md`](benchmarks/runs/INDEX.md) | Index of curated per-release benchmark snapshots |
 | [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md) | Concrete engineering plan for closing current abstraction and usability gaps |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Security guidelines |
 | API Docs (rustdoc) | `cargo doc --open` |
@@ -659,9 +711,9 @@ Rust documentation is generated using **rustdoc** (via `cargo doc`), which conve
 We welcome contributors at all levels! Good first issues:
 
 1. **Add an example** showing a technique not yet covered
-2. **Improve documentation**—explain a concept in simpler terms
+2. **Improve documentation**, explain a concept in simpler terms
 3. **Add tests** for edge cases
-4. **Fix compiler warnings**—good for learning the codebase
+4. **Fix compiler warnings**, good for learning the codebase
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for guidelines.
 
@@ -671,8 +723,8 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for guidelines.
 
 Rustral is dual-licensed under:
 
-- **[MIT](LICENSE-MIT)** — short permissive license
-- **[Apache License 2.0](LICENSE-APACHE)** — same intent, different legal wording
+- **[MIT](LICENSE-MIT)**: short permissive license
+- **[Apache License 2.0](LICENSE-APACHE)**: same intent, different legal wording
 
 You may use either license.
 

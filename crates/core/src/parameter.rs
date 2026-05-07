@@ -122,7 +122,7 @@ impl ParameterGroup {
 
     /// Consume the group and return a flat vector of parameter references.
     ///
-    /// This is useful for implementing [`Trainable::parameters`] on top of
+    /// This is useful for implementing `Trainable::parameters` on top of
     /// parameter groups.
     pub fn into_refs(self) -> Vec<ParameterRef> {
         self.all()

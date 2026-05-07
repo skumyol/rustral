@@ -213,10 +213,13 @@ mod tests {
     }
 
     /// Smoke test: actually download a real tiny model from HF Hub.
-    /// Ignored by default since it requires network.
+    /// Network is opt-in. By default this test returns early and passes.
     #[test]
-    #[ignore = "requires network"]
     fn test_download_real_model_smoke() {
+        if std::env::var("RUSTRAL_TEST_HF_NETWORK").ok().as_deref() != Some("1") {
+            eprintln!("skipping HF network smoke test (set RUSTRAL_TEST_HF_NETWORK=1 to enable)");
+            return;
+        }
         let result = download_state_dict("hf-internal-testing/tiny-random-bert");
         match result {
             Ok(dict) => {

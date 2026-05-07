@@ -14,10 +14,19 @@ description = "Data loading, batching, and dataset abstractions for Rustral"
 [lints]
 workspace = true
 
+[features]
+default = []
+# Networked dataset fetching (off by default; enabling brings in ureq + sha2 + flate2).
+fetch = ["dep:ureq", "dep:sha2", "dep:flate2"]
+
 [dependencies]
 rustral-core = { path = "../core", version = "0.1.0" }
 rand = { workspace = true, features = ["std_rng"] }
 memmap2 = "0.9"
+# Optional dataset fetch deps (gated by `fetch` feature so the default build remains lean).
+ureq = { version = "2.10", optional = true, default-features = false, features = ["tls"] }
+sha2 = { version = "0.10", optional = true }
+flate2 = { version = "1.0", optional = true }
 
 [dev-dependencies]
 rustral-ndarray-backend = { path = "../ndarray-backend", version = "0.1.0" }

@@ -36,5 +36,6 @@ tracing.workspace = true
 [dev-dependencies]
 rustral-ndarray-backend = { path = "../ndarray-backend", version = "0.1.0" }
 rustral-candle-backend = { path = "../candle-backend", version = "0.1.0" }
+rustral-data = { path = "../data", version = "0.1.0", features = ["fetch"] }
 safetensors = { workspace = true }
 bytemuck = { workspace = true }

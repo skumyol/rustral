@@ -61,6 +61,22 @@ impl CandleBackend {
         }
     }
 
+    /// Create a Metal backend on the given device index (Apple Silicon / macOS).
+    pub fn metal(_device_id: usize) -> Result<Self> {
+        #[cfg(feature = "metal")]
+        {
+            let device = Device::new_metal(_device_id)
+                .map_err(|e| CoreError::Backend(format!("Metal init failed: {}", e)))?;
+            Ok(Self { device: device.clone(), ops: CandleOps { device } })
+        }
+        #[cfg(not(feature = "metal"))]
+        {
+            Err(CoreError::Backend(
+                "Metal feature not enabled. Rebuild with --features metal".to_string(),
+            ))
+        }
+    }
+
     /// Create a backend, preferring CUDA if available.
     pub fn new() -> Self {
         #[cfg(feature = "cuda")]
@@ -84,7 +100,7 @@ impl CandleBackend {
         Ok(tensor)
     }
 
-    /// Read tensor data back to host as a flat Vec<f32>.
+    /// Read tensor data back to host as a flat `Vec<f32>`.
     pub fn to_vec(&self, tensor: &Tensor) -> Vec<f32> {
         tensor.flatten_all().and_then(|t| t.to_vec1::<f32>()).unwrap_or_default()
     }

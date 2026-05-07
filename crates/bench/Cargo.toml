@@ -14,11 +14,45 @@ description = "Criterion benchmarks for Rustral tensor and layer operations"
 [lints]
 workspace = true
 
+[features]
+default = []
+cuda = ["rustral-candle-backend/cuda"]
+metal = ["rustral-candle-backend/metal"]
+
 [dependencies]
 rustral-core = { path = "../core", version = "0.1.0" }
 rustral-ndarray-backend = { path = "../ndarray-backend", version = "0.1.0" }
+rustral-candle-backend = { path = "../candle-backend", version = "0.1.0" }
 rustral-nn = { path = "../nn", version = "0.1.0" }
+rustral-autodiff = { path = "../autodiff", version = "0.1.0" }
+rustral-optim = { path = "../optim", version = "0.1.0" }
+# Used by rustral_workloads for the save/load throughput micro-benchmark (P4 K5).
+# Depend through the runtime crate so we exercise the same `save_model`/`load_model`
+# helpers Rustral users hit, not the lower-level `rustral-io` primitives.
+rustral-runtime = { path = "../runtime", version = "0.1.0", features = ["training"] }
+candle-core = "0.10.2"
 criterion = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[[bin]]
+name = "rustral_workloads"
+path = "src/bin/rustral_workloads.rs"
+
+[[bin]]
+name = "candle_workloads"
+path = "src/bin/candle_workloads.rs"
+
+[[bin]]
+name = "rustral_workloads_cuda"
+path = "src/bin/rustral_workloads_cuda.rs"
+required-features = ["cuda"]
+
+[[bin]]
+name = "rustral_workloads_metal"
+path = "src/bin/rustral_workloads_metal.rs"
+required-features = ["metal"]
 
 [[bench]]
 name = "matmul"
