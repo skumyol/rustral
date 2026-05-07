@@ -53,6 +53,9 @@ jobs:
       - name: Validate emitted JSON against schema v2
         run: |
           python3 scripts/bench/validate_schema.py benchmarks/results/ci-${{ github.sha }}.json
+      - name: Validate curated NLP manifests against manifest schema
+        run: |
+          python3 scripts/bench/validate_manifest.py
       - name: Verify benchmarks/runs/INDEX.md is in sync with manifests
         run: python3 scripts/bench/regen_index.py --check
       - name: Upload bench artifact

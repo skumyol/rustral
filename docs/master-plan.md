@@ -84,6 +84,10 @@ This validates the plumbing (forward → loss → backward → step → save/loa
 - `crates/runtime/examples/wikitext2_lm.rs` trains a small word-level WikiText-2 LM and reports dev perplexity.
 - Both examples write `manifest.json` with git SHA, seed, dataset hash, hyperparameters, throughput, and metric output.
 - `EVALUATION.md` explains tokenization, splits, metrics, online/offline data fetch, and smoke test commands.
+- Curated real-data snapshots (3 seeds) live under `benchmarks/runs/v0.1.0/nlp/`:
+  - `sst2.json`, `wikitext2.json` (Rustral)
+  - `sst2_pytorch.json`, `wikitext2_pytorch.json` (PyTorch parity baselines)
+- A nightly / manual real-data gate runs via `.github/workflows/nlp-real.yml` and validates manifests against `benchmarks/manifest_schema.json`.
 
 ### Benchmark and CI evidence
 

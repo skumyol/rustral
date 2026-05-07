@@ -38,6 +38,19 @@ def _run(cmd: List[str], env: Dict[str, str], cwd: Path) -> None:
     if p.returncode != 0:
         raise RuntimeError(f"command failed ({p.returncode}): {' '.join(cmd)}")
 
+def _build_runtime_examples(env: Dict[str, str]) -> None:
+    cmd = [
+        "cargo",
+        "build",
+        "--release",
+        "-p",
+        "rustral-runtime",
+        "--features",
+        "training",
+        "--examples",
+    ]
+    _run(cmd, env=env, cwd=REPO_ROOT)
+
 
 def _read_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -78,17 +91,9 @@ def _example_env(cache_dir: Path | None) -> Dict[str, str]:
 def _run_sst2(seed: int, out_dir: Path, cache_dir: Path | None) -> RunResult:
     out_dir.mkdir(parents=True, exist_ok=True)
     env = _example_env(cache_dir)
+    exe = REPO_ROOT / "target" / "release" / "examples" / "sst2_classifier"
     cmd = [
-        "cargo",
-        "run",
-        "--release",
-        "-p",
-        "rustral-runtime",
-        "--features",
-        "training",
-        "--example",
-        "sst2_classifier",
-        "--",
+        str(exe),
         "--seed",
         str(seed),
         "--out-dir",
@@ -101,24 +106,27 @@ def _run_sst2(seed: int, out_dir: Path, cache_dir: Path | None) -> RunResult:
     return RunResult(seed=seed, out_dir=out_dir, manifest=_read_json(manifest_path))
 
 
-def _run_wikitext2(seed: int, out_dir: Path, cache_dir: Path | None, train_tokens: int) -> RunResult:
+def _run_wikitext2(
+    seed: int,
+    out_dir: Path,
+    cache_dir: Path | None,
+    train_tokens: int,
+    train_windows: int,
+    eval_windows: int,
+) -> RunResult:
     out_dir.mkdir(parents=True, exist_ok=True)
     env = _example_env(cache_dir)
+    exe = REPO_ROOT / "target" / "release" / "examples" / "wikitext2_lm"
     cmd = [
-        "cargo",
-        "run",
-        "--release",
-        "-p",
-        "rustral-runtime",
-        "--features",
-        "training",
-        "--example",
-        "wikitext2_lm",
-        "--",
+        str(exe),
         "--seed",
         str(seed),
         "--train-tokens",
         str(train_tokens),
+        "--train-windows",
+        str(train_windows),
+        "--eval-windows",
+        str(eval_windows),
         "--out-dir",
         str(out_dir),
     ]
@@ -193,6 +201,18 @@ def main() -> int:
         help="train token cap for wikitext2_lm (default: 50000)",
     )
     ap.add_argument(
+        "--wikitext-train-windows",
+        type=int,
+        default=2_000,
+        help="cap number of training windows for wikitext2_lm (0 = all, default: 2000)",
+    )
+    ap.add_argument(
+        "--wikitext-eval-windows",
+        type=int,
+        default=20_000,
+        help="cap number of validation windows for perplexity (0 = all, default: 20000)",
+    )
+    ap.add_argument(
         "--clean",
         action="store_true",
         help="delete --out-root before running",
@@ -209,6 +229,8 @@ def main() -> int:
     out_root.mkdir(parents=True, exist_ok=True)
 
     cache_dir = Path(args.cache_dir).resolve() if args.cache_dir else None
+    env = _example_env(cache_dir)
+    _build_runtime_examples(env)
 
     print("Real-data NLP runs (rustral)")
     print("===========================")
@@ -217,6 +239,8 @@ def main() -> int:
     print(f"cache_dir            : {cache_dir if cache_dir else '(default)'}")
     print(f"seeds                : {seeds}")
     print(f"wikitext_train_tokens: {args.wikitext_train_tokens}")
+    print(f"wikitext_train_windows: {args.wikitext_train_windows}")
+    print(f"wikitext_eval_windows: {args.wikitext_eval_windows}")
     print()
 
     sst2_runs: List[RunResult] = []
@@ -232,6 +256,8 @@ def main() -> int:
                 out_root / "wikitext2" / f"seed_{seed}",
                 cache_dir,
                 train_tokens=args.wikitext_train_tokens,
+                train_windows=args.wikitext_train_windows,
+                eval_windows=args.wikitext_eval_windows,
             )
         )
 

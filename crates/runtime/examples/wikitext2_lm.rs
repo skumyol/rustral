@@ -67,6 +67,10 @@ mod runner {
     const DEFAULT_LR: f32 = 5e-4;
     const DEFAULT_TRAIN_TOKENS_QUICK: usize = 4_000;
     const DEFAULT_TRAIN_TOKENS: usize = 50_000;
+    /// 0 means "evaluate on all windows".
+    const DEFAULT_EVAL_WINDOWS: usize = 0;
+    /// 0 means "train on all windows".
+    const DEFAULT_TRAIN_WINDOWS: usize = 0;
 
     /// Small Rustral-native causal-attention LM for WikiText-2.
     pub struct WikiTextLm<B: Backend> {
@@ -296,6 +300,8 @@ mod runner {
         let epochs: usize = parse_arg(&args, "--epochs", DEFAULT_EPOCHS);
         let batch: usize = parse_arg(&args, "--batch", DEFAULT_BATCH);
         let lr: f32 = parse_arg(&args, "--lr", DEFAULT_LR);
+        let eval_windows_cap: usize = parse_arg(&args, "--eval-windows", DEFAULT_EVAL_WINDOWS);
+        let train_windows_cap: usize = parse_arg(&args, "--train-windows", DEFAULT_TRAIN_WINDOWS);
         let train_token_cap: usize = parse_arg(
             &args,
             "--train-tokens",
@@ -318,6 +324,8 @@ mod runner {
         println!("batch_size   : {batch}");
         println!("lr           : {lr}");
         println!("train_tokens : {train_token_cap}");
+        println!("train_windows: {}", if train_windows_cap == 0 { "all".into() } else { train_windows_cap.to_string() });
+        println!("eval_windows : {}", if eval_windows_cap == 0 { "all".into() } else { eval_windows_cap.to_string() });
         println!("offline      : {}", std::env::var("RUSTRAL_DATASET_OFFLINE").is_ok());
         println!("out_dir      : {}", out_dir.display());
         println!();
@@ -344,9 +352,26 @@ mod runner {
         }
         let valid_ids = tok.encode(&splits.valid);
 
-        let train = build_windows(&train_ids, BLOCK_SIZE);
+        let mut train = build_windows(&train_ids, BLOCK_SIZE);
         let valid = build_windows(&valid_ids, BLOCK_SIZE);
         println!("train_windows: {}  valid_windows: {}", train.len(), valid.len());
+        let train_windows_used: usize = if train_windows_cap == 0 {
+            train.len()
+        } else {
+            train.len().min(train_windows_cap)
+        };
+        if train_windows_used != train.len() {
+            println!("train_windows_used: {} (cap {})", train_windows_used, train_windows_cap);
+            train.truncate(train_windows_used);
+        }
+        let eval_windows_used: usize = if eval_windows_cap == 0 {
+            valid.len()
+        } else {
+            valid.len().min(eval_windows_cap)
+        };
+        if eval_windows_used != valid.len() {
+            println!("eval_windows_used: {} (cap {})", eval_windows_used, eval_windows_cap);
+        }
 
         let dataset_hash = fnv1a_hex(splits.train.as_bytes());
 
@@ -375,7 +400,7 @@ mod runner {
             );
         }
 
-        let (val_loss, val_ppl) = evaluate(&backend, &model, &valid)?;
+        let (val_loss, val_ppl) = evaluate(&backend, &model, &valid[..eval_windows_used])?;
         println!("dev: loss={:.4} ppl={:.2}", val_loss, val_ppl);
         println!("training throughput: {:.1} windows/sec", throughput);
 
@@ -401,7 +426,9 @@ mod runner {
             .insert_f32("learning_rate", lr)
             .insert_u64("train_tokens_used", train_ids.len() as u64)
             .insert_u64("train_windows", train.len() as u64)
+            .insert_u64("train_windows_used", train_windows_used as u64)
             .insert_u64("valid_windows", valid.len() as u64)
+            .insert_u64("eval_windows_used", eval_windows_used as u64)
             .insert_str("dataset_hash_fnv1a", &dataset_hash)
             .insert_f32("dev_loss_nats", val_loss)
             .insert_f32("dev_perplexity", val_ppl)

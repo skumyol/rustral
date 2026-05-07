@@ -43,6 +43,20 @@ Curated snapshots taken at every tagged release live under [`benchmarks/runs/`](
 
 This is the directory academic readers should cite for reproducibility. See [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) for the release capture steps.
 
+## NLP results (v0.1.0)
+
+Real-data NLP results are curated separately from the schema-v2 performance harness. They live under:
+
+- `benchmarks/runs/v0.1.0/nlp/sst2.json` (SST-2 dev accuracy, 3 seeds)
+- `benchmarks/runs/v0.1.0/nlp/wikitext2.json` (WikiText-2 dev perplexity, 3 seeds)
+
+PyTorch parity baselines (same architecture and the same `vocab.txt`) live next to them:
+
+- `benchmarks/runs/v0.1.0/nlp/sst2_pytorch.json`
+- `benchmarks/runs/v0.1.0/nlp/wikitext2_pytorch.json`
+
+See [`EVALUATION.md`](EVALUATION.md) for the architecture details, dataset pins, and the parity table.
+
 ## Schema validation
 
 ```bash

@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Rustral NLP curated run schema",
+  "type": "object",
+  "required": ["schema_version", "created_at", "version", "task", "metric", "aggregate", "runs"],
+  "properties": {
+    "schema_version": { "type": "integer" },
+    "created_at": { "type": "string" },
+    "version": { "type": "string" },
+    "task": { "type": "string" },
+    "metric": { "type": "string" },
+    "aggregate": {
+      "type": "object",
+      "required": ["mean", "std", "n"],
+      "properties": {
+        "mean": { "type": "number" },
+        "std": { "type": "number" },
+        "n": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "runs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["seed", "manifest"],
+        "properties": {
+          "seed": { "type": "integer" },
+          "out_dir": { "type": "string" },
+          "manifest": { "type": "object" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
+

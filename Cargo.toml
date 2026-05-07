@@ -27,6 +27,7 @@ rustral-data = { path = "crates/data", version = "0.1.0" }
 rustral-autodiff = { path = "crates/autodiff", version = "0.1.0" }
 rustral-optim = { path = "crates/optim", version = "0.1.0" }
 rustral-runtime = { path = "crates/runtime", version = "0.1.0" }
+rustral-tui = { path = "crates/tui", version = "0.1.0" }
 rustral-distributed = { path = "crates/distributed", version = "0.1.0" }
 rustral-symbolic = { path = "crates/symbolic", version = "0.1.0" }
 rustral-metrics = { path = "crates/metrics", version = "0.1.0" }
@@ -53,6 +54,7 @@ members = [
     "crates/bench",
     "crates/distributed",
     "crates/metrics",
+    "crates/tui",
     "crates/autotuner",
     "crates/hf",
     "crates/candle-backend",

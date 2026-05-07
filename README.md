@@ -217,7 +217,7 @@ cargo build --workspace
 ./run_tests.sh
 ```
 
-This runs formatting checks, clippy lints, the full workspace build, and tests for all **16** workspace crates (`rustral-wgpu-backend` may warn on some GPU/driver stacks).
+This runs formatting checks, clippy lints, the full workspace build, and tests for all **17** workspace crates (`rustral-wgpu-backend` may warn on some GPU/driver stacks).
 
 ### 3. Run Your First Example: XOR
 
@@ -236,6 +236,25 @@ cargo run -p rustral-runtime --features training --example tape_train_demo
 ```
 
 This uses the generic tape trainer (`TapeTrainer`) plus the model-level save/load helpers (`save_model` / `load_model`) are available under the same `training` feature.
+
+### 4b. Live Terminal Dashboard
+
+Every training example with `--features training` now **automatically spawns a live terminal dashboard** showing:
+
+- **Progress bars**: Epoch and batch progress with percentage
+- **Metrics**: Live loss, accuracy, and learning rate display with a Sparkline mini-chart
+- **Memory**: Current/peak memory usage, OOM risk color indicator (green→yellow→red), allocation counts
+- **Leak detection**: Real-time memory leak warnings with tag, bytes, and allocation count
+- **Loss safety**: Automatic NaN/Inf detection and sustained spike warnings
+- Alerts footer with color-coded critical warnings
+
+Press `q` to exit the dashboard. Training continues normally in the background.
+
+```bash
+cargo run -p rustral-runtime --features training --example tape_xor_classification
+```
+
+No user code changes needed. The dashboard integrates natively into `TapeTrainer::fit()` and `fit_classification()`.
 
 ### 5. Run a Real-Corpus NLP Example
 
@@ -336,7 +355,7 @@ examples and applications
 | Training stack | `rustral-autodiff`, `rustral-optim`, `rustral-runtime` | Gradients, optimizers, mixed precision hooks, trainer and inference orchestration |
 | Scaling stack | `rustral-distributed` | Data, tensor, pipeline, sequence, context, ZeRO, and FSDP-style parallelism APIs |
 | Execution backends | `rustral-ndarray-backend`, `rustral-candle-backend`, `rustral-wgpu-backend` | Reference CPU, optimized CPU/CUDA, and experimental cross-platform GPU execution |
-| Supporting crates | `rustral-data`, `rustral-io`, `rustral-metrics`, `rustral-autotuner`, `rustral-symbolic`, `rustral-hf` | Data loading, checkpoints, metrics, backend tuning, vocabularies, and Hugging Face helpers |
+| Supporting crates | `rustral-data`, `rustral-io`, `rustral-metrics`, `rustral-autotuner`, `rustral-symbolic`, `rustral-hf`, `rustral-tui` | Data loading, checkpoints, metrics, backend tuning, vocabularies, Hugging Face helpers, and live terminal dashboard |
 
 ### Crate-by-Crate Breakdown
 
@@ -357,6 +376,7 @@ examples and applications
 | `rustral_symbolic` | **Vocabulary and label dictionaries** for NLP tasks |
 | `rustral_bench` | **Benchmark harness** for schema-v2 JSON, backend comparison, train-step workloads, GPU suites, and Criterion microbenches |
 | `rustral_runtime` | **Training/inference orchestration** (trainers, pools) |
+| `rustral_tui` | **Live terminal dashboard** for training — auto-spawns progress bars, metrics, memory monitoring, and leak detection |
 | `rustral_hf` | **Optional Hugging Face Hub** helpers for weights |
 
 ### Backends
@@ -502,6 +522,16 @@ Rustral now has a small evidence loop that is meant to be useful to both researc
 - `.github/workflows/ci.yml` runs CPU benchmark artifact generation and schema validation.
 - `.github/workflows/bench-gpu.yml` runs CUDA benchmarks only when a maintainer asks for them with the `bench-gpu` label or manual dispatch.
 - `.github/workflows/pages.yml` renders a GitHub Pages dashboard from `benchmarks/runs/<version>/`.
+
+### Real evaluation results (v0.1.0)
+
+Curated 3-seed real-data snapshots live under `benchmarks/runs/v0.1.0/nlp/`:
+
+- **SST-2 dev accuracy (Rustral)**: **0.509 ± 0.000** (`sst2.json`)
+- **WikiText-2 dev perplexity (Rustral)**: **10643.9 ± 472.5** (`wikitext2.json`)
+- **PyTorch baselines (same architecture + vocab)**: `sst2_pytorch.json`, `wikitext2_pytorch.json`
+
+See `EVALUATION.md` for the exact model architecture, dataset pins, and parity table.
 
 ---
 

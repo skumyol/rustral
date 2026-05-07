@@ -20,28 +20,27 @@ Both examples use tiny architectures so they finish on CPU. These are honest bas
 ### SST-2 classifier (`crates/runtime/examples/sst2_classifier.rs`)
 
 ```
-Embedding(V, 32)        # vocab_size up to 8192, dim 32
-  ↓ reshape([1, 32 * 32])     # 32 token positions × 32 dim each
-Linear(32 * 32 → 2)
+Embedding(V, 64) + PositionalEmbedding(32, 64)
+  ↓ 2 × TransformerEncoderLayer (pre-LN, 4 heads, FFN=128, ReLU)
+  ↓ mean-pool over sequence
+Linear(64 → 2)
 ```
 
 - Sentence is encoded with the `WordLevelTokenizer`, padded / truncated to 32 tokens.
-- Classifier is a **bag-of-positions linear model on learned embeddings**. Every token
-  position contributes to the class logit. It is not a strong baseline, but it is a real
-  one that trains fast and writes a useful manifest.
+- The transformer block is tape-trained (multi-head attention + layer norm + FFN) and writes a manifest with full provenance.
 
 ### WikiText-2 LM (`crates/runtime/examples/wikitext2_lm.rs`)
 
 ```
-Embedding(V, 32)        # vocab_size up to 16384, dim 32
-  ↓ reshape([1, 16 * 32])    # 16-token context window
-Linear(16 * 32 → V)
+Embedding(V, 64) + PositionalEmbedding(32, 64)
+  ↓ 2 × TransformerEncoderLayer (pre-LN, 4 heads, FFN=128, ReLU) + causal mask
+  ↓ take last position hidden state
+Linear(64 → V)
 ```
 
-- Sliding window of 16 consecutive tokens predicts the next token.
-- Trained on a capped subset of the train split (default 50k tokens; `--quick` uses 4k).
-- Reported metric is dev perplexity, computed as `exp(mean cross-entropy nats)` over
-  every valid window in `wiki.valid.raw`.
+- Sliding window of 32 consecutive tokens predicts the next token.
+- Trained on a capped subset of the train split and evaluated on a capped subset of validation windows for runtime practicality (caps are recorded in the manifest).
+- Reported metric is dev perplexity, computed as `exp(mean cross-entropy nats)` over the evaluated windows.
 
 ## Hyperparameters (defaults)
 
@@ -49,14 +48,36 @@ Linear(16 * 32 → V)
 |---|---|---|
 | Seed (`--seed`) | `0xC0FFEE` | `0xC0FFEE` |
 | Optimizer | Adam | Adam |
-| Learning rate (`--lr`) | `3e-3` | `5e-3` |
+| Learning rate (`--lr`) | `5e-4` | `5e-4` |
 | Batch size (`--batch`) | 32 | 32 |
 | Epochs (`--epochs`) | 3 | 1 |
-| Sequence/window length | 32 | 16 |
-| Embedding dim | 32 | 32 |
+| Sequence/window length | 32 | 32 |
+| Model dim (`d_model`) | 64 | 64 |
+| Layers | 2 | 2 |
+| Heads | 4 | 4 |
+| FFN dim | 128 | 128 |
 | Max vocab | 8192 | 16384 |
 
 `--quick` modes, used by smoke tests, shrink the training set so the run finishes in seconds. SST-2 caps training at 256 examples. WikiText-2 caps training at 4 000 tokens.
+
+For real-data evidence runs we also apply window caps for WikiText-2 so the script finishes in a reasonable time:
+
+- **train_windows_used**: 2 000
+- **eval_windows_used**: 20 000
+
+These caps are recorded in the emitted `manifest.json` and the curated snapshot.
+
+## Rustral vs PyTorch parity (v0.1.0)
+
+Curated 3-seed snapshots live under `benchmarks/runs/v0.1.0/nlp/`:
+
+- Rustral: `sst2.json`, `wikitext2.json`
+- PyTorch: `sst2_pytorch.json`, `wikitext2_pytorch.json`
+
+| Task | Metric | Rustral (mean ± std) | PyTorch (mean ± std) | Train sec / epoch (Rustral) | Train sec / epoch (PyTorch) |
+|---|---|---:|---:|---:|---:|
+| SST-2 | dev accuracy | 0.509 ± 0.000 | 0.682 ± 0.005 | 36.2 | 11.7 |
+| WikiText-2 | dev perplexity | 10643.9 ± 472.5 | 2194.2 ± 207.4 | 150.7 | 14.3 |
 
 ## Reproducibility manifest
 

@@ -258,6 +258,10 @@ where
         X: Clone,
         Y: Clone,
     {
+        // Native TUI: auto-init the global dashboard on first training call.
+        #[cfg(feature = "training")]
+        crate::tui_hook::init_global_dashboard();
+
         use rand::seq::SliceRandom;
         use rand::SeedableRng;
 
@@ -363,6 +367,20 @@ where
             let mean_loss =
                 if losses.is_empty() { 0.0 } else { losses.iter().sum::<f32>() / losses.len() as f32 };
             epochs.push(EpochStats { epoch, examples: train.len(), mean_loss, elapsed: start.elapsed() });
+
+            // Native TUI: push epoch snapshot to the global dashboard.
+            #[cfg(feature = "training")]
+            if let Some(dash) = crate::tui_hook::dashboard() {
+                let mut db = dash.lock().unwrap();
+                db.set_total_epochs(self.config.epochs as u64);
+                db.set_epoch(epoch as u64);
+                db.set_step(epoch as u64);
+                db.record_loss(mean_loss as f64);
+                if target_to_class.is_some() && total > 0 {
+                    let acc_val = correct as f32 / total as f32;
+                    db.record_accuracy(acc_val as f64);
+                }
+            }
 
             if target_to_class.is_some() && total > 0 {
                 acc_hist.push(correct as f32 / total as f32);

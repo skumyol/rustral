@@ -52,6 +52,18 @@ python3 scripts/bench/validate_schema.py benchmarks/results/release-${VERSION}.j
 python3 scripts/bench/regen_index.py
 ```
 
+## Nightly NLP gate (real data)
+
+Before tagging, verify the real-data NLP gate runs successfully:
+
+- Trigger [`nlp-real.yml`](.github/workflows/nlp-real.yml) via `workflow_dispatch` (or confirm the most recent scheduled run is green).
+- Confirm curated manifests validate against the schema:
+
+```bash
+python3 -m pip install jsonschema
+python3 scripts/bench/validate_manifest.py
+```
+
 Do NOT commit raw logs or Criterion intermediate outputs to `benchmarks/runs/`.
 Curated JSON summaries, manifest, and `summary.md` only.
 

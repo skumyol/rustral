@@ -1,0 +1,32 @@
+[package]
+name = "rustral-tui"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+description = "Full-featured terminal dashboard for Rustral training/inference — progress bars, memory monitoring, live metrics, and leak detection"
+
+[lints]
+workspace = true
+
+[dependencies]
+rustral-core = { path = "../core", version = "0.1.0" }
+rustral-metrics = { path = "../metrics", version = "0.1.0" }
+ratatui = "0.26"
+crossterm = { version = "0.27", features = ["event-stream"] }
+serde.workspace = true
+serde_json.workspace = true
+unicode-width = "0.1"
+
+[features]
+default = []
+
+[[example]]
+name = "train_dashboard"
+path = "examples/train_dashboard.rs"
+required-features = []

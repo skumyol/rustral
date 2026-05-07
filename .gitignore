@@ -126,3 +126,5 @@ benchmarks/results/
 # Pages dashboard output: rendered locally for previewing only; the deployed copy is
 # rebuilt by .github/workflows/pages.yml on every push.
 docs/site/
+out/
+

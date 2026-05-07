@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-05-07T12:09:20Z",
+  "version": "0.1.0",
+  "task": "sst2_classifier",
+  "metric": "dev_accuracy",
+  "aggregate": {
+    "mean": 0.6815749208132426,
+    "std": 0.005171149060194305,
+    "n": 3
+  },
+  "runs": [
+    {
+      "seed": 0,
+      "manifest": {
+        "task": "sst2_classifier",
+        "framework": "pytorch",
+        "torch_version": "2.11.0",
+        "seed": 0,
+        "seq_len": 32,
+        "d_model": 64,
+        "num_heads": 4,
+        "ffn_dim": 128,
+        "num_layers": 2,
+        "total_params": 593410,
+        "vocab_size": 8192,
+        "epochs": 3,
+        "batch_size": 32,
+        "learning_rate": 0.0005,
+        "train_examples": 6920,
+        "dev_examples": 872,
+        "dev_loss": 0.5946946740150452,
+        "dev_accuracy": 0.6811926364898682,
+        "samples_per_sec": 479.3021221369379,
+        "train_elapsed_sec": 43.31297326087952,
+        "epoch_stats": [
+          {
+            "epoch": 0,
+            "mean_loss": 0.686840805589878,
+            "elapsed_sec": 16.996325731277466
+          },
+          {
+            "epoch": 1,
+            "mean_loss": 0.6495333278234103,
+            "elapsed_sec": 16.805105209350586
+          },
+          {
+            "epoch": 2,
+            "mean_loss": 0.6079688945673578,
+            "elapsed_sec": 9.511476993560791
+          }
+        ],
+        "dataset": "SST-2 (binary, HuggingFace SetFit/sst2 mirror)",
+        "tokenizer": "Rustral vocab.txt + whitespace lowercased split"
+      }
+    },
+    {
+      "seed": 1,
+      "manifest": {
+        "task": "sst2_classifier",
+        "framework": "pytorch",
+        "torch_version": "2.11.0",
+        "seed": 1,
+        "seq_len": 32,
+        "d_model": 64,
+        "num_heads": 4,
+        "ffn_dim": 128,
+        "num_layers": 2,
+        "total_params": 593410,
+        "vocab_size": 8192,
+        "epochs": 3,
+        "batch_size": 32,
+        "learning_rate": 0.0005,
+        "train_examples": 6920,
+        "dev_examples": 872,
+        "dev_loss": 0.601046085357666,
+        "dev_accuracy": 0.6766055226325989,
+        "samples_per_sec": 653.3120370937401,
+        "train_elapsed_sec": 31.776546001434326,
+        "epoch_stats": [
+          {
+            "epoch": 0,
+            "mean_loss": 0.6866749173485189,
+            "elapsed_sec": 10.21423888206482
+          },
+          {
+            "epoch": 1,
+            "mean_loss": 0.6450850208234128,
+            "elapsed_sec": 10.702055215835571
+          },
+          {
+            "epoch": 2,
+            "mean_loss": 0.5855713056803848,
+            "elapsed_sec": 10.860197305679321
+          }
+        ],
+        "dataset": "SST-2 (binary, HuggingFace SetFit/sst2 mirror)",
+        "tokenizer": "Rustral vocab.txt + whitespace lowercased split"
+      }
+    },
+    {
+      "seed": 2,
+      "manifest": {
+        "task": "sst2_classifier",
+        "framework": "pytorch",
+        "torch_version": "2.11.0",
+        "seed": 2,
+        "seq_len": 32,
+        "d_model": 64,
+        "num_heads": 4,
+        "ffn_dim": 128,
+        "num_layers": 2,
+        "total_params": 593410,
+        "vocab_size": 8192,
+        "epochs": 3,
+        "batch_size": 32,
+        "learning_rate": 0.0005,
+        "train_examples": 6920,
+        "dev_examples": 872,
+        "dev_loss": 0.5898615717887878,
+        "dev_accuracy": 0.6869266033172607,
+        "samples_per_sec": 687.7423026315369,
+        "train_elapsed_sec": 30.18572497367859,
+        "epoch_stats": [
+          {
+            "epoch": 0,
+            "mean_loss": 0.6918131448156822,
+            "elapsed_sec": 9.596718788146973
+          },
+          {
+            "epoch": 1,
+            "mean_loss": 0.656183585593228,
+            "elapsed_sec": 11.7513427734375
+          },
+          {
+            "epoch": 2,
+            "mean_loss": 0.5945253596053145,
+            "elapsed_sec": 8.837645053863525
+          }
+        ],
+        "dataset": "SST-2 (binary, HuggingFace SetFit/sst2 mirror)",
+        "tokenizer": "Rustral vocab.txt + whitespace lowercased split"
+      }
+    }
+  ]
+}
