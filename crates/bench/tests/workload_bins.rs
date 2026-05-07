@@ -106,3 +106,30 @@ fn candle_workloads_emits_schema_and_expected_workloads() {
         assert!(names.contains(required), "missing workload: {required}");
     }
 }
+
+#[cfg(feature = "cuda")]
+#[test]
+fn rustral_workloads_cuda_emits_schema_when_opted_in() {
+    if std::env::var("RUSTRAL_TEST_GPU").ok().as_deref() != Some("1") {
+        eprintln!("skipping CUDA workload binary (set RUSTRAL_TEST_GPU=1 to enable)");
+        return;
+    }
+    let doc = run_bin("CARGO_BIN_EXE_rustral_workloads_cuda");
+    assert_schema_v2_envelope(&doc, "rustral-cuda");
+    // Spot-check: at least one known workload.
+    let names = sample_names(&doc);
+    assert!(names.contains("matmul"), "missing workload: matmul");
+}
+
+#[cfg(feature = "metal")]
+#[test]
+fn rustral_workloads_metal_emits_schema_when_opted_in() {
+    if std::env::var("RUSTRAL_TEST_GPU").ok().as_deref() != Some("1") {
+        eprintln!("skipping Metal workload binary (set RUSTRAL_TEST_GPU=1 to enable)");
+        return;
+    }
+    let doc = run_bin("CARGO_BIN_EXE_rustral_workloads_metal");
+    assert_schema_v2_envelope(&doc, "rustral-metal");
+    let names = sample_names(&doc);
+    assert!(names.contains("matmul"), "missing workload: matmul");
+}
