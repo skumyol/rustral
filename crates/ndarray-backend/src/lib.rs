@@ -13,7 +13,7 @@
 
 use rand::thread_rng;
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use rustral_core::{Backend, CoreError, Parameter, Result, ShapeExt, TensorOps};
+use rustral_core::{Backend, BackendCapabilities, CoreError, Parameter, Result, ShapeExt, TensorOps};
 use serde::{Deserialize, Serialize};
 
 /// Dense row-major CPU tensor used by the reference backend.
@@ -96,6 +96,20 @@ impl Backend for CpuBackend {
     /// Return tensor operations for this backend.
     fn ops(&self) -> &dyn TensorOps<Self> {
         &self.ops
+    }
+
+    fn capabilities(&self) -> BackendCapabilities {
+        // CPU backend capabilities - conservative defaults
+        BackendCapabilities {
+            supports_fp16: false,
+            supports_bf16: false,
+            tensor_cores: false,
+            optimal_batch_size: 8,
+            optimal_chunk_size: 1024,
+            max_allocation_size: usize::MAX,
+            prefers_contiguous: true,
+            supports_in_place: false,
+        }
     }
 
     fn normal_parameter(
@@ -431,6 +445,37 @@ impl TensorOps<CpuBackend> for CpuOps {
             CpuTensor::new(out, &x.shape)
         } else {
             CpuTensor::new(x.values.iter().map(|&v| v.tanh()).collect(), &x.shape)
+        }
+    }
+
+    /// Apply GELU activation element-wise.
+    ///
+    /// GELU (Gaussian Error Linear Unit) is a smooth, non-monotonic activation function
+    /// that tends to work better than ReLU for transformer models.
+    /// Approximation: `0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))`
+    fn gelu(&self, x: &CpuTensor) -> Result<CpuTensor> {
+        let sqrt_2_pi = (2.0_f32 / std::f32::consts::PI).sqrt();
+        if x.values.len() > 4096 {
+            use rayon::prelude::*;
+            let out: Vec<f32> = x.values.par_iter().map(|&v| {
+                let x_cubed = v * v * v;
+                let x_plus = v + 0.044715 * x_cubed;
+                let tanh_arg = sqrt_2_pi * x_plus;
+                let tanh_val = tanh_arg.tanh();
+                let one_plus = 1.0 + tanh_val;
+                0.5 * v * one_plus
+            }).collect();
+            CpuTensor::new(out, &x.shape)
+        } else {
+            let out: Vec<f32> = x.values.iter().map(|&v| {
+                let x_cubed = v * v * v;
+                let x_plus = v + 0.044715 * x_cubed;
+                let tanh_arg = sqrt_2_pi * x_plus;
+                let tanh_val = tanh_arg.tanh();
+                let one_plus = 1.0 + tanh_val;
+                0.5 * v * one_plus
+            }).collect();
+            CpuTensor::new(out, &x.shape)
         }
     }
 

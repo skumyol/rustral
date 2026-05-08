@@ -56,7 +56,7 @@ pub use expert_choice::{
 pub use kv_cache::{
     BatchedCache, CacheConfig, CacheMemoryStats, CacheQuantization, KVCache, PagedCache, SlidingWindowCache,
 };
-pub use linear::{Linear, LinearBuilder, LinearConfig};
+pub use linear::{Linear, LinearBuilder, LinearConfig, LinearGELU, LinearReLU};
 pub use loss::{BCEWithLogitsLoss, CrossEntropyLoss, MSELoss};
 pub use lstm::{
     BidirectionalOutput, BidirectionalRnn, GruCell, GruConfig, GruState, LstmCell, LstmConfig, LstmState,

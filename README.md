@@ -82,6 +82,38 @@ The design is intentionally not "magic-free at any cost." The goal is to put con
 - Correctness-first CPU execution with optional faster backend paths.
 - A workspace architecture where each subsystem can be tested and evolved independently.
 
+### Device-Agnostic Optimizations
+
+Rustral includes cross-backend optimization infrastructure that works uniformly across CPU, CUDA, Metal, and future backends:
+
+**Capability Detection**
+- Each backend reports its hardware capabilities (FP16/BF16 support, tensor cores, optimal batch sizes)
+- Runtime adaptation based on available hardware features
+- Automatic fallback to conservative defaults for unknown devices
+
+**Performance Profiling**
+- `OperationProfiler` tracks timing statistics for all tensor operations
+- Cross-backend performance comparison and regression detection
+- Hot path identification for optimization focus
+
+**Memory Management**
+- `TensorPool` reduces allocation overhead through shape-based pooling
+- Automatic size filtering to avoid pooling very large or very small tensors
+- Configurable limits to prevent memory bloat
+
+**Memory Profiling**
+- `MemoryProfiler` tracks allocation patterns and detects memory leaks
+- OOM risk prediction based on current memory trajectory
+- Per-tag memory usage analysis for optimization insights
+
+**Operation Fusion**
+- `FusionOps` trait enables backend-specific fused kernel implementations
+- `LinearReLU` and `LinearGELU` layers attempt fused operations with automatic fallback
+- Reduces memory traffic and kernel launch overhead on capable backends
+- Currently implemented in candle-backend with sequence fusion (true CUDA kernels planned)
+
+These optimizations are designed to benefit all backends equally, maintaining Rustral's commitment to device-agnostic performance improvements.
+
 Rustral is currently best viewed as a research and systems framework: useful for learning, experiments, backend work, and Rust-native ML infrastructure. If you need the largest pretrained model ecosystem today, Python frameworks remain the practical default. If you want a framework whose execution model is explicit and whose internals are approachable, Rustral is designed for that.
 
 The current improvement roadmap is tracked in [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md).

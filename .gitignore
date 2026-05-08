@@ -122,6 +122,9 @@ docs/assets/rustral_system_diagram_download/
 # EMNLP demo determinism reports (generated)
 emnlp_determinism_report.json
 benchmarks/results/
+# Benchmark run results (generated)
+benchmarks/runs/*/nlp/*/seed_*/
+benchmarks/runs/*/manifest.json
 
 # Pages dashboard output: rendered locally for previewing only; the deployed copy is
 # rebuilt by .github/workflows/pages.yml on every push.

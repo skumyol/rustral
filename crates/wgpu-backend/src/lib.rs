@@ -1318,6 +1318,11 @@ impl TensorOps<WgpuBackend> for WgpuOps {
         self.kernel_cache.write().unwrap().execute_unary(x, "tanh_op")
     }
 
+    fn gelu(&self, x: &GpuTensor) -> CoreResult<GpuTensor> {
+        // Use GPU compute shader for GELU
+        self.kernel_cache.write().unwrap().execute_unary(x, "gelu")
+    }
+
     fn mul(&self, a: &GpuTensor, b: &GpuTensor) -> CoreResult<GpuTensor> {
         // Use GPU compute shader for element-wise multiplication
         self.kernel_cache.write().unwrap().execute_binary(a, b, &a.shape, "mul")

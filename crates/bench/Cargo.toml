@@ -69,3 +69,7 @@ harness = false
 [[bench]]
 name = "attention"
 harness = false
+
+[[bench]]
+name = "fusion"
+harness = false

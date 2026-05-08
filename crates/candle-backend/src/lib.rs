@@ -14,7 +14,7 @@
 //! ```
 
 use candle_core::{Device, IndexOp, Tensor};
-use rustral_core::{Backend, CoreError, Parameter, Result, TensorOps};
+use rustral_core::{Backend, BackendCapabilities, CoreError, FusionOps, Parameter, Result, TensorOps};
 use thiserror::Error;
 
 /// Errors specific to the candle backend.
@@ -124,6 +124,45 @@ impl Backend for CandleBackend {
         &self.ops
     }
 
+    fn fusion_ops(&self) -> Option<&dyn FusionOps<Self>> {
+        Some(&self.ops)
+    }
+
+    fn capabilities(&self) -> BackendCapabilities {
+        match &self.device {
+            Device::Cuda(_) => BackendCapabilities {
+                supports_fp16: true,
+                supports_bf16: false, // Most RTX cards don't support BF16
+                tensor_cores: true,
+                optimal_batch_size: 32,
+                optimal_chunk_size: 4096,
+                max_allocation_size: usize::MAX,
+                prefers_contiguous: true,
+                supports_in_place: true,
+            },
+            Device::Metal(_) => BackendCapabilities {
+                supports_fp16: true,
+                supports_bf16: true,
+                tensor_cores: true,
+                optimal_batch_size: 16,
+                optimal_chunk_size: 2048,
+                max_allocation_size: usize::MAX,
+                prefers_contiguous: true,
+                supports_in_place: true,
+            },
+            Device::Cpu => BackendCapabilities {
+                supports_fp16: false,
+                supports_bf16: false,
+                tensor_cores: false,
+                optimal_batch_size: 8,
+                optimal_chunk_size: 1024,
+                max_allocation_size: usize::MAX,
+                prefers_contiguous: true,
+                supports_in_place: false,
+            },
+        }
+    }
+
     fn normal_parameter(&self, name: &str, shape: &[usize], seed: u64, scale: f32) -> Result<Parameter<Self>>
     where
         Self: Sized,
@@ -147,6 +186,80 @@ impl Backend for CandleBackend {
     {
         let tensor = self.tensor_from_vec(values, shape)?;
         Ok(Parameter::new(name, tensor))
+    }
+}
+
+impl FusionOps<CandleBackend> for CandleOps {
+    fn fused_linear_bias(
+        &self,
+        input: &Tensor,
+        weight: &Parameter<CandleBackend>,
+        bias: &Parameter<CandleBackend>,
+    ) -> Result<Tensor> {
+        let w = weight.tensor();
+        let b = bias.tensor();
+        
+        // matmul + add_row_vector (fused into single operation sequence)
+        let w_t = w.t().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let output = input.matmul(&w_t).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let output = output.broadcast_add(b).map_err(|e| CoreError::Backend(e.to_string()))?;
+        Ok(output)
+    }
+
+    fn fused_linear_bias_relu(
+        &self,
+        input: &Tensor,
+        weight: &Parameter<CandleBackend>,
+        bias: &Parameter<CandleBackend>,
+    ) -> Result<Tensor> {
+        let w = weight.tensor();
+        let b = bias.tensor();
+        
+        // matmul + add_row_vector + relu (fused sequence)
+        let w_t = w.t().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let output = input.matmul(&w_t).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let output = output.broadcast_add(b).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let output = output.relu().map_err(|e| CoreError::Backend(e.to_string()))?;
+        Ok(output)
+    }
+
+    fn fused_linear_bias_gelu(
+        &self,
+        input: &Tensor,
+        weight: &Parameter<CandleBackend>,
+        bias: &Parameter<CandleBackend>,
+    ) -> Result<Tensor> {
+        let w = weight.tensor();
+        let b = bias.tensor();
+        
+        // matmul + add_row_vector + gelu (fused sequence)
+        let w_t = w.t().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let output = input.matmul(&w_t).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let output = output.broadcast_add(b).map_err(|e| CoreError::Backend(e.to_string()))?;
+        
+        // GELU: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+        let x = &output;
+        let x_cubed = (x * x * x).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_0_044715 = Tensor::from_vec(vec![0.044715f32], &[], &self.device)
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_0_044715_broadcasted = scalar_0_044715.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let x_plus = (x + (&scalar_0_044715_broadcasted * x_cubed)).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let sqrt_2_pi = (2.0f32 / std::f32::consts::PI).sqrt();
+        let scalar_sqrt_2_pi = Tensor::from_vec(vec![sqrt_2_pi], &[], &self.device)
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_sqrt_2_pi_broadcasted = scalar_sqrt_2_pi.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let tanh_arg = (x_plus * scalar_sqrt_2_pi_broadcasted).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let tanh_val = tanh_arg.tanh().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_1 = Tensor::from_vec(vec![1.0f32], &[], &self.device)
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_1_broadcasted = scalar_1.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let one_plus = (&scalar_1_broadcasted + tanh_val).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_0_5 = Tensor::from_vec(vec![0.5f32], &[], &self.device)
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_0_5_broadcasted = scalar_0_5.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let gelu_output = ((&scalar_0_5_broadcasted * x) * one_plus).map_err(|e| CoreError::Backend(e.to_string()))?;
+        
+        Ok(gelu_output)
     }
 }
 
@@ -264,6 +377,30 @@ impl TensorOps<CandleBackend> for CandleOps {
 
     fn tanh(&self, x: &Tensor) -> Result<Tensor> {
         x.tanh().map_err(|e| CoreError::Backend(e.to_string()))
+    }
+
+    fn gelu(&self, x: &Tensor) -> Result<Tensor> {
+        // GELU: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+        let x_cubed = (x * x * x).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_0_044715 = Tensor::from_vec(vec![0.044715f32], &[], &self.device)
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_0_044715_broadcasted = scalar_0_044715.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let x_plus = (x + (&scalar_0_044715_broadcasted * x_cubed)).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let sqrt_2_pi = (2.0f32 / std::f32::consts::PI).sqrt();
+        let scalar_sqrt_2_pi = Tensor::from_vec(vec![sqrt_2_pi], &[], &self.device)
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_sqrt_2_pi_broadcasted = scalar_sqrt_2_pi.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let tanh_arg = (x_plus * scalar_sqrt_2_pi_broadcasted).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let tanh_val = tanh_arg.tanh().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_1 = Tensor::from_vec(vec![1.0f32], &[], &self.device)
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_1_broadcasted = scalar_1.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let one_plus = (&scalar_1_broadcasted + tanh_val).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_0_5 = Tensor::from_vec(vec![0.5f32], &[], &self.device)
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_0_5_broadcasted = scalar_0_5.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let gelu_output = ((&scalar_0_5_broadcasted * x) * one_plus).map_err(|e| CoreError::Backend(e.to_string()))?;
+        Ok(gelu_output)
     }
 
     fn mul(&self, a: &Tensor, b: &Tensor) -> Result<Tensor> {

@@ -1,5 +1,41 @@
 use crate::{CoreError, Parameter, Result};
 
+/// Backend capabilities for device-agnostic optimization.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackendCapabilities {
+    /// Whether the backend supports FP16 operations.
+    pub supports_fp16: bool,
+    /// Whether the backend supports BF16 operations.
+    pub supports_bf16: bool,
+    /// Whether the backend has tensor cores or similar hardware acceleration.
+    pub tensor_cores: bool,
+    /// Recommended batch size for optimal performance.
+    pub optimal_batch_size: usize,
+    /// Recommended chunk size for large operations.
+    pub optimal_chunk_size: usize,
+    /// Maximum memory allocation size in bytes.
+    pub max_allocation_size: usize,
+    /// Whether the backend prefers contiguous memory layouts.
+    pub prefers_contiguous: bool,
+    /// Whether the backend supports in-place operations.
+    pub supports_in_place: bool,
+}
+
+impl Default for BackendCapabilities {
+    fn default() -> Self {
+        Self {
+            supports_fp16: false,
+            supports_bf16: false,
+            tensor_cores: false,
+            optimal_batch_size: 8,
+            optimal_chunk_size: 1024,
+            max_allocation_size: usize::MAX,
+            prefers_contiguous: true,
+            supports_in_place: false,
+        }
+    }
+}
+
 /// Execution backend contract.
 ///
 /// A backend owns the concrete tensor and device types for a runtime. The core
@@ -18,6 +54,20 @@ pub trait Backend: Clone + Send + Sync + 'static {
 
     /// Return the operation table for this backend.
     fn ops(&self) -> &dyn TensorOps<Self>;
+
+    /// Return optional fused operations for this backend.
+    ///
+    /// Returns None if the backend doesn't support fused operations.
+    /// Layer implementations should try this first and fall back to
+    /// individual operations if it returns None.
+    fn fusion_ops(&self) -> Option<&dyn FusionOps<Self>> {
+        None
+    }
+
+    /// Return the backend's capabilities for device-agnostic optimization.
+    fn capabilities(&self) -> BackendCapabilities {
+        BackendCapabilities::default()
+    }
 
     /// Create a parameter with deterministic uniform random initialization.
     ///
@@ -139,6 +189,13 @@ pub trait TensorOps<B: Backend>: Send + Sync {
     /// Apply tanh element-wise.
     fn tanh(&self, x: &B::Tensor) -> Result<B::Tensor>;
 
+    /// Apply GELU activation element-wise.
+    ///
+    /// GELU (Gaussian Error Linear Unit) is a smooth, non-monotonic activation function
+    /// that tends to work better than ReLU for transformer models.
+    /// Approximation: `0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))`
+    fn gelu(&self, x: &B::Tensor) -> Result<B::Tensor>;
+
     /// Element-wise multiplication (Hadamard product).
     fn mul(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor>;
 
@@ -256,4 +313,83 @@ pub trait TensorInPlaceOps<B: Backend>: TensorOps<B> {
 
     /// Compute `y = a * x + y` (axpy) in-place on `y`.
     fn axpy(&self, y: &mut B::Tensor, a: f32, x: &B::Tensor) -> Result<()>;
+}
+
+/// Extension trait for fused operations.
+///
+/// This trait is optional. Backends that support efficient fused kernels
+/// (e.g., CUDA backends with cuBLAS + custom kernels, GPU backends with fused shaders)
+/// should implement it for high-value operation combinations.
+///
+/// Fused operations reduce memory traffic and kernel launch overhead by combining
+/// multiple operations into a single kernel call. This is particularly valuable on GPUs
+/// where memory bandwidth and kernel launch overhead dominate performance.
+///
+/// # Design Note
+///
+/// The layer implementations check for this trait at runtime and fall back
+/// to the unfused operation sequence if it's not available. This keeps the
+/// layer code backend-agnostic while allowing performance optimization on capable backends.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // In a layer implementation
+/// if let Some(fusion_ops) = ctx.backend().ops().downcast_ref::<FusionOps<_>>() {
+///     fusion_ops.fused_linear_bias_relu(&x, &self.weight, &self.bias)
+/// } else {
+///     // Fallback to unfused sequence
+///     let h = ops.matmul(&x, self.weight.tensor())?;
+///     let h = ops.add(&h, self.bias.tensor())?;
+///     ops.relu(&h)
+/// }
+/// ```
+pub trait FusionOps<B: Backend>: TensorOps<B> {
+    /// Fused linear + bias operation: `y = x @ w^T + b`
+    ///
+    /// Combines matrix multiplication and bias addition into a single operation.
+    /// This eliminates one intermediate tensor and one kernel launch.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input tensor of shape `[batch, in_features]`
+    /// * `weight` - Weight parameter of shape `[out_features, in_features]`
+    /// * `bias` - Bias parameter of shape `[out_features]`
+    ///
+    /// # Returns
+    ///
+    /// Output tensor of shape `[batch, out_features]`
+    fn fused_linear_bias(&self, input: &B::Tensor, weight: &Parameter<B>, bias: &Parameter<B>) -> Result<B::Tensor>;
+
+    /// Fused linear + bias + ReLU operation: `y = relu(x @ w^T + b)`
+    ///
+    /// Combines matrix multiplication, bias addition, and ReLU activation into a single operation.
+    /// This eliminates two intermediate tensors and two kernel launches.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input tensor of shape `[batch, in_features]`
+    /// * `weight` - Weight parameter of shape `[out_features, in_features]`
+    /// * `bias` - Bias parameter of shape `[out_features]`
+    ///
+    /// # Returns
+    ///
+    /// Output tensor of shape `[batch, out_features]`
+    fn fused_linear_bias_relu(&self, input: &B::Tensor, weight: &Parameter<B>, bias: &Parameter<B>) -> Result<B::Tensor>;
+
+    /// Fused linear + bias + GELU operation: `y = gelu(x @ w^T + b)`
+    ///
+    /// Combines matrix multiplication, bias addition, and GELU activation into a single operation.
+    /// This eliminates two intermediate tensors and two kernel launches.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input tensor of shape `[batch, in_features]`
+    /// * `weight` - Weight parameter of shape `[out_features, in_features]`
+    /// * `bias` - Bias parameter of shape `[out_features]`
+    ///
+    /// # Returns
+    ///
+    /// Output tensor of shape `[batch, out_features]`
+    fn fused_linear_bias_gelu(&self, input: &B::Tensor, weight: &Parameter<B>, bias: &Parameter<B>) -> Result<B::Tensor>;
 }
