@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -29,17 +29,73 @@ def _load_schema() -> Dict[str, Any]:
     return _load_json(SCHEMA_PATH)
 
 
-def _validate_one(path: Path, schema: Dict[str, Any]) -> None:
+def _try_jsonschema():
     try:
         import jsonschema  # type: ignore
-    except Exception as e:  # pragma: no cover
-        raise SystemExit(
-            "jsonschema is required. Install with: python -m pip install jsonschema\n"
-            f"import error: {e}"
-        )
 
+        return jsonschema
+    except Exception:
+        return None
+
+
+def _fallback_validate_one(obj: Dict[str, Any], path: Path) -> List[str]:
+    """
+    Handwritten validator used when `jsonschema` is not installed.
+
+    This is intentionally minimal: it enforces the keys this repo relies on, and
+    the SST-2 diagnostics fields that power parity debugging.
+    """
+    errs: List[str] = []
+
+    def req_keys(o: Any, keys: List[str], where: str) -> None:
+        if not isinstance(o, dict):
+            errs.append(f"{path}: {where} must be an object")
+            return
+        missing = [k for k in keys if k not in o]
+        if missing:
+            errs.append(f"{path}: {where} missing keys: {missing}")
+
+    req_keys(obj, ["schema_version", "created_at", "version", "task", "metric", "aggregate", "runs"], "<root>")
+    if "runs" in obj and isinstance(obj["runs"], list):
+        for i, r in enumerate(obj["runs"]):
+            req_keys(r, ["seed", "manifest"], f"runs[{i}]")
+            manifest = r.get("manifest")
+            if not isinstance(manifest, dict):
+                continue
+            if obj.get("task") == "sst2_classifier":
+                # Allow PyTorch manifests (they won't have diagnostics).
+                if manifest.get("framework") == "pytorch":
+                    continue
+                diag = manifest.get("diagnostics")
+                if not isinstance(diag, dict):
+                    errs.append(f"{path}: runs[{i}].manifest.diagnostics is required for sst2_classifier")
+                    continue
+                req_keys(
+                    diag,
+                    [
+                        "train_label_counts",
+                        "dev_label_counts",
+                        "dev_confusion_matrix",
+                        "dev_predicted_counts",
+                        "dev_positive_prob_hist",
+                    ],
+                    f"runs[{i}].manifest.diagnostics",
+                )
+    else:
+        errs.append(f"{path}: runs must be a non-empty array")
+
+    return errs
+
+
+def _validate_one(path: Path, schema: Dict[str, Any]) -> None:
     obj = _load_json(path)
-    jsonschema.validate(instance=obj, schema=schema)
+    js = _try_jsonschema()
+    if js is not None:
+        js.validate(instance=obj, schema=schema)
+        return
+    errs = _fallback_validate_one(obj, path)
+    if errs:
+        raise SystemExit("\n".join(errs))
 
 
 def _default_targets() -> List[Path]:

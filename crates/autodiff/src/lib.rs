@@ -91,6 +91,12 @@ impl<B: Backend> Tape<B> {
     where
         B::Tensor: Clone,
     {
+        // Important: parameters are referenced multiple times during a forward pass
+        // (e.g., layers call `watch_parameter` internally). We must reuse the same
+        // TensorId for a given ParameterId so gradients accumulate onto a single leaf.
+        if let Some(&id) = self.param_map.get(&param.id()) {
+            return id;
+        }
         let id = self.watch(param.tensor().clone());
         self.param_map.insert(param.id(), id);
         id

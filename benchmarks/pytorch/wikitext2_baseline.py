@@ -229,7 +229,8 @@ def train_one_seed(
 
     train_ids = encode_text(tok_to_id, train_text, unk_id)
     valid_ids = encode_text(tok_to_id, valid_text, unk_id)
-    if len(train_ids) > train_tokens_cap:
+    # Match Rustral semantics: 0 means "no cap".
+    if train_tokens_cap > 0 and len(train_ids) > train_tokens_cap:
         train_ids = train_ids[:train_tokens_cap]
 
     x_train_np, y_train_np = build_windows(train_ids, block_size)
@@ -266,7 +267,14 @@ def train_one_seed(
     for ep in range(epochs):
         ep_t0 = time.time()
         model.train()
-        idx = torch.randperm(x_train.shape[0]) if x_train.shape[0] > 0 else torch.arange(0)
+        # Shuffle deterministically per epoch to match Rustral's trainer protocol:
+        # seed ^ (epoch * 0x9E37).
+        if x_train.shape[0] > 0:
+            g = torch.Generator(device="cpu")
+            g.manual_seed(int(seed) ^ (int(ep) * 0x9E37))
+            idx = torch.randperm(x_train.shape[0], generator=g)
+        else:
+            idx = torch.arange(0)
         x_shuf = x_train[idx]
         y_shuf = y_train[idx]
         losses: List[float] = []
@@ -314,7 +322,7 @@ def train_one_seed(
         "epochs": int(epochs),
         "batch_size": int(batch_size),
         "learning_rate": float(lr),
-        "train_tokens_used": int(min(len(encode_text(tok_to_id, train_text, unk_id)), train_tokens_cap)),
+        "train_tokens_used": int(len(train_ids)),
         "train_windows_used": int(x_train.shape[0]),
         "eval_windows_used": int(x_valid.shape[0]),
         "dev_loss_nats": float(dev_loss),
@@ -351,7 +359,23 @@ def main() -> int:
         "--out-json",
         default=f"benchmarks/runs/v{VERSION}/nlp/wikitext2_pytorch.json",
     )
+    ap.add_argument(
+        "--benchmark",
+        action="store_true",
+        help="tiny model + minimal data for fast CPU runs (matches run_nlp_real.py --benchmark)",
+    )
     args = ap.parse_args()
+
+    if args.benchmark:
+        args.block_size = 16
+        args.d_model = 32
+        args.num_heads = 2
+        args.ffn_dim = 64
+        args.num_layers = 1
+        args.epochs = 1
+        args.train_tokens = 4_000
+        args.train_windows = 150
+        args.eval_windows = 300
 
     seeds = [int(s.strip()) for s in args.seeds.split(",") if s.strip()]
     vocab_path = (REPO_ROOT / args.vocab_path).resolve()

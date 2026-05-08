@@ -28,9 +28,11 @@ pub fn init_global_dashboard() {
     }
     TUI_ACTIVATED.store(true, Ordering::Relaxed);
 
-    let mut cfg = DashboardConfig::default();
-    cfg.title = "Rustral Training".into();
-    cfg.alt_screen = true;
+    let cfg = DashboardConfig {
+        title: "Rustral Training".into(),
+        alt_screen: true,
+        ..Default::default()
+    };
 
     let dashboard = Arc::new(Mutex::new(TrainingDashboard::new(cfg)));
 

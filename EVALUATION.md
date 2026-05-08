@@ -15,9 +15,11 @@ Tokenization is deliberately word-level. WikiText-2 is commonly reported that wa
 
 ## Models
 
-Both examples use tiny architectures so they finish on CPU. These are honest baselines, not leaderboard attempts. The point is to make the evaluation path real and easy to inspect.
+Both examples default to tiny architectures so they finish on CPU. Width, depth, and context length can be overridden on the CLI (`--seq-len`, `--d-model`, `--num-heads`, `--ffn-dim`, `--num-layers`, and for WikiText-2 `--block-size`) so you can trade accuracy for runtime. These are honest baselines, not leaderboard attempts.
 
 ### SST-2 classifier (`crates/runtime/examples/sst2_classifier.rs`)
+
+**Default topology:**
 
 ```
 Embedding(V, 64) + PositionalEmbedding(32, 64)
@@ -26,10 +28,12 @@ Embedding(V, 64) + PositionalEmbedding(32, 64)
 Linear(64 → 2)
 ```
 
-- Sentence is encoded with the `WordLevelTokenizer`, padded / truncated to 32 tokens.
+- Sentence is encoded with the `WordLevelTokenizer`, padded / truncated to the configured sequence length (default 32).
 - The transformer block is tape-trained (multi-head attention + layer norm + FFN) and writes a manifest with full provenance.
 
 ### WikiText-2 LM (`crates/runtime/examples/wikitext2_lm.rs`)
+
+**Default topology:**
 
 ```
 Embedding(V, 64) + PositionalEmbedding(32, 64)
@@ -38,7 +42,7 @@ Embedding(V, 64) + PositionalEmbedding(32, 64)
 Linear(64 → V)
 ```
 
-- Sliding window of 32 consecutive tokens predicts the next token.
+- Sliding window of `block_size` consecutive tokens (default 32) predicts the next token.
 - Trained on a capped subset of the train split and evaluated on a capped subset of validation windows for runtime practicality (caps are recorded in the manifest).
 - Reported metric is dev perplexity, computed as `exp(mean cross-entropy nats)` over the evaluated windows.
 
@@ -58,14 +62,17 @@ Linear(64 → V)
 | FFN dim | 128 | 128 |
 | Max vocab | 8192 | 16384 |
 
-`--quick` modes, used by smoke tests, shrink the training set so the run finishes in seconds. SST-2 caps training at 256 examples. WikiText-2 caps training at 4 000 tokens.
+`--quick` modes, used by smoke tests, shrink the training set so the run finishes in seconds. SST-2 caps training at 256 examples. WikiText-2 caps training at 4 000 tokens (default inside `--quick`).
 
-For real-data evidence runs we also apply window caps for WikiText-2 so the script finishes in a reasonable time:
+### Fast benchmark preset (recommended for CI and local timing)
 
-- **train_windows_used**: 2 000
-- **eval_windows_used**: 20 000
+[`scripts/eval/run_nlp_real.py`](scripts/eval/run_nlp_real.py) supports `--benchmark`: a tiny transformer (e.g. `d_model=32`, `seq_len` / block `16`, one layer, one epoch) and minimal WikiText-2 caps so end-to-end NLP checks finish in minutes on CPU. PyTorch mirrors the same idea via `--benchmark` on [`benchmarks/pytorch/sst2_baseline.py`](benchmarks/pytorch/sst2_baseline.py) and [`benchmarks/pytorch/wikitext2_baseline.py`](benchmarks/pytorch/wikitext2_baseline.py).
 
-These caps are recorded in the emitted `manifest.json` and the curated snapshot.
+Without `--benchmark`, `run_nlp_real.py` still applies modest WikiText-2 caps by default (**8 000** train tokens, **400** train windows, **800** eval windows) so uncached runs stay tractable; SST-2 uses the full default architecture (see table above) unless you pass smaller flags to the example.
+
+For heavier, slower runs, increase `--wikitext-*` caps and pass larger `--seq-len`, `--d-model`, etc. to the Rust examples explicitly.
+
+Older curated JSON numbers in this file may be stale; always prefer the aggregates embedded in `benchmarks/runs/v0.1.0/nlp/*.json` for the commit you are on.
 
 ## Rustral vs PyTorch parity (v0.1.0)
 
@@ -74,10 +81,12 @@ Curated 3-seed snapshots live under `benchmarks/runs/v0.1.0/nlp/`:
 - Rustral: `sst2.json`, `wikitext2.json`
 - PyTorch: `sst2_pytorch.json`, `wikitext2_pytorch.json`
 
-| Task | Metric | Rustral (mean ± std) | PyTorch (mean ± std) | Train sec / epoch (Rustral) | Train sec / epoch (PyTorch) |
-|---|---|---:|---:|---:|---:|
-| SST-2 | dev accuracy | 0.509 ± 0.000 | 0.682 ± 0.005 | 36.2 | 11.7 |
-| WikiText-2 | dev perplexity | 10643.9 ± 472.5 | 2194.2 ± 207.4 | 150.7 | 14.3 |
+| Task | Metric | Where to read results |
+|---|---|---|
+| SST-2 | dev accuracy | `benchmarks/runs/v0.1.0/nlp/sst2.json` and `sst2_pytorch.json` |
+| WikiText-2 | dev perplexity | `benchmarks/runs/v0.1.0/nlp/wikitext2.json` and `wikitext2_pytorch.json` |
+
+Regenerate with `python3 scripts/eval/run_nlp_real.py --benchmark` (and the PyTorch baselines with `--benchmark`) when you need fresh tables; headline numbers depend on caps and model width recorded in each manifest.
 
 ## Reproducibility manifest
 

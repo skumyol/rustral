@@ -17,6 +17,7 @@ workspace = true
 [features]
 default = ["parallel"]
 parallel = ["dep:rayon"]
+tui = ["dep:rustral-tui"]
 training = ["dep:rustral-autodiff", "dep:rustral-optim", "dep:rustral-io", "dep:rustral-nn", "dep:rustral-tui"]
 
 [dependencies]

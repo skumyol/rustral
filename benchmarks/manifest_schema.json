@@ -34,6 +34,94 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "task": { "const": "sst2_classifier" } }
+      },
+      "then": {
+        "properties": {
+          "runs": {
+            "items": {
+              "properties": {
+                "manifest": {
+                  "type": "object",
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "framework": { "const": "pytorch" }
+                      }
+                    },
+                    {
+                      "required": ["diagnostics"],
+                      "properties": {
+                        "diagnostics": {
+                          "type": "object",
+                          "required": [
+                            "train_label_counts",
+                            "dev_label_counts",
+                            "dev_confusion_matrix",
+                            "dev_predicted_counts",
+                            "dev_positive_prob_hist"
+                          ],
+                          "properties": {
+                            "train_label_counts": {
+                              "type": "array",
+                              "items": { "type": "integer", "minimum": 0 },
+                              "minItems": 2,
+                              "maxItems": 2
+                            },
+                            "dev_label_counts": {
+                              "type": "array",
+                              "items": { "type": "integer", "minimum": 0 },
+                              "minItems": 2,
+                              "maxItems": 2
+                            },
+                            "dev_confusion_matrix": {
+                              "type": "array",
+                              "minItems": 2,
+                              "maxItems": 2,
+                              "items": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 2,
+                                "items": { "type": "integer", "minimum": 0 }
+                              }
+                            },
+                            "dev_predicted_counts": {
+                              "type": "array",
+                              "items": { "type": "integer", "minimum": 0 },
+                              "minItems": 2,
+                              "maxItems": 2
+                            },
+                            "dev_positive_prob_hist": {
+                              "type": "object",
+                              "required": ["bins", "counts"],
+                              "properties": {
+                                "bins": { "type": "integer", "minimum": 2 },
+                                "counts": {
+                                  "type": "array",
+                                  "items": { "type": "integer", "minimum": 0 },
+                                  "minItems": 2
+                                }
+                              },
+                              "additionalProperties": true
+                            }
+                          },
+                          "additionalProperties": true
+                        }
+                      }
+                    }
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "additionalProperties": true
 }
 

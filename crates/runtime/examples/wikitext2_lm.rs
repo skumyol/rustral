@@ -12,10 +12,18 @@
 //!   throughput, dataset stats, model parameter count.
 //! - `vocab.txt` — one token per line.
 //!
-//! Online run (downloads + extracts the WikiText-2 raw zip via `unzip`):
+//! Online run (downloads + extracts the WikiText-2 raw zip; extraction uses the system
+//! `unzip` helper inside `rustral-data` when not in offline mode):
 //!
 //! ```bash
 //! cargo run --release -p rustral-runtime --features training --example wikitext2_lm
+//! ```
+//!
+//! Model size and context length are configurable, for example a fast CPU benchmark:
+//!
+//! ```bash
+//! cargo run --release -p rustral-runtime --features training --example wikitext2_lm -- \
+//!   --quick --block-size 16 --d-model 32 --num-heads 2 --ffn-dim 64 --num-layers 1
 //! ```
 //!
 //! Offline / CI run (pre-staged train/valid/test text files in
@@ -56,11 +64,20 @@ mod runner {
     use rustral_runtime::{SupervisedTapeModel, TapeTrainer, TapeTrainerConfig, TrainingReport};
 
     const DEFAULT_SEED: u64 = 0xC0FFEE;
-    const BLOCK_SIZE: usize = 32;
-    const D_MODEL: usize = 64;
-    const NUM_HEADS: usize = 4;
-    const FFN_DIM: usize = 128;
-    const NUM_LAYERS: usize = 2;
+    const DEFAULT_BLOCK_SIZE: usize = 32;
+    const DEFAULT_D_MODEL: usize = 64;
+    const DEFAULT_NUM_HEADS: usize = 4;
+    const DEFAULT_FFN_DIM: usize = 128;
+    const DEFAULT_NUM_LAYERS: usize = 2;
+
+    #[derive(Clone, Copy)]
+    pub struct WikiLmDims {
+        block: usize,
+        d_model: usize,
+        num_heads: usize,
+        ffn_dim: usize,
+        num_layers: usize,
+    }
     const MAX_VOCAB: usize = 16_384;
     const DEFAULT_EPOCHS: usize = 1;
     const DEFAULT_BATCH: usize = 32;
@@ -104,29 +121,29 @@ mod runner {
     where
         B::Tensor: Clone,
     {
-        pub fn new(backend: &B, vocab: usize, seed: u64) -> Result<Self> {
+        pub fn new(backend: &B, vocab: usize, seed: u64, dims: WikiLmDims) -> Result<Self> {
             let tok_embed = Embedding::new(
                 backend,
-                EmbeddingConfig::new(vocab, D_MODEL),
+                EmbeddingConfig::new(vocab, dims.d_model),
                 seed.wrapping_add(1),
             )?;
             let pos_embed = Embedding::new(
                 backend,
-                EmbeddingConfig::new(BLOCK_SIZE, D_MODEL),
+                EmbeddingConfig::new(dims.block, dims.d_model),
                 seed.wrapping_add(2),
             )?;
-            let mut layers = Vec::with_capacity(NUM_LAYERS);
-            for i in 0..NUM_LAYERS {
-                let cfg = TapeTransformerEncoderConfig::new(D_MODEL, NUM_HEADS, FFN_DIM);
+            let mut layers = Vec::with_capacity(dims.num_layers);
+            for i in 0..dims.num_layers {
+                let cfg = TapeTransformerEncoderConfig::new(dims.d_model, dims.num_heads, dims.ffn_dim);
                 let layer =
                     TapeTransformerEncoderLayer::new(backend, cfg, seed.wrapping_add(100 + i as u64))?;
                 layers.push(layer);
             }
-            let head = LinearBuilder::new(D_MODEL, vocab)
+            let head = LinearBuilder::new(dims.d_model, vocab)
                 .with_bias(true)
                 .seed(seed.wrapping_add(999))
                 .build(backend)?;
-            Ok(Self { tok_embed, pos_embed, layers, head, block: BLOCK_SIZE })
+            Ok(Self { tok_embed, pos_embed, layers, head, block: dims.block })
         }
 
         /// Single-window inference: returns `[vocab_size]` logits for the next-token prediction.
@@ -307,18 +324,30 @@ mod runner {
             "--train-tokens",
             if quick { DEFAULT_TRAIN_TOKENS_QUICK } else { DEFAULT_TRAIN_TOKENS },
         );
+        let block_size: usize = parse_arg(&args, "--block-size", DEFAULT_BLOCK_SIZE);
+        let d_model: usize = parse_arg(&args, "--d-model", DEFAULT_D_MODEL);
+        let num_heads: usize = parse_arg(&args, "--num-heads", DEFAULT_NUM_HEADS);
+        let ffn_dim: usize = parse_arg(&args, "--ffn-dim", DEFAULT_FFN_DIM);
+        let num_layers: usize = parse_arg(&args, "--num-layers", DEFAULT_NUM_LAYERS);
         let out_dir =
             PathBuf::from(parse_arg::<String>(&args, "--out-dir", "out/wikitext2".into()));
         fs::create_dir_all(&out_dir)?;
 
+        if block_size == 0 || d_model == 0 || num_heads == 0 || ffn_dim == 0 || num_layers == 0 {
+            anyhow::bail!("--block-size, --d-model, --num-heads, --ffn-dim, --num-layers must be > 0");
+        }
+        if d_model % num_heads != 0 {
+            anyhow::bail!("--d-model ({d_model}) must be divisible by --num-heads ({num_heads})");
+        }
+
         println!("WikiText-2 transformer LM (rustral)");
         println!("===================================");
         println!("seed         : {seed}");
-        println!("block_size   : {BLOCK_SIZE}");
-        println!("d_model      : {D_MODEL}");
-        println!("num_heads    : {NUM_HEADS}");
-        println!("ffn_dim      : {FFN_DIM}");
-        println!("num_layers   : {NUM_LAYERS}");
+        println!("block_size   : {block_size}");
+        println!("d_model      : {d_model}");
+        println!("num_heads    : {num_heads}");
+        println!("ffn_dim      : {ffn_dim}");
+        println!("num_layers   : {num_layers}");
         println!("max_vocab    : {MAX_VOCAB}");
         println!("epochs       : {epochs}");
         println!("batch_size   : {batch}");
@@ -347,13 +376,13 @@ mod runner {
         println!("vocab_size   : {} (capped at {})", tok.vocab_size(), MAX_VOCAB);
 
         let mut train_ids = tok.encode(&splits.train);
-        if train_ids.len() > train_token_cap {
+        if train_token_cap > 0 && train_ids.len() > train_token_cap {
             train_ids.truncate(train_token_cap);
         }
         let valid_ids = tok.encode(&splits.valid);
 
-        let mut train = build_windows(&train_ids, BLOCK_SIZE);
-        let valid = build_windows(&valid_ids, BLOCK_SIZE);
+        let mut train = build_windows(&train_ids, block_size);
+        let valid = build_windows(&valid_ids, block_size);
         println!("train_windows: {}  valid_windows: {}", train.len(), valid.len());
         let train_windows_used: usize = if train_windows_cap == 0 {
             train.len()
@@ -376,7 +405,18 @@ mod runner {
         let dataset_hash = fnv1a_hex(splits.train.as_bytes());
 
         let backend = CpuBackend::default();
-        let mut model = WikiTextLm::<CpuBackend>::new(&backend, tok.vocab_size(), seed)?;
+        let mut model = WikiTextLm::<CpuBackend>::new(
+            &backend,
+            tok.vocab_size(),
+            seed,
+            WikiLmDims {
+                block: block_size,
+                d_model,
+                num_heads,
+                ffn_dim,
+                num_layers,
+            },
+        )?;
         let total_params = count_total_params::<CpuBackend, _>(&backend, &model);
         println!("total parameters: {}", total_params);
 
@@ -413,11 +453,11 @@ mod runner {
             .insert_str("model_type", "transformer_lm")
             .insert_str("git_sha", &detect_git_sha())
             .insert_u64("seed", seed)
-            .insert_u64("block_size", BLOCK_SIZE as u64)
-            .insert_u64("d_model", D_MODEL as u64)
-            .insert_u64("num_heads", NUM_HEADS as u64)
-            .insert_u64("ffn_dim", FFN_DIM as u64)
-            .insert_u64("num_layers", NUM_LAYERS as u64)
+            .insert_u64("block_size", block_size as u64)
+            .insert_u64("d_model", d_model as u64)
+            .insert_u64("num_heads", num_heads as u64)
+            .insert_u64("ffn_dim", ffn_dim as u64)
+            .insert_u64("num_layers", num_layers as u64)
             .insert_u64("total_params", total_params)
             .insert_u64("max_vocab", MAX_VOCAB as u64)
             .insert_u64("vocab_size", tok.vocab_size() as u64)

@@ -55,7 +55,9 @@ PyTorch parity baselines (same architecture and the same `vocab.txt`) live next 
 - `benchmarks/runs/v0.1.0/nlp/sst2_pytorch.json`
 - `benchmarks/runs/v0.1.0/nlp/wikitext2_pytorch.json`
 
-See [`EVALUATION.md`](EVALUATION.md) for the architecture details, dataset pins, and the parity table.
+For **fast** regeneration (small model + small data, suitable for CI and local timing), use `python3 scripts/eval/run_nlp_real.py --benchmark` and the PyTorch scripts with `--benchmark`. Manifests record the exact widths and caps used.
+
+See [`EVALUATION.md`](EVALUATION.md) for methodology, dataset pins, and how to read the curated JSON.
 
 ## Schema validation
 
@@ -193,6 +195,10 @@ RUSTRAL_RUN_EXAMPLE_PERF=1 ./scripts/perf_examples.sh
 ```bash
 cargo run --release -p rustral-candle-backend --example benchmark
 ```
+
+## Operation fusion (not implemented)
+
+Fused kernels (e.g. matmul + bias + activation in one pass) are not part of the shared `TensorOps` API yet. The practical plan is to profile hotspots first (`scripts/bench/run_all.py`, Criterion benches), then add **optional** fused entry points on backends that benefit (GPU), keeping unfused paths for correctness and for CPU.
 
 ## Reproducibility checklist
 

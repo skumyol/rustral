@@ -28,4 +28,4 @@ mkdir -p benchmarks/runs/${VERSION}
 
 | Version | Date | Hardware | Suites | Notes |
 |---|---|---|---|---|
-| _none yet_ | | | | First snapshot will be added with the next tagged release. |
+| v0.1.0 | 2026-05-07 | ? | nlp | Curated NLP parity snapshots (SST-2, WikiText-2) under nlp/. |

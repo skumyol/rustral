@@ -24,9 +24,9 @@ fn make_input(backend: &CpuBackend, seq_len: usize, d_model: usize) -> <CpuBacke
     ops.tensor_from_vec(data, &[seq_len, d_model]).unwrap()
 }
 
-fn collect_named_params<'a, B: Backend, M: NamedParameters<B>>(
-    model: &'a M,
-) -> Vec<(String, &'a Parameter<B>)> {
+fn collect_named_params<B: Backend, M: NamedParameters<B>>(
+    model: &M,
+) -> Vec<(String, &Parameter<B>)> {
     let mut out: Vec<(String, &Parameter<B>)> = Vec::new();
     model.visit_parameters(&mut |name, p| out.push((name.to_string(), unsafe {
         // Lifetime-extending the &Parameter<B> reference is safe here because `model` outlives

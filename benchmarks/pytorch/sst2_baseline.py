@@ -31,7 +31,7 @@ import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -79,11 +79,13 @@ def fetch_url(url: str, expected_sha256: str, cache_subdir: str) -> Path:
     target = target_dir / basename
 
     if target.exists():
+        print(f"[cache] using existing {basename}")
         actual = sha256_hex(target)
         if actual == expected_sha256:
             return target
         target.unlink()
 
+    print(f"[download] {basename}")
     tmp = target.with_suffix(target.suffix + ".partial")
     with urllib.request.urlopen(url) as r, tmp.open("wb") as f:
         f.write(r.read())
@@ -92,6 +94,7 @@ def fetch_url(url: str, expected_sha256: str, cache_subdir: str) -> Path:
         tmp.unlink(missing_ok=True)
         raise RuntimeError(f"checksum mismatch for {url}: expected {expected_sha256}, got {actual}")
     tmp.replace(target)
+    print(f"[download] complete {basename}")
     return target
 
 
@@ -195,13 +198,18 @@ def train_one_seed(
     lr: float,
     batch_size: int,
     epochs: int,
+    train_examples_cap: Optional[int] = None,
 ) -> Dict[str, Any]:
     set_seed(seed)
+    print(f"[seed {seed}] loading data")
     tok_to_id, tokens = load_vocab(vocab_path)
     pad_id = tok_to_id.get("<pad>", 0)
     unk_id = tok_to_id.get("<unk>", 1)
 
     train_raw, dev_raw = load_sst2_jsonl()
+    if train_examples_cap is not None:
+        train_raw = train_raw[:train_examples_cap]
+    print(f"[seed {seed}] encoding sentences")
     train_ids = [encode_sentence(tok_to_id, s, seq_len, pad_id, unk_id) for (s, _) in train_raw]
     train_y = [int(y) for (_, y) in train_raw]
     dev_ids = [encode_sentence(tok_to_id, s, seq_len, pad_id, unk_id) for (s, _) in dev_raw]
@@ -221,6 +229,7 @@ def train_one_seed(
         num_layers=num_layers,
     ).to(device)
 
+    print(f"[seed {seed}] starting training")
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     epoch_stats: List[EpochStats] = []
 
@@ -228,8 +237,11 @@ def train_one_seed(
     for ep in range(epochs):
         ep_t0 = time.time()
         model.train()
-        # Shuffle deterministically per epoch.
-        idx = torch.randperm(x_train.shape[0])
+        # Shuffle deterministically per epoch to match Rustral's trainer protocol:
+        # seed ^ (epoch * 0x9E37).
+        g = torch.Generator(device="cpu")
+        g.manual_seed(int(seed) ^ (int(ep) * 0x9E37))
+        idx = torch.randperm(x_train.shape[0], generator=g)
         x_train_shuf = x_train[idx]
         y_train_shuf = y_train[idx]
 
@@ -245,8 +257,10 @@ def train_one_seed(
             losses.append(float(loss.detach().cpu().item()))
 
         epoch_stats.append(EpochStats(epoch=ep, mean_loss=float(np.mean(losses)), elapsed_sec=time.time() - ep_t0))
+        print(f"[seed {seed}] epoch {ep+1}/{epochs} loss: {np.mean(losses):.4f}")
 
     train_elapsed_sec = time.time() - t0
+    print(f"[seed {seed}] training complete: {train_elapsed_sec:.1f}s")
 
     # Dev eval.
     model.eval()
@@ -279,6 +293,7 @@ def train_one_seed(
         "batch_size": int(batch_size),
         "learning_rate": float(lr),
         "train_examples": int(len(train_raw)),
+        "quick_mode": train_examples_cap is not None,
         "dev_examples": int(len(dev_raw)),
         "dev_loss": float(dev_loss),
         "dev_accuracy": float(dev_acc),
@@ -299,6 +314,7 @@ def mean_std(xs: List[float]) -> Tuple[float, float]:
 
 
 def main() -> int:
+    print("[main] starting")
     ap = argparse.ArgumentParser()
     ap.add_argument("--seeds", default="0,1,2")
     ap.add_argument("--device", default="cpu", help="cpu or mps (default: cpu)")
@@ -319,7 +335,20 @@ def main() -> int:
         "--out-json",
         default=f"benchmarks/runs/v{VERSION}/nlp/sst2_pytorch.json",
     )
+    ap.add_argument(
+        "--benchmark",
+        action="store_true",
+        help="tiny model + 1 epoch for fast CPU runs (matches run_nlp_real.py --benchmark)",
+    )
     args = ap.parse_args()
+
+    if args.benchmark:
+        args.seq_len = 16
+        args.d_model = 32
+        args.num_heads = 2
+        args.ffn_dim = 64
+        args.num_layers = 1
+        args.epochs = 1
 
     seeds = [int(s.strip()) for s in args.seeds.split(",") if s.strip()]
     vocab_path = (REPO_ROOT / args.vocab_path).resolve()
@@ -331,6 +360,7 @@ def main() -> int:
         raise SystemExit("mps requested but not available")
 
     runs: List[Dict[str, Any]] = []
+    train_cap: Optional[int] = 256 if args.benchmark else None
     for seed in seeds:
         print(f"[sst2 pytorch] seed={seed} device={device}")
         manifest = train_one_seed(
@@ -345,6 +375,7 @@ def main() -> int:
             lr=args.lr,
             batch_size=args.batch_size,
             epochs=args.epochs,
+            train_examples_cap=train_cap,
         )
         runs.append({"seed": seed, "manifest": manifest})
 

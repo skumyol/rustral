@@ -29,16 +29,14 @@ jobs:
       - name: Build runtime examples
         run: cargo build --release -p rustral-runtime --features training --examples
 
-      - name: Run real-data NLP (single seed, capped)
+      - name: Run real-data NLP (single seed, benchmark preset)
         env:
           CANDLE_FORCE_CPU: "1"
         run: |
           python3 scripts/eval/run_nlp_real.py \
+            --benchmark \
             --seeds 0 \
-            --out-root out/nlp_real_ci \
-            --wikitext-train-tokens 50000 \
-            --wikitext-train-windows 2000 \
-            --wikitext-eval-windows 20000
+            --out-root out/nlp_real_ci
 
       - name: Validate curated manifests
         run: |

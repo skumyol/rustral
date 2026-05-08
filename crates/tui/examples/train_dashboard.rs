@@ -15,9 +15,11 @@ use rustral_tui::{DashboardConfig, TrainingDashboard};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── Setup dashboard ───────────────────────────────────────────
-    let mut cfg = DashboardConfig::default();
-    cfg.title = "Rustral Training Demo".into();
-    cfg.history_len = 80;
+    let cfg = DashboardConfig {
+        title: "Rustral Training Demo".into(),
+        history_len: 80,
+        ..Default::default()
+    };
 
     let dashboard = Arc::new(Mutex::new(TrainingDashboard::new(cfg)));
     let render_dashboard = dashboard.clone();
@@ -37,7 +39,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let total_epochs = 50;
     let batches_per_epoch = 100;
     let batch_size = 32;
-    let total_steps = total_epochs * batches_per_epoch;
 
     {
         let mut db = dashboard.lock().unwrap();
@@ -126,7 +127,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Training complete ─────────────────────────────────────────
     let elapsed = start.elapsed();
-    let mut db = dashboard.lock().unwrap();
+    let db = dashboard.lock().unwrap();
 
     println!("\nTraining completed in {:.1}s", elapsed.as_secs_f64());
     println!("Total steps: {}", step);

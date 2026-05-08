@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "created_at": "2026-05-07T11:50:49Z",
+  "created_at": "2026-05-08T04:51:22Z",
   "version": "0.1.0",
   "task": "sst2_classifier",
   "metric": "dev_accuracy",
@@ -12,95 +12,215 @@
   "runs": [
     {
       "seed": 0,
-      "out_dir": "out/nlp_real/sst2/seed_0",
+      "out_dir": "out/nlp_real_bench/sst2/seed_0",
       "manifest": {
         "task": "sst2_classifier",
         "model_type": "transformer_encoder",
-        "git_sha": "b5ea5d7daf7b87491efc01a95e8e76ce64b3a523",
+        "git_sha": "59ec9ca3f1acf82b57c4fc96338ca3c3c0bff516",
         "seed": 0,
-        "seq_len": 32,
-        "d_model": 64,
-        "num_heads": 4,
-        "ffn_dim": 128,
-        "num_layers": 2,
-        "total_params": 593410,
+        "seq_len": 16,
+        "d_model": 32,
+        "num_heads": 2,
+        "ffn_dim": 64,
+        "num_layers": 1,
+        "total_params": 64642,
         "max_vocab": 8192,
-        "vocab_size": 8192,
-        "epochs": 3,
+        "vocab_size": 1735,
+        "epochs": 1,
         "batch_size": 32,
         "learning_rate": 0.0005,
-        "train_examples": 6920,
+        "train_examples": 256,
         "dev_examples": 872,
-        "dataset_hash_fnv1a": "1f4e99728a7bde5a",
-        "dev_loss": 0.828782,
+        "dataset_hash_fnv1a": "0b10a631d12e95d2",
+        "dev_loss": 0.692644,
         "dev_accuracy": 0.509174,
-        "samples_per_sec": 204.604492,
-        "train_elapsed_sec": 101.46405,
+        "samples_per_sec": 996.600586,
+        "train_elapsed_sec": 0.256873,
         "dataset": "SST-2 (binary, HuggingFace SetFit/sst2 mirror)",
         "tokenizer": "rustral-data WordLevelTokenizer (whitespace, lowercased)",
-        "quick_mode": false
+        "quick_mode": true,
+        "overfit_32": false,
+        "diagnostics": {
+          "train_label_counts": [
+            3310,
+            3610
+          ],
+          "dev_label_counts": [
+            428,
+            444
+          ],
+          "dev_confusion_matrix": [
+            [
+              0,
+              428
+            ],
+            [
+              0,
+              444
+            ]
+          ],
+          "dev_predicted_counts": [
+            0,
+            872
+          ],
+          "dev_positive_prob_hist": {
+            "bins": 10,
+            "counts": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              872,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
       }
     },
     {
       "seed": 1,
-      "out_dir": "out/nlp_real/sst2/seed_1",
+      "out_dir": "out/nlp_real_bench/sst2/seed_1",
       "manifest": {
         "task": "sst2_classifier",
         "model_type": "transformer_encoder",
-        "git_sha": "b5ea5d7daf7b87491efc01a95e8e76ce64b3a523",
+        "git_sha": "59ec9ca3f1acf82b57c4fc96338ca3c3c0bff516",
         "seed": 1,
-        "seq_len": 32,
-        "d_model": 64,
-        "num_heads": 4,
-        "ffn_dim": 128,
-        "num_layers": 2,
-        "total_params": 593410,
+        "seq_len": 16,
+        "d_model": 32,
+        "num_heads": 2,
+        "ffn_dim": 64,
+        "num_layers": 1,
+        "total_params": 64642,
         "max_vocab": 8192,
-        "vocab_size": 8192,
-        "epochs": 3,
+        "vocab_size": 1735,
+        "epochs": 1,
         "batch_size": 32,
         "learning_rate": 0.0005,
-        "train_examples": 6920,
+        "train_examples": 256,
         "dev_examples": 872,
-        "dataset_hash_fnv1a": "1f4e99728a7bde5a",
-        "dev_loss": 0.699548,
+        "dataset_hash_fnv1a": "0b10a631d12e95d2",
+        "dev_loss": 0.693935,
         "dev_accuracy": 0.509174,
-        "samples_per_sec": 184.498901,
-        "train_elapsed_sec": 112.520996,
+        "samples_per_sec": 486.094238,
+        "train_elapsed_sec": 0.526647,
         "dataset": "SST-2 (binary, HuggingFace SetFit/sst2 mirror)",
         "tokenizer": "rustral-data WordLevelTokenizer (whitespace, lowercased)",
-        "quick_mode": false
+        "quick_mode": true,
+        "overfit_32": false,
+        "diagnostics": {
+          "train_label_counts": [
+            3310,
+            3610
+          ],
+          "dev_label_counts": [
+            428,
+            444
+          ],
+          "dev_confusion_matrix": [
+            [
+              0,
+              428
+            ],
+            [
+              0,
+              444
+            ]
+          ],
+          "dev_predicted_counts": [
+            0,
+            872
+          ],
+          "dev_positive_prob_hist": {
+            "bins": 10,
+            "counts": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              872,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
       }
     },
     {
       "seed": 2,
-      "out_dir": "out/nlp_real/sst2/seed_2",
+      "out_dir": "out/nlp_real_bench/sst2/seed_2",
       "manifest": {
         "task": "sst2_classifier",
         "model_type": "transformer_encoder",
-        "git_sha": "b5ea5d7daf7b87491efc01a95e8e76ce64b3a523",
+        "git_sha": "59ec9ca3f1acf82b57c4fc96338ca3c3c0bff516",
         "seed": 2,
-        "seq_len": 32,
-        "d_model": 64,
-        "num_heads": 4,
-        "ffn_dim": 128,
-        "num_layers": 2,
-        "total_params": 593410,
+        "seq_len": 16,
+        "d_model": 32,
+        "num_heads": 2,
+        "ffn_dim": 64,
+        "num_layers": 1,
+        "total_params": 64642,
         "max_vocab": 8192,
-        "vocab_size": 8192,
-        "epochs": 3,
+        "vocab_size": 1735,
+        "epochs": 1,
         "batch_size": 32,
         "learning_rate": 0.0005,
-        "train_examples": 6920,
+        "train_examples": 256,
         "dev_examples": 872,
-        "dataset_hash_fnv1a": "1f4e99728a7bde5a",
-        "dev_loss": 0.692561,
+        "dataset_hash_fnv1a": "0b10a631d12e95d2",
+        "dev_loss": 0.693344,
         "dev_accuracy": 0.509174,
-        "samples_per_sec": 185.625626,
-        "train_elapsed_sec": 111.838005,
+        "samples_per_sec": 503.464935,
+        "train_elapsed_sec": 0.508476,
         "dataset": "SST-2 (binary, HuggingFace SetFit/sst2 mirror)",
         "tokenizer": "rustral-data WordLevelTokenizer (whitespace, lowercased)",
-        "quick_mode": false
+        "quick_mode": true,
+        "overfit_32": false,
+        "diagnostics": {
+          "train_label_counts": [
+            3310,
+            3610
+          ],
+          "dev_label_counts": [
+            428,
+            444
+          ],
+          "dev_confusion_matrix": [
+            [
+              0,
+              428
+            ],
+            [
+              0,
+              444
+            ]
+          ],
+          "dev_predicted_counts": [
+            0,
+            872
+          ],
+          "dev_positive_prob_hist": {
+            "bins": 10,
+            "counts": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              872,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
       }
     }
   ]

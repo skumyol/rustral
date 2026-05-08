@@ -44,14 +44,33 @@ def discover_manifests() -> List[Tuple[str, Dict]]:
         if not child.is_dir():
             continue
         manifest = child / "manifest.json"
-        if not manifest.exists():
+        if manifest.exists():
+            try:
+                doc = json.loads(manifest.read_text())
+            except Exception as e:
+                print(f"WARN: skipping {manifest}: {e}", file=sys.stderr)
+                continue
+            out.append((child.name, doc))
             continue
-        try:
-            doc = json.loads(manifest.read_text())
-        except Exception as e:
-            print(f"WARN: skipping {manifest}: {e}", file=sys.stderr)
-            continue
-        out.append((child.name, doc))
+
+        # Fallback: NLP-only snapshots sometimes exist without a top-level manifest.
+        # If we see `nlp/*.json`, synthesize a minimal row so INDEX.md cannot claim "_none yet_".
+        nlp_dir = child / "nlp"
+        if nlp_dir.is_dir():
+            nlp_jsons = sorted(p.name for p in nlp_dir.glob("*.json"))
+            if nlp_jsons:
+                out.append(
+                    (
+                        child.name,
+                        {
+                            "version": child.name,
+                            "date": "?",
+                            "hardware": "?",
+                            "suites": ["nlp"],
+                            "notes": f"Found nlp snapshots: {', '.join(nlp_jsons)}",
+                        },
+                    )
+                )
     return out
 
 
