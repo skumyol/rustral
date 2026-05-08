@@ -320,8 +320,8 @@ def main() -> int:
     ap.add_argument("--device", default="cpu", help="cpu or mps (default: cpu)")
     ap.add_argument(
         "--vocab-path",
-        default="out/nlp_real/sst2/seed_0/vocab.txt",
-        help="path to Rustral-produced vocab.txt",
+        default="benchmarks/data/sst2_quick_vocab.txt",
+        help="path to vocab.txt (token per line, line index = token id)",
     )
     ap.add_argument("--seq-len", type=int, default=32)
     ap.add_argument("--d-model", type=int, default=64)

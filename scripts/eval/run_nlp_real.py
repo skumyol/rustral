@@ -146,6 +146,7 @@ def _run_sst2(
     out_dir: Path,
     cache_dir: Path | None,
     device: str,
+    vocab_path: Path | None,
     extra_args: Optional[List[str]] = None,
 ) -> RunResult:
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -158,6 +159,8 @@ def _run_sst2(
         "--out-dir",
         str(out_dir),
     ]
+    if vocab_path:
+        cmd.extend(["--vocab", str(vocab_path)])
     if extra_args:
         cmd.extend(extra_args)
     _run(cmd, env=env, cwd=REPO_ROOT)
@@ -175,6 +178,7 @@ def _run_wikitext2(
     train_tokens: int,
     train_windows: int,
     eval_windows: int,
+    vocab_path: Path | None,
     extra_args: Optional[List[str]] = None,
 ) -> RunResult:
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -199,6 +203,8 @@ def _run_wikitext2(
         "--out-dir",
         str(out_dir),
     ]
+    if vocab_path:
+        cmd.extend(["--vocab", str(vocab_path)])
     if extra_args:
         cmd.extend(extra_args)
     _run(cmd, env=env, cwd=REPO_ROOT)
@@ -277,10 +283,20 @@ def main() -> int:
         help="optional RUSTRAL_CACHE_DIR override (default: unset)",
     )
     ap.add_argument(
+        "--vocab-path",
+        default="benchmarks/data/sst2_quick_vocab.txt",
+        help="path to vocab.txt for SST-2 (default: benchmarks/data/sst2_quick_vocab.txt)",
+    )
+    ap.add_argument(
         "--wikitext-train-tokens",
         type=int,
         default=8_000,
         help="train token cap for wikitext2_lm (0 = no cap; default: 8000)",
+    )
+    ap.add_argument(
+        "--wikitext-vocab-path",
+        default="benchmarks/data/wikitext2_quick_vocab.txt",
+        help="path to vocab.txt for WikiText-2 (default: benchmarks/data/wikitext2_quick_vocab.txt)",
     )
     ap.add_argument(
         "--wikitext-train-windows",
@@ -373,13 +389,15 @@ def main() -> int:
     wikitext_runs: List[RunResult] = []
 
     for seed in seeds:
+        vocab_path = Path(args.vocab_path) if args.vocab_path else None
         if not args.skip_sst2:
             print(f"[sst2] seed={seed}")
             sst2_runs.append(
-                _run_sst2(seed, out_root / "sst2" / f"seed_{seed}", cache_dir, args.device, sst2_extra)
+                _run_sst2(seed, out_root / "sst2" / f"seed_{seed}", cache_dir, args.device, vocab_path, sst2_extra)
             )
         if not args.skip_wikitext2:
             print(f"[wikitext2] seed={seed}")
+            wikitext_vocab_path = Path(args.wikitext_vocab_path) if args.wikitext_vocab_path else None
             wikitext_runs.append(
                 _run_wikitext2(
                     seed,
@@ -389,6 +407,7 @@ def main() -> int:
                     train_tokens=args.wikitext_train_tokens,
                     train_windows=args.wikitext_train_windows,
                     eval_windows=args.wikitext_eval_windows,
+                    vocab_path=wikitext_vocab_path,
                     extra_args=wiki_extra,
                 )
             )
