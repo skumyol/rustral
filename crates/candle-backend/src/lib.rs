@@ -200,7 +200,12 @@ impl FusionOps<CandleBackend> for CandleOps {
         let b = bias.tensor();
         
         // matmul + add_row_vector (fused into single operation sequence)
-        let w_t = w.t().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let input = input.contiguous().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let w_t = w
+            .t()
+            .map_err(|e| CoreError::Backend(e.to_string()))?
+            .contiguous()
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
         let output = input.matmul(&w_t).map_err(|e| CoreError::Backend(e.to_string()))?;
         let output = output.broadcast_add(b).map_err(|e| CoreError::Backend(e.to_string()))?;
         Ok(output)
@@ -216,7 +221,12 @@ impl FusionOps<CandleBackend> for CandleOps {
         let b = bias.tensor();
         
         // matmul + add_row_vector + relu (fused sequence)
-        let w_t = w.t().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let input = input.contiguous().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let w_t = w
+            .t()
+            .map_err(|e| CoreError::Backend(e.to_string()))?
+            .contiguous()
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
         let output = input.matmul(&w_t).map_err(|e| CoreError::Backend(e.to_string()))?;
         let output = output.broadcast_add(b).map_err(|e| CoreError::Backend(e.to_string()))?;
         let output = output.relu().map_err(|e| CoreError::Backend(e.to_string()))?;
@@ -233,7 +243,12 @@ impl FusionOps<CandleBackend> for CandleOps {
         let b = bias.tensor();
         
         // matmul + add_row_vector + gelu (fused sequence)
-        let w_t = w.t().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let input = input.contiguous().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let w_t = w
+            .t()
+            .map_err(|e| CoreError::Backend(e.to_string()))?
+            .contiguous()
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
         let output = input.matmul(&w_t).map_err(|e| CoreError::Backend(e.to_string()))?;
         let output = output.broadcast_add(b).map_err(|e| CoreError::Backend(e.to_string()))?;
         
@@ -278,7 +293,9 @@ impl TensorOps<CandleBackend> for CandleOps {
     }
 
     fn matmul(&self, a: &Tensor, b: &Tensor) -> Result<Tensor> {
-        a.matmul(b).map_err(|e| CoreError::Backend(e.to_string()))
+        let a = a.contiguous().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let b = b.contiguous().map_err(|e| CoreError::Backend(e.to_string()))?;
+        a.matmul(&b).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn transpose(&self, x: &Tensor) -> Result<Tensor> {
@@ -352,9 +369,13 @@ impl TensorOps<CandleBackend> for CandleOps {
         bias: Option<&Parameter<CandleBackend>>,
     ) -> Result<Tensor> {
         let w = weight.tensor();
-        let output = input
-            .matmul(&w.t().map_err(|e| CoreError::Backend(e.to_string()))?)
+        let input = input.contiguous().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let w_t = w
+            .t()
+            .map_err(|e| CoreError::Backend(e.to_string()))?
+            .contiguous()
             .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let output = input.matmul(&w_t).map_err(|e| CoreError::Backend(e.to_string()))?;
         match bias {
             Some(b) => {
                 let b_t =

@@ -103,6 +103,9 @@ criterion = "0.5"
 safetensors = "0.4"
 bytemuck = { version = "1", features = ["extern_crate_alloc"] }
 
+[patch.crates-io]
+candle-kernels = { path = "vendor/candle-kernels-0.10.2" }
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

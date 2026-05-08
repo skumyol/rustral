@@ -54,7 +54,10 @@ mod runner {
     use rustral_core::{Backend, ForwardCtx, Mode, NamedParameters, Parameter, Result};
     use rustral_data::datasets::wikitext2::load_wikitext2;
     use rustral_data::tokenizer::{WordLevelConfig, WordLevelTokenizer};
+    #[cfg(not(feature = "cuda"))]
     use rustral_ndarray_backend::CpuBackend;
+    #[cfg(feature = "cuda")]
+    use rustral_candle_backend::CandleBackend;
     use rustral_nn::tape::TapeModule;
     use rustral_nn::tape_transformer::{
         causal_mask_tape, TapeTransformerEncoderConfig, TapeTransformerEncoderLayer,
@@ -88,6 +91,22 @@ mod runner {
     const DEFAULT_EVAL_WINDOWS: usize = 0;
     /// 0 means "train on all windows".
     const DEFAULT_TRAIN_WINDOWS: usize = 0;
+
+    #[cfg(not(feature = "cuda"))]
+    type DefaultBackend = CpuBackend;
+    #[cfg(feature = "cuda")]
+    type DefaultBackend = CandleBackend;
+
+    fn make_backend() -> Result<DefaultBackend> {
+        #[cfg(feature = "cuda")]
+        {
+            Ok(CandleBackend::cuda(0).unwrap_or_else(|_| CandleBackend::cpu()))
+        }
+        #[cfg(not(feature = "cuda"))]
+        {
+            Ok(CpuBackend::default())
+        }
+    }
 
     /// Small Rustral-native causal-attention LM for WikiText-2.
     pub struct WikiTextLm<B: Backend> {
@@ -404,8 +423,8 @@ mod runner {
 
         let dataset_hash = fnv1a_hex(splits.train.as_bytes());
 
-        let backend = CpuBackend::default();
-        let mut model = WikiTextLm::<CpuBackend>::new(
+        let backend = make_backend()?;
+        let mut model = WikiTextLm::<DefaultBackend>::new(
             &backend,
             tok.vocab_size(),
             seed,
@@ -417,7 +436,7 @@ mod runner {
                 num_layers,
             },
         )?;
-        let total_params = count_total_params::<CpuBackend, _>(&backend, &model);
+        let total_params = count_total_params::<DefaultBackend, _>(&backend, &model);
         println!("total parameters: {}", total_params);
 
         let cfg = TapeTrainerConfig {
@@ -427,7 +446,7 @@ mod runner {
             seed,
             learning_rate: lr,
         };
-        let mut trainer = TapeTrainer::<CpuBackend, _>::new(cfg, Adam::new(lr));
+        let mut trainer = TapeTrainer::<DefaultBackend, _>::new(cfg, Adam::new(lr));
 
         let train_t0 = Instant::now();
         let report: TrainingReport = trainer.fit_classification(&backend, &mut model, &train)?;

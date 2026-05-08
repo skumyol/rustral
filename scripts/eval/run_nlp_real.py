@@ -49,7 +49,7 @@ def _run(cmd: List[str], env: Dict[str, str], cwd: Path) -> None:
     if p.returncode != 0:
         raise RuntimeError(f"command failed ({p.returncode}): {' '.join(cmd)}")
 
-def _build_runtime_examples(env: Dict[str, str]) -> None:
+def _build_runtime_examples(env: Dict[str, str], cargo_features: str) -> None:
     cmd = [
         "cargo",
         "build",
@@ -57,7 +57,7 @@ def _build_runtime_examples(env: Dict[str, str]) -> None:
         "-p",
         "rustral-runtime",
         "--features",
-        "training",
+        cargo_features,
         "--examples",
     ]
     _run(cmd, env=env, cwd=REPO_ROOT)
@@ -87,15 +87,16 @@ class RunResult:
     manifest: Dict[str, Any]
 
 
-def _example_env(cache_dir: Path | None) -> Dict[str, str]:
+def _example_env(cache_dir: Path | None, device: str) -> Dict[str, str]:
     env = dict(os.environ)
     # Force online mode: if user has these set globally, remove them for this script.
     env.pop("RUSTRAL_DATASET_OFFLINE", None)
     env.pop("RUSTRAL_DATASET_SKIP_CHECKSUM", None)
     if cache_dir is not None:
         env["RUSTRAL_CACHE_DIR"] = str(cache_dir)
-    # Make output deterministic and avoid surprise GPU behavior.
-    env.setdefault("CANDLE_FORCE_CPU", "1")
+    # Default to CPU for determinism, but allow CUDA runs explicitly.
+    if device == "cpu":
+        env.setdefault("CANDLE_FORCE_CPU", "1")
     return env
 
 
@@ -140,9 +141,15 @@ def _ensure_wikitext2_splits(cache_dir: Path) -> None:
     (out_dir / "test.txt").write_text((base / "wiki.test.raw").read_text(encoding="utf-8"), encoding="utf-8")
 
 
-def _run_sst2(seed: int, out_dir: Path, cache_dir: Path | None, extra_args: Optional[List[str]] = None) -> RunResult:
+def _run_sst2(
+    seed: int,
+    out_dir: Path,
+    cache_dir: Path | None,
+    device: str,
+    extra_args: Optional[List[str]] = None,
+) -> RunResult:
     out_dir.mkdir(parents=True, exist_ok=True)
-    env = _example_env(cache_dir)
+    env = _example_env(cache_dir, device)
     exe = REPO_ROOT / "target" / "release" / "examples" / "sst2_classifier"
     cmd = [
         str(exe),
@@ -164,6 +171,7 @@ def _run_wikitext2(
     seed: int,
     out_dir: Path,
     cache_dir: Path | None,
+    device: str,
     train_tokens: int,
     train_windows: int,
     eval_windows: int,
@@ -173,7 +181,7 @@ def _run_wikitext2(
     # Always run wikitext2 backed by a local extracted zip so environments without
     # the `unzip` CLI can still run this benchmark.
     cache_dir_resolved = cache_dir if cache_dir is not None else _default_cache_dir()
-    env = _example_env(cache_dir_resolved)
+    env = _example_env(cache_dir_resolved, device)
     _ensure_wikitext2_splits(cache_dir_resolved)
     env["RUSTRAL_DATASET_OFFLINE"] = "1"
     env["RUSTRAL_DATASET_SKIP_CHECKSUM"] = "1"
@@ -257,6 +265,7 @@ def main() -> int:
         action="store_true",
         help="skip SST-2 runs/curation (useful if dependencies are missing locally)",
     )
+    ap.add_argument("--device", choices=["cpu", "cuda"], default="cpu", help="device for Rust examples (default: cpu)")
     ap.add_argument(
         "--skip-wikitext2",
         action="store_true",
@@ -343,8 +352,9 @@ def main() -> int:
     out_root.mkdir(parents=True, exist_ok=True)
 
     cache_dir = Path(args.cache_dir).resolve() if args.cache_dir else None
-    env = _example_env(cache_dir)
-    _build_runtime_examples(env)
+    env = _example_env(cache_dir, args.device)
+    cargo_features = "training,cuda" if args.device == "cuda" else "training"
+    _build_runtime_examples(env, cargo_features)
 
     print("Real-data NLP runs (rustral)")
     print("===========================")
@@ -353,6 +363,7 @@ def main() -> int:
     print(f"cache_dir            : {cache_dir if cache_dir else '(default)'}")
     print(f"seeds                : {seeds}")
     print(f"benchmark            : {args.benchmark}")
+    print(f"device               : {args.device}")
     print(f"wikitext_train_tokens: {args.wikitext_train_tokens}")
     print(f"wikitext_train_windows: {args.wikitext_train_windows}")
     print(f"wikitext_eval_windows: {args.wikitext_eval_windows}")
@@ -364,7 +375,9 @@ def main() -> int:
     for seed in seeds:
         if not args.skip_sst2:
             print(f"[sst2] seed={seed}")
-            sst2_runs.append(_run_sst2(seed, out_root / "sst2" / f"seed_{seed}", cache_dir, sst2_extra))
+            sst2_runs.append(
+                _run_sst2(seed, out_root / "sst2" / f"seed_{seed}", cache_dir, args.device, sst2_extra)
+            )
         if not args.skip_wikitext2:
             print(f"[wikitext2] seed={seed}")
             wikitext_runs.append(
@@ -372,6 +385,7 @@ def main() -> int:
                     seed,
                     out_root / "wikitext2" / f"seed_{seed}",
                     cache_dir,
+                    args.device,
                     train_tokens=args.wikitext_train_tokens,
                     train_windows=args.wikitext_train_windows,
                     eval_windows=args.wikitext_eval_windows,

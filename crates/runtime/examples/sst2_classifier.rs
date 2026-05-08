@@ -50,7 +50,10 @@ mod runner {
     use rustral_core::{Backend, ForwardCtx, Mode, NamedParameters, Parameter, Result};
     use rustral_data::datasets::sst2::{load_sst2, Sst2Example};
     use rustral_data::tokenizer::{WordLevelConfig, WordLevelTokenizer};
+    #[cfg(not(feature = "cuda"))]
     use rustral_ndarray_backend::CpuBackend;
+    #[cfg(feature = "cuda")]
+    use rustral_candle_backend::CandleBackend;
     use rustral_nn::tape::TapeModule;
     use rustral_nn::tape_transformer::{TapeTransformerEncoderConfig, TapeTransformerEncoderLayer};
     use rustral_nn::{Embedding, EmbeddingConfig, Linear, LinearBuilder};
@@ -77,6 +80,11 @@ mod runner {
     const DEFAULT_BATCH: usize = 32;
     const DEFAULT_LR: f32 = 5e-4;
 
+    #[cfg(not(feature = "cuda"))]
+    type DefaultBackend = CpuBackend;
+    #[cfg(feature = "cuda")]
+    type DefaultBackend = CandleBackend;
+
     /// Small Rustral-native transformer for SST-2.
     pub struct TransformerSst2<B: Backend> {
         pub tok_embed: Embedding<B>,
@@ -84,6 +92,19 @@ mod runner {
         pub layers: Vec<TapeTransformerEncoderLayer<B>>,
         pub head: Linear<B>,
         pub seq_len: usize,
+    }
+
+    fn make_backend() -> Result<DefaultBackend> {
+        #[cfg(feature = "cuda")]
+        {
+            // For CUDA builds, prefer CUDA:0. If CUDA init fails, fall back to CPU so the
+            // binary remains runnable in non-GPU environments.
+            Ok(CandleBackend::cuda(0).unwrap_or_else(|_| CandleBackend::cpu()))
+        }
+        #[cfg(not(feature = "cuda"))]
+        {
+            Ok(CpuBackend::default())
+        }
     }
 
     impl<B: Backend> NamedParameters<B> for TransformerSst2<B> {
@@ -487,15 +508,15 @@ mod runner {
             fnv1a_hex(&buf)
         };
 
-        let backend = CpuBackend::default();
-        let mut model = TransformerSst2::<CpuBackend>::new(
+        let backend = make_backend()?;
+        let mut model = TransformerSst2::<DefaultBackend>::new(
             &backend,
             tok.vocab_size(),
             num_layers,
             seed,
             Sst2Dims { seq_len, d_model, num_heads, ffn_dim },
         )?;
-        let total_params = count_total_params::<CpuBackend, _>(&backend, &model);
+        let total_params = count_total_params::<DefaultBackend, _>(&backend, &model);
         println!("total parameters: {}", total_params);
 
         if parity_one_step {
@@ -529,7 +550,7 @@ mod runner {
         };
         if use_sgd {
             let optimizer = Sgd::new(lr);
-            let mut trainer = TapeTrainer::<CpuBackend, _>::new(cfg, optimizer);
+            let mut trainer = TapeTrainer::<DefaultBackend, _>::new(cfg, optimizer);
             let train_t0 = Instant::now();
             let report: TrainingReport = trainer.fit_classification(&backend, &mut model, &train)?;
             let train_elapsed = train_t0.elapsed();
@@ -624,7 +645,7 @@ mod runner {
         }
 
         let optimizer = Adam::new(lr);
-        let mut trainer = TapeTrainer::<CpuBackend, _>::new(cfg, optimizer);
+        let mut trainer = TapeTrainer::<DefaultBackend, _>::new(cfg, optimizer);
 
         let train_t0 = Instant::now();
         let report: TrainingReport = trainer.fit_classification(&backend, &mut model, &train)?;
@@ -844,9 +865,9 @@ mod runner {
     }
 
     fn run_parity_one_step(
-        backend: &CpuBackend,
+        backend: &DefaultBackend,
         tok: &WordLevelTokenizer,
-        model: &mut TransformerSst2<CpuBackend>,
+        model: &mut TransformerSst2<DefaultBackend>,
         train_encoded: &[(Vec<usize>, u8)],
         train_raw: &[Sst2Example],
         dev_raw: &[Sst2Example],
@@ -860,7 +881,7 @@ mod runner {
 
         let ops = backend.ops();
         let mut ctx = ForwardCtx::new(backend, Mode::Train);
-        let mut tape = Tape::<CpuBackend>::new();
+        let mut tape = Tape::<DefaultBackend>::new();
 
         // Watch parameters for grads.
         model.visit_parameters(&mut |_name, p| {
@@ -945,7 +966,7 @@ mod runner {
         });
 
         // One Adam step (in-place via cloned params + writeback like trainer does).
-        let mut params_vec: Vec<Parameter<CpuBackend>> = Vec::new();
+        let mut params_vec: Vec<Parameter<DefaultBackend>> = Vec::new();
         model.visit_parameters(&mut |_name, p| params_vec.push(p.clone()));
 
         let mut grads = Vec::new();
