@@ -23,6 +23,7 @@ rustral-core = { path = "../core", version = "0.1.0" }
 serde.workspace = true
 rand.workspace = true
 rayon.workspace = true
+wide = "0.7"
 
 # matrixmultiply uses optimized BLAS kernels including ARM NEON
 matrixmultiply = { version = "0.3", optional = true }

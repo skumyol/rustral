@@ -252,6 +252,9 @@ Legend: reflects the **architecture checklist** and related code landed **May 20
 - **O3 `ForwardCtx` extensions**: **Done**
   - `ShapePolicy`: `crates/core/src/shape_policy.rs`, wired in `crates/core/src/context.rs`
   - Optional `OperationProfiler`: `with_profiler` / `set_profiler` / `profiler()` on `ForwardCtx`
+- **O3b Dropout determinism hook**: **Done**
+  - Added optional `TensorOps::dropout_with_seed` default method in `crates/core/src/backend.rs`
+  - Implemented seeded dropout in `crates/ndarray-backend/src/lib.rs` and `crates/wgpu-backend/src/lib.rs`
 - **O4 `TensorPool` strategies**: **Done**
   - `PoolStrategy`, `begin_step`, `with_strategy` / `with_limits_and_strategy` in `crates/core/src/tensor_pool.rs`
   - **`TapeTrainer`** calls `pool.begin_step()` after `optimizer.step` when a pool is configured (`crates/runtime/src/tape_trainer.rs`)
@@ -265,6 +268,44 @@ Legend: reflects the **architecture checklist** and related code landed **May 20
   - Grad tests: `crates/nn/tests/tape_linear_activation.rs`
 - **O8 TapeModule for attention**: **Done**
   - `TapeModule` for `SelfAttention` / `MultiHeadAttention`: `crates/nn/src/attention.rs` (feature-gated behind `autodiff`)
+- **O9 SIMD optimizations for CPU backend**: **Done**
+  - Added `wide` crate dependency for portable SIMD (primarily `f32x8`)
+  - SIMD-ized element-wise operations in `crates/ndarray-backend/src/lib.rs`:
+    - `add`, `mul`, `div` (binary element-wise ops)
+    - `exp`, `log`, `sqrt` (unary math ops)
+    - `relu` (activation)
+    - `softmax` (with SIMD for exp computation, scalar for reductions)
+    - `gelu`, `sigmoid`, `tanh` (activations)
+  - Also SIMD-ized additional ops used heavily by tape backprop and fused paths:
+    - `sub`, `maximum`, `gt_scalar`
+    - in-place ops: `add_assign`, `mul_assign`, `axpy`
+  - All SIMD implementations include scalar fallback for remainder elements
+  - (Benchmark numbers are hardware-dependent; prefer running `rustral-bench` and/or `wikitext2_lm` locally for current throughput.)
+
+- **O10 `ADVANCEMENT.md` plan alignment (audit)**: **In progress**
+  - **Numerics / tolerances**
+    - **Implemented**: numerics policy exists (not at the `ADVANCEMENT.md` proposed path):
+      - `crates/core/src/numerics.rs`
+      - `crates/core/tests/common/numeric.rs`, `crates/core/tests/numeric_policy_smoke.rs`
+    - **Not started**: the proposed golden micro-block structure does not exist yet:
+      - `crates/core/tests/golden/` (missing)
+    - **Not started**: `RUSTRAL_PARALLEL_REDUCTIONS` knob is not implemented (only documented in `ADVANCEMENT.md` currently).
+  - **Profiling**
+    - **Implemented**: `OperationProfiler` exists with a stable, machine-readable snapshot:
+      - `crates/core/src/operation_profiler.rs` (`snapshot`, `print_snapshot_json`, `ProfilerSnapshot`)
+    - **Implemented (current opt-in)**: training wiring uses `RUSTRAL_PROFILE=1` in `crates/runtime/src/tape_trainer.rs`
+    - **Not started**: `new_ci_safe()` / `export_regression_report()` APIs and explicit CI-mode integration as described in `ADVANCEMENT.md`.
+  - **Pooling / shape policy**
+    - **Implemented**: pooling + shape-policy surfaces are already tracked above (O3/O4); `wikitext2_lm` enables pooling via `RUSTRAL_POOL=1`.
+  - **WGPU kernel knobs + correctness harness**
+    - **Implemented**: `RUSTRAL_WGPU_MATMUL_TILE` exists (`crates/wgpu-backend/src/lib.rs`).
+    - **Implemented**: WGPU tests honor `RUSTRAL_REQUIRE_GPU=1` (fail fast if init fails) and prefer Vulkan on Linux to avoid flaky EGL/GLES contexts.
+    - **Not started**: `RUSTRAL_WGPU_WORKGROUP`, `RUSTRAL_WGPU_VECTORIZED`, and the proposed harness/tests path:
+      - `crates/wgpu-backend/tests/` (missing)
+  - **Microbenchmarks**
+    - **Implemented (different shape)**: microbench + JSON workload system exists (`scripts/bench/run_all.py`, `crates/bench/src/bin/rustral_workloads*.rs`).
+    - **Partially implemented (in existing harness)**: added `softmax_dim` and `fused_linear_bias_gelu` workloads in `crates/bench/src/bin/rustral_workloads.rs`.
+    - **Not started (as written)**: `crates/bench/src/bin/transformer_hotpaths.rs` does not exist.
 
 ## Architecture: principles vs implementation (checklist)
 

@@ -62,6 +62,8 @@ fn main() {
     let mut samples: Vec<Sample> = Vec::new();
 
     bench_matmul(&backend, repeats, warmup, &mut samples);
+    bench_softmax_dim(&backend, repeats, warmup, &mut samples);
+    bench_fused_linear_bias_gelu(&backend, repeats, warmup, &mut samples);
     bench_attention(&backend, repeats, warmup, &mut samples);
     bench_conv2d(&backend, repeats, warmup, &mut samples);
     bench_lstm_forward(&backend, repeats, warmup, &mut samples);
@@ -91,6 +93,63 @@ fn bench_matmul(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut V
             "matmul",
             BACKEND,
             vec![("m".into(), m.to_string()), ("k".into(), k.to_string()), ("n".into(), n.to_string())],
+            runs,
+        ));
+    }
+}
+
+fn bench_softmax_dim(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
+    let ops = backend.ops();
+    for &(batch, features) in &[(32usize, 64usize), (32, 256), (64, 1024)] {
+        let x = backend
+            .tensor_from_vec(vec![0.01f32; batch * features], &[batch, features])
+            .unwrap();
+        let runs = time_runs(
+            || {
+                let _ = ops.softmax_dim(&x, 1).unwrap();
+            },
+            warmup,
+            repeats,
+        );
+        out.push(Sample::cpu_f32(
+            "softmax_dim",
+            BACKEND,
+            vec![("batch".into(), batch.to_string()), ("features".into(), features.to_string())],
+            runs,
+        ));
+    }
+}
+
+fn bench_fused_linear_bias_gelu(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
+    use rustral_core::{FusionOptimizer, Parameter};
+    let ops = backend.ops();
+
+    // Shapes aligned with common transformer FFN sizes in small configs.
+    for &(batch, in_dim, out_dim) in &[(32usize, 256usize, 1024usize), (32, 1024, 256)] {
+        let x = backend.tensor_from_vec(vec![0.01f32; batch * in_dim], &[batch, in_dim]).unwrap();
+        let w = backend.tensor_from_vec(vec![0.01f32; out_dim * in_dim], &[out_dim, in_dim]).unwrap();
+        let b = backend.tensor_from_vec(vec![0.0f32; out_dim], &[out_dim]).unwrap();
+        let w_p = Parameter::new("w", w);
+        let b_p = Parameter::new("b", b);
+        let fuse = FusionOptimizer::new(backend.clone());
+
+        let runs = time_runs(
+            || {
+                let y = fuse.matmul_bias_gelu(&x, &w_p, &b_p).unwrap();
+                // Ensure output is materialized.
+                let _ = ops.tensor_to_vec(&y).unwrap();
+            },
+            warmup,
+            repeats,
+        );
+        out.push(Sample::cpu_f32(
+            "fused_linear_bias_gelu",
+            BACKEND,
+            vec![
+                ("batch".into(), batch.to_string()),
+                ("in_dim".into(), in_dim.to_string()),
+                ("out_dim".into(), out_dim.to_string()),
+            ],
             runs,
         ));
     }

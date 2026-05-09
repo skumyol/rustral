@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `rustral-nn`: `FusionHelper` delegates to `FusionOptimizer`; tape transformer FFN uses GELU; eager `TransformerDecoderLayer` FFN uses GELU; eager `TransformerEncoderLayer` and `TransformerEncoderBlock` FFN use GELU; MoE `Expert` FFN uses GELU; `tape_feedforward_matches_eager_linears_and_gelu` integration test.
 - `rustral-runtime`: `TapeTrainer` optional `tensor_pool` field with `with_tensor_pool` builder method; `clamp_batch_size` helper in SST-2 example.
 - `rustral-autotuner`: `AutoTuner::tune` early return when `!config.enabled`; `TuningSession::run` CI mode iteration limit enforcement; `benchmark_cached_config` and `cached_result` methods for realistic cache hit metrics; enhanced `TunerConfig` documentation with detailed `ci_mode` behavior.
+- `rustral-ndarray-backend`: SIMD optimizations for CPU element-wise operations using `wide` crate (f32x4 vectors): `add`, `mul`, `div`, `exp`, `log`, `sqrt`, `relu`, `softmax`. All implementations include scalar fallback for remainder elements.
 - Docs: `ARCHITECTURE.md` capabilities/autotuner tables; root README optimization section expanded; `EVALUATION.md` topology lines updated for GELU FFN; `docs/concepts.md` / `docs/api-signatures.md` synced with `ForwardCtx` and backend surface.
 
 ### Changed

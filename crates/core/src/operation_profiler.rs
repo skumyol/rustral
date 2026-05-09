@@ -38,8 +38,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+
 /// Configuration for profiling hooks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProfilingHooks {
     /// Enable CPU vs GPU timing breakdown.
     pub cpu_gpu_breakdown: bool,
@@ -63,7 +65,7 @@ impl Default for ProfilingHooks {
 }
 
 /// Device type for CPU/GPU breakdown.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DeviceType {
     Cpu,
     Cuda,
@@ -314,6 +316,24 @@ pub struct OperationProfiler {
     hooks: ProfilingHooks,
 }
 
+/// Stable, machine-readable profiler snapshot for regression checks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ProfilerSnapshot {
+    pub elapsed_secs: f64,
+    pub hooks: ProfilingHooks,
+    pub total_calls: usize,
+    pub ops: Vec<SnapshotOp>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SnapshotOp {
+    pub name: String,
+    pub count: usize,
+    pub avg_ms: f64,
+    pub max_ms: f64,
+    pub device_type: DeviceType,
+}
+
 impl OperationProfiler {
     /// Create a new operation profiler with default hooks.
     pub fn new() -> Self {
@@ -538,6 +558,37 @@ impl OperationProfiler {
         }
 
         regressions
+    }
+
+    /// Produce a stable snapshot (top ops by avg time) for regression checks.
+    pub fn snapshot(&self, limit: usize) -> ProfilerSnapshot {
+        let elapsed = self.start_time.elapsed().as_secs_f64();
+        let total_calls: usize = self.stats.values().map(|s| s.count).sum();
+
+        let mut ops: Vec<_> = self
+            .stats
+            .iter()
+            .map(|(name, stats)| SnapshotOp {
+                name: name.clone(),
+                count: stats.count,
+                avg_ms: stats.avg_duration().as_secs_f64() * 1000.0,
+                max_ms: stats.max_duration.as_secs_f64() * 1000.0,
+                device_type: stats.device_type,
+            })
+            .collect();
+        ops.sort_by(|a, b| b.avg_ms.partial_cmp(&a.avg_ms).unwrap_or(std::cmp::Ordering::Equal));
+        ops.truncate(limit);
+
+        ProfilerSnapshot { elapsed_secs: elapsed, hooks: self.hooks, total_calls, ops }
+    }
+
+    /// Print a JSON snapshot to stdout (stable format).
+    pub fn print_snapshot_json(&self, limit: usize) {
+        let snap = self.snapshot(limit);
+        match serde_json::to_string(&snap) {
+            Ok(s) => println!("{s}"),
+            Err(e) => eprintln!("failed to serialize profiler snapshot: {e}"),
+        }
     }
 }
 

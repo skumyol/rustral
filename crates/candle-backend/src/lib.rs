@@ -133,6 +133,10 @@ impl Backend for CandleBackend {
         Some(&self.ops)
     }
 
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn capabilities(&self) -> BackendCapabilities {
         match &self.device {
             Device::Cuda(_) => BackendCapabilities {

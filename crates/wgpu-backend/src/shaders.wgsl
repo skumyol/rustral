@@ -19,6 +19,32 @@ fn add(@builtin(global_invocation_id) global_id: vec3<u32>) {
     output[idx] = input_a[idx] + input_b[idx];
 }
 
+// 128-thread workgroup variant.
+@compute @workgroup_size(128)
+fn add_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output)) {
+        return;
+    }
+    output[idx] = input_a[idx] + input_b[idx];
+}
+
+// Vectorized variant: 4 elements per invocation.
+@compute @workgroup_size(256)
+fn add_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            output[idx] = input_a[idx] + input_b[idx];
+        }
+    }
+}
+
 // Element-wise multiplication: output[i] = a[i] * b[i]
 @compute @workgroup_size(256)
 fn mul(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -27,6 +53,30 @@ fn mul(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
     output[idx] = input_a[idx] * input_b[idx];
+}
+
+@compute @workgroup_size(128)
+fn mul_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output)) {
+        return;
+    }
+    output[idx] = input_a[idx] * input_b[idx];
+}
+
+@compute @workgroup_size(256)
+fn mul_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            output[idx] = input_a[idx] * input_b[idx];
+        }
+    }
 }
 
 // Element-wise subtraction: output[i] = a[i] - b[i]
@@ -39,6 +89,30 @@ fn sub(@builtin(global_invocation_id) global_id: vec3<u32>) {
     output[idx] = input_a[idx] - input_b[idx];
 }
 
+@compute @workgroup_size(128)
+fn sub_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output)) {
+        return;
+    }
+    output[idx] = input_a[idx] - input_b[idx];
+}
+
+@compute @workgroup_size(256)
+fn sub_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            output[idx] = input_a[idx] - input_b[idx];
+        }
+    }
+}
+
 // Element-wise division: output[i] = a[i] / b[i]
 @compute @workgroup_size(256)
 fn div(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -49,6 +123,30 @@ fn div(@builtin(global_invocation_id) global_id: vec3<u32>) {
     output[idx] = input_a[idx] / input_b[idx];
 }
 
+@compute @workgroup_size(128)
+fn div_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output)) {
+        return;
+    }
+    output[idx] = input_a[idx] / input_b[idx];
+}
+
+@compute @workgroup_size(256)
+fn div_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            output[idx] = input_a[idx] / input_b[idx];
+        }
+    }
+}
+
 // Element-wise maximum: output[i] = max(a[i], b[i])
 @compute @workgroup_size(256)
 fn maximum(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -57,6 +155,30 @@ fn maximum(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
     output[idx] = max(input_a[idx], input_b[idx]);
+}
+
+@compute @workgroup_size(128)
+fn maximum_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output)) {
+        return;
+    }
+    output[idx] = max(input_a[idx], input_b[idx]);
+}
+
+@compute @workgroup_size(256)
+fn maximum_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            output[idx] = max(input_a[idx], input_b[idx]);
+        }
+    }
 }
 
 // ============================================================================
@@ -77,6 +199,32 @@ fn relu(@builtin(global_invocation_id) global_id: vec3<u32>) {
     output_unary[idx] = select(0.0, x, x > 0.0);
 }
 
+@compute @workgroup_size(128)
+fn relu_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output_unary)) {
+        return;
+    }
+    let x = input[idx];
+    output_unary[idx] = select(0.0, x, x > 0.0);
+}
+
+@compute @workgroup_size(256)
+fn relu_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output_unary);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            let x = input[idx];
+            output_unary[idx] = select(0.0, x, x > 0.0);
+        }
+    }
+}
+
 // Sigmoid: output[i] = 1 / (1 + exp(-x))
 @compute @workgroup_size(256)
 fn sigmoid(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -86,6 +234,32 @@ fn sigmoid(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
     let x = input[idx];
     output_unary[idx] = 1.0 / (1.0 + exp(-x));
+}
+
+@compute @workgroup_size(128)
+fn sigmoid_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output_unary)) {
+        return;
+    }
+    let x = input[idx];
+    output_unary[idx] = 1.0 / (1.0 + exp(-x));
+}
+
+@compute @workgroup_size(256)
+fn sigmoid_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output_unary);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            let x = input[idx];
+            output_unary[idx] = 1.0 / (1.0 + exp(-x));
+        }
+    }
 }
 
 // Tanh: output[i] = tanh(x)
@@ -98,6 +272,30 @@ fn tanh_op(@builtin(global_invocation_id) global_id: vec3<u32>) {
     output_unary[idx] = tanh(input[idx]);
 }
 
+@compute @workgroup_size(128)
+fn tanh_op_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output_unary)) {
+        return;
+    }
+    output_unary[idx] = tanh(input[idx]);
+}
+
+@compute @workgroup_size(256)
+fn tanh_op_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output_unary);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            output_unary[idx] = tanh(input[idx]);
+        }
+    }
+}
+
 // Exponential: output[i] = exp(x)
 @compute @workgroup_size(256)
 fn exp_op(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -106,6 +304,30 @@ fn exp_op(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
     output_unary[idx] = exp(input[idx]);
+}
+
+@compute @workgroup_size(128)
+fn exp_op_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output_unary)) {
+        return;
+    }
+    output_unary[idx] = exp(input[idx]);
+}
+
+@compute @workgroup_size(256)
+fn exp_op_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output_unary);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            output_unary[idx] = exp(input[idx]);
+        }
+    }
 }
 
 // Natural logarithm: output[i] = log(x)
@@ -118,6 +340,30 @@ fn log_op(@builtin(global_invocation_id) global_id: vec3<u32>) {
     output_unary[idx] = log(input[idx]);
 }
 
+@compute @workgroup_size(128)
+fn log_op_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output_unary)) {
+        return;
+    }
+    output_unary[idx] = log(input[idx]);
+}
+
+@compute @workgroup_size(256)
+fn log_op_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output_unary);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            output_unary[idx] = log(input[idx]);
+        }
+    }
+}
+
 // Square root: output[i] = sqrt(x)
 @compute @workgroup_size(256)
 fn sqrt_op(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -128,6 +374,30 @@ fn sqrt_op(@builtin(global_invocation_id) global_id: vec3<u32>) {
     output_unary[idx] = sqrt(input[idx]);
 }
 
+@compute @workgroup_size(128)
+fn sqrt_op_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output_unary)) {
+        return;
+    }
+    output_unary[idx] = sqrt(input[idx]);
+}
+
+@compute @workgroup_size(256)
+fn sqrt_op_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output_unary);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            output_unary[idx] = sqrt(input[idx]);
+        }
+    }
+}
+
 // Negation: output[i] = -x
 @compute @workgroup_size(256)
 fn neg(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -136,6 +406,30 @@ fn neg(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
     output_unary[idx] = -input[idx];
+}
+
+@compute @workgroup_size(128)
+fn neg_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output_unary)) {
+        return;
+    }
+    output_unary[idx] = -input[idx];
+}
+
+@compute @workgroup_size(256)
+fn neg_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output_unary);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            output_unary[idx] = -input[idx];
+        }
+    }
 }
 
 // ============================================================================
@@ -156,6 +450,30 @@ fn add_scalar(@builtin(global_invocation_id) global_id: vec3<u32>) {
     output_scalar[idx] = input_scalar_op[idx] + scalar;
 }
 
+@compute @workgroup_size(128)
+fn add_scalar_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output_scalar)) {
+        return;
+    }
+    output_scalar[idx] = input_scalar_op[idx] + scalar;
+}
+
+@compute @workgroup_size(256)
+fn add_scalar_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output_scalar);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            output_scalar[idx] = input_scalar_op[idx] + scalar;
+        }
+    }
+}
+
 // Multiply scalar: output[i] = input[i] * scalar
 @compute @workgroup_size(256)
 fn mul_scalar(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -164,6 +482,30 @@ fn mul_scalar(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
     output_scalar[idx] = input_scalar_op[idx] * scalar;
+}
+
+@compute @workgroup_size(128)
+fn mul_scalar_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output_scalar)) {
+        return;
+    }
+    output_scalar[idx] = input_scalar_op[idx] * scalar;
+}
+
+@compute @workgroup_size(256)
+fn mul_scalar_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output_scalar);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            output_scalar[idx] = input_scalar_op[idx] * scalar;
+        }
+    }
 }
 
 // Greater-than scalar: output[i] = 1.0 if input[i] > scalar else 0.0
@@ -175,6 +517,32 @@ fn gt_scalar(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
     let x = input_scalar_op[idx];
     output_scalar[idx] = select(0.0, 1.0, x > scalar);
+}
+
+@compute @workgroup_size(128)
+fn gt_scalar_wg128(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&output_scalar)) {
+        return;
+    }
+    let x = input_scalar_op[idx];
+    output_scalar[idx] = select(0.0, 1.0, x > scalar);
+}
+
+@compute @workgroup_size(256)
+fn gt_scalar_vec4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let base = global_id.x * 4u;
+    let n = arrayLength(&output_scalar);
+    if (base >= n) {
+        return;
+    }
+    for (var i: u32 = 0u; i < 4u; i = i + 1u) {
+        let idx = base + i;
+        if (idx < n) {
+            let x = input_scalar_op[idx];
+            output_scalar[idx] = select(0.0, 1.0, x > scalar);
+        }
+    }
 }
 
 // ============================================================================
@@ -247,6 +615,59 @@ fn matmul_tiled(
     }
     
     // Write result
+    if (row < m && col < n) {
+        matrix_c[row * n + col] = sum;
+    }
+}
+
+// Smaller-tile variant for small matrices.
+const TILE_SIZE_8: u32 = 8u;
+var<workgroup> tile_a_8: array<f32, 64>; // 8 * 8
+var<workgroup> tile_b_8: array<f32, 64>;
+
+@compute @workgroup_size(8, 8, 1)
+fn matmul_tiled_8(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(local_invocation_id) local_id: vec3<u32>,
+    @builtin(workgroup_id) workgroup_id: vec3<u32>
+) {
+    let row = global_id.y;
+    let col = global_id.x;
+    let m = matmul_params.m;
+    let n = matmul_params.n;
+    let k = matmul_params.k;
+
+    let local_row = local_id.y;
+    let local_col = local_id.x;
+    let local_idx = local_row * TILE_SIZE_8 + local_col;
+
+    var sum: f32 = 0.0;
+
+    var num_tiles = (k + TILE_SIZE_8 - 1u) / TILE_SIZE_8;
+    for (var t: u32 = 0u; t < num_tiles; t = t + 1u) {
+        let a_col = t * TILE_SIZE_8 + local_col;
+        if (row < m && a_col < k) {
+            tile_a_8[local_idx] = matrix_a[row * k + a_col];
+        } else {
+            tile_a_8[local_idx] = 0.0;
+        }
+
+        let b_row = t * TILE_SIZE_8 + local_row;
+        if (b_row < k && col < n) {
+            tile_b_8[local_idx] = matrix_b[b_row * n + col];
+        } else {
+            tile_b_8[local_idx] = 0.0;
+        }
+
+        workgroupBarrier();
+
+        for (var i: u32 = 0u; i < TILE_SIZE_8; i = i + 1u) {
+            sum = sum + tile_a_8[local_row * TILE_SIZE_8 + i] * tile_b_8[i * TILE_SIZE_8 + local_col];
+        }
+
+        workgroupBarrier();
+    }
+
     if (row < m && col < n) {
         matrix_c[row * n + col] = sum;
     }

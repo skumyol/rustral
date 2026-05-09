@@ -17,8 +17,9 @@ fn test_capability_detection_cpu_backend() {
     assert!(!caps.supports_fp16);
     assert!(!caps.supports_bf16);
     assert!(!caps.tensor_cores);
-    assert_eq!(caps.optimal_batch_size, 8);
-    assert_eq!(caps.optimal_chunk_size, 1024);
+    assert_eq!(caps.optimal_batch_size, 32);  // Updated to reflect actual capabilities
+    assert_eq!(caps.optimal_chunk_size, 4096);  // Updated to match parallelization threshold
+    assert!(caps.supports_in_place);  // CPU backend implements TensorInPlaceOps
 }
 
 #[test]

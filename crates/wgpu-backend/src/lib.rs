@@ -27,6 +27,19 @@ pub use profiler::{BandwidthCalculator, GpuProfiler, ProfileEvent, ProfileSummar
 
 /// Maximum workgroup size for compute shaders.
 const WORKGROUP_SIZE: u32 = 256;
+const WORKGROUP_SIZE_128: u32 = 128;
+
+fn wgpu_env_workgroup_size() -> u32 {
+    match std::env::var("RUSTRAL_WGPU_WORKGROUP").ok().as_deref() {
+        Some("128") => WORKGROUP_SIZE_128,
+        Some("256") => WORKGROUP_SIZE,
+        _ => WORKGROUP_SIZE,
+    }
+}
+
+fn wgpu_env_vectorized() -> bool {
+    std::env::var("RUSTRAL_WGPU_VECTORIZED").as_deref() == Ok("1")
+}
 
 /// Bind group layout for binary operations (add, mul, sub, div).
 fn create_binary_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
@@ -261,21 +274,36 @@ impl ComputeKernel {
     }
 
     /// Create a binary operation kernel (add, mul, sub, div).
-    fn binary_op(device: &wgpu::Device, shader_code: &str, entry_point: &str) -> CoreResult<Self> {
+    fn binary_op(
+        device: &wgpu::Device,
+        shader_code: &str,
+        entry_point: &str,
+        workgroup_size: u32,
+    ) -> CoreResult<Self> {
         let layout = create_binary_bind_group_layout(device);
-        Self::new(device, shader_code, entry_point, layout, WORKGROUP_SIZE)
+        Self::new(device, shader_code, entry_point, layout, workgroup_size)
     }
 
     /// Create a unary operation kernel (relu, sigmoid, tanh, etc).
-    fn unary_op(device: &wgpu::Device, shader_code: &str, entry_point: &str) -> CoreResult<Self> {
+    fn unary_op(
+        device: &wgpu::Device,
+        shader_code: &str,
+        entry_point: &str,
+        workgroup_size: u32,
+    ) -> CoreResult<Self> {
         let layout = create_unary_bind_group_layout(device);
-        Self::new(device, shader_code, entry_point, layout, WORKGROUP_SIZE)
+        Self::new(device, shader_code, entry_point, layout, workgroup_size)
     }
 
     /// Create a scalar operation kernel (add_scalar, mul_scalar, gt_scalar).
-    fn scalar_op(device: &wgpu::Device, shader_code: &str, entry_point: &str) -> CoreResult<Self> {
+    fn scalar_op(
+        device: &wgpu::Device,
+        shader_code: &str,
+        entry_point: &str,
+        workgroup_size: u32,
+    ) -> CoreResult<Self> {
         let layout = create_scalar_bind_group_layout(device);
-        Self::new(device, shader_code, entry_point, layout, WORKGROUP_SIZE)
+        Self::new(device, shader_code, entry_point, layout, workgroup_size)
     }
 
     /// Create a dropout operation kernel with uniform params.
@@ -448,22 +476,38 @@ impl ComputeKernelCache {
     /// Create a new kernel cache with pre-loaded shader code.
     fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
         let shader_code = include_str!("shaders.wgsl").to_string();
-        Self { device, queue, kernels: HashMap::new(), shader_code }
+        Self {
+            device,
+            queue,
+            kernels: HashMap::new(),
+            shader_code,
+        }
+    }
+
+    fn select_entry_point(base: &str, workgroup_size: u32, vectorized: bool) -> String {
+        if vectorized {
+            // Vectorized kernels exist only for wg256 in this backend.
+            format!("{base}_vec4")
+        } else if workgroup_size == WORKGROUP_SIZE_128 {
+            format!("{base}_wg128")
+        } else {
+            base.to_string()
+        }
     }
 
     /// Get or create a binary operation kernel.
-    fn get_binary_kernel(&mut self, entry_point: &str) -> CoreResult<&ComputeKernel> {
+    fn get_binary_kernel(&mut self, entry_point: &str, workgroup_size: u32) -> CoreResult<&ComputeKernel> {
         if !self.kernels.contains_key(entry_point) {
-            let kernel = ComputeKernel::binary_op(&self.device, &self.shader_code, entry_point)?;
+            let kernel = ComputeKernel::binary_op(&self.device, &self.shader_code, entry_point, workgroup_size)?;
             self.kernels.insert(entry_point.to_string(), kernel);
         }
         Ok(self.kernels.get(entry_point).unwrap())
     }
 
     /// Get or create a unary operation kernel.
-    fn get_unary_kernel(&mut self, entry_point: &str) -> CoreResult<&ComputeKernel> {
+    fn get_unary_kernel(&mut self, entry_point: &str, workgroup_size: u32) -> CoreResult<&ComputeKernel> {
         if !self.kernels.contains_key(entry_point) {
-            let kernel = ComputeKernel::unary_op(&self.device, &self.shader_code, entry_point)?;
+            let kernel = ComputeKernel::unary_op(&self.device, &self.shader_code, entry_point, workgroup_size)?;
             self.kernels.insert(entry_point.to_string(), kernel);
         }
         Ok(self.kernels.get(entry_point).unwrap())
@@ -487,8 +531,12 @@ impl ComputeKernelCache {
 
         let device = self.device.clone();
         let queue = self.queue.clone();
-        let kernel = self.get_binary_kernel(entry_point)?;
-        kernel.dispatch_binary(&device, &queue, &a.buffer, &b.buffer, &output_buffer, num_elements);
+        let wg = wgpu_env_workgroup_size();
+        let vec4 = wgpu_env_vectorized();
+        let entry_point = Self::select_entry_point(entry_point, wg, vec4);
+        let kernel = self.get_binary_kernel(&entry_point, wg)?;
+        let invocations = if vec4 { (num_elements + 3) / 4 } else { num_elements };
+        kernel.dispatch_binary(&device, &queue, &a.buffer, &b.buffer, &output_buffer, invocations);
 
         Ok(GpuTensor { buffer: Arc::new(output_buffer), shape: output_shape.to_vec(), size: num_elements })
     }
@@ -505,16 +553,20 @@ impl ComputeKernelCache {
 
         let device = self.device.clone();
         let queue = self.queue.clone();
-        let kernel = self.get_unary_kernel(entry_point)?;
-        kernel.dispatch_unary(&device, &queue, &x.buffer, &output_buffer, num_elements);
+        let wg = wgpu_env_workgroup_size();
+        let vec4 = wgpu_env_vectorized();
+        let entry_point = Self::select_entry_point(entry_point, wg, vec4);
+        let kernel = self.get_unary_kernel(&entry_point, wg)?;
+        let invocations = if vec4 { (num_elements + 3) / 4 } else { num_elements };
+        kernel.dispatch_unary(&device, &queue, &x.buffer, &output_buffer, invocations);
 
         Ok(GpuTensor { buffer: Arc::new(output_buffer), shape: x.shape.clone(), size: num_elements })
     }
 
     /// Get or create a scalar operation kernel.
-    fn get_scalar_kernel(&mut self, entry_point: &str) -> CoreResult<&ComputeKernel> {
+    fn get_scalar_kernel(&mut self, entry_point: &str, workgroup_size: u32) -> CoreResult<&ComputeKernel> {
         if !self.kernels.contains_key(entry_point) {
-            let kernel = ComputeKernel::scalar_op(&self.device, &self.shader_code, entry_point)?;
+            let kernel = ComputeKernel::scalar_op(&self.device, &self.shader_code, entry_point, workgroup_size)?;
             self.kernels.insert(entry_point.to_string(), kernel);
         }
         Ok(self.kernels.get(entry_point).unwrap())
@@ -539,8 +591,12 @@ impl ComputeKernelCache {
 
         let device = self.device.clone();
         let queue = self.queue.clone();
-        let kernel = self.get_scalar_kernel(entry_point)?;
-        kernel.dispatch_scalar(&device, &queue, &x.buffer, &output_buffer, &scalar_buffer, num_elements);
+        let wg = wgpu_env_workgroup_size();
+        let vec4 = wgpu_env_vectorized();
+        let entry_point = Self::select_entry_point(entry_point, wg, vec4);
+        let kernel = self.get_scalar_kernel(&entry_point, wg)?;
+        let invocations = if vec4 { (num_elements + 3) / 4 } else { num_elements };
+        kernel.dispatch_scalar(&device, &queue, &x.buffer, &output_buffer, &scalar_buffer, invocations);
 
         Ok(GpuTensor { buffer: Arc::new(output_buffer), shape: x.shape.clone(), size: num_elements })
     }
@@ -624,7 +680,7 @@ impl ComputeKernelCache {
         if !self.kernels.contains_key(entry_point) {
             let layout = create_gather_bind_group_layout(&self.device);
             let kernel =
-                ComputeKernel::new(&self.device, &self.shader_code, entry_point, layout, WORKGROUP_SIZE)?;
+                ComputeKernel::new(&self.device, &self.shader_code, entry_point, layout, wgpu_env_workgroup_size())?;
             self.kernels.insert(entry_point.to_string(), kernel);
         }
         let kernel = self.kernels.get(entry_point).unwrap();
@@ -640,7 +696,8 @@ impl ComputeKernelCache {
             ],
         });
 
-        let workgroups = ((output_size as u32) + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+        let wg = wgpu_env_workgroup_size();
+        let workgroups = ((output_size as u32) + wg - 1) / wg;
 
         let mut encoder = self
             .device
@@ -689,7 +746,21 @@ impl ComputeKernelCache {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let entry_point = "matmul_tiled";
+        let requested_tile =
+            std::env::var("RUSTRAL_WGPU_MATMUL_TILE").ok().and_then(|v| v.parse::<u32>().ok());
+        let tile = match requested_tile {
+            Some(8) => 8u32,
+            Some(16) => 16u32,
+            _ => {
+                // Heuristic: smaller tile tends to help tiny shapes; keep default conservative.
+                if m <= 96 && n <= 96 && k <= 96 { 8u32 } else { 16u32 }
+            }
+        };
+
+        // Autotuning is implemented in `rustral-autotuner` (which depends on this crate),
+        // so the backend itself stays cycle-free. Selection remains configurable via
+        // env var `RUSTRAL_WGPU_MATMUL_TILE` or the heuristic above.
+        let entry_point = if tile == 8 { "matmul_tiled_8" } else { "matmul_tiled" };
         if !self.kernels.contains_key(entry_point) {
             let layout = self.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("matmul_layout"),
@@ -746,7 +817,7 @@ impl ComputeKernelCache {
                 &self.shader_code,
                 entry_point,
                 layout,
-                16, // 16x16 workgroup for matmul
+                tile, // tile x tile workgroup for matmul variants
             )?;
             self.kernels.insert(entry_point.to_string(), kernel);
         }
@@ -764,8 +835,8 @@ impl ComputeKernelCache {
             ],
         });
 
-        let workgroups_x = ((n as u32) + 15) / 16;
-        let workgroups_y = ((m as u32) + 15) / 16;
+        let workgroups_x = ((n as u32) + (tile - 1)) / tile;
+        let workgroups_y = ((m as u32) + (tile - 1)) / tile;
 
         let mut encoder = self
             .device
@@ -961,7 +1032,12 @@ impl WgpuBackend {
     ///
     /// This will select the first available GPU (or software fallback).
     pub async fn new() -> std::result::Result<Self, WgpuError> {
-        let instance = wgpu::Instance::default();
+        // Prefer Vulkan on Linux to avoid flaky EGL/GLES contexts in headless environments.
+        // Fallback to default backends if Vulkan is unavailable.
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::VULKAN,
+            ..Default::default()
+        });
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -970,6 +1046,15 @@ impl WgpuBackend {
                 force_fallback_adapter: false,
             })
             .await
+            .or_else(|| {
+                // Vulkan unavailable — try default backend selection.
+                let instance = wgpu::Instance::default();
+                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::HighPerformance,
+                    compatible_surface: None,
+                    force_fallback_adapter: false,
+                }))
+            })
             .ok_or(WgpuError::NoAdapter)?;
 
         let (device, queue) = adapter
@@ -1044,6 +1129,10 @@ impl Backend for WgpuBackend {
 
     fn ops(&self) -> &dyn TensorOps<Self> {
         &self.ops
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn capabilities(&self) -> BackendCapabilities {
@@ -1377,6 +1466,14 @@ impl TensorOps<WgpuBackend> for WgpuOps {
         self.kernel_cache.write().unwrap().execute_dropout(x, p, seed, training)
     }
 
+    fn dropout_with_seed(&self, x: &GpuTensor, p: f32, seed: u64, training: bool) -> CoreResult<GpuTensor> {
+        let seed = (seed as u32) ^ ((seed >> 32) as u32);
+        self.kernel_cache
+            .write()
+            .unwrap()
+            .execute_dropout(x, p, seed, training)
+    }
+
     fn concat(&self, _tensors: &[&GpuTensor], _dim: usize) -> CoreResult<GpuTensor> {
         Err(CoreError::Backend("GPU concat".into()))
     }
@@ -1529,8 +1626,12 @@ mod tests {
     fn get_backend() -> Option<WgpuBackend> {
         match WgpuBackend::new_sync() {
             Ok(b) => Some(b),
-            Err(_) => {
-                println!("Skipping wgpu test - no GPU available");
+            Err(e) => {
+                let require = std::env::var("RUSTRAL_REQUIRE_GPU").as_deref() == Ok("1");
+                if require {
+                    panic!("RUSTRAL_REQUIRE_GPU=1 but WGPU backend init failed: {e:?}");
+                }
+                println!("Skipping wgpu test - GPU init failed: {e:?}");
                 None
             }
         }

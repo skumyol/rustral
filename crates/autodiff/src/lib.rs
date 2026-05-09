@@ -6,8 +6,9 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
-use rustral_core::{Backend, ForwardCtx, Parameter, ParameterId, Result};
+use rustral_core::{Backend, DeviceType, ForwardCtx, Parameter, ParameterId, Result, ShapeBucket};
 
 pub mod checkpoint;
 
@@ -25,6 +26,27 @@ impl TensorId {
 }
 
 static NEXT_TENSOR_ID: AtomicU64 = AtomicU64::new(1);
+
+fn device_type_for_backend<B: Backend>() -> DeviceType {
+    let name = std::any::type_name::<B>();
+    if name.contains("ndarray_backend") || name.contains("CpuBackend") {
+        DeviceType::Cpu
+    } else if name.contains("wgpu") || name.contains("WgpuBackend") {
+        DeviceType::Wgpu
+    } else if name.contains("CandleBackend") || name.contains("candle") {
+        DeviceType::Cuda
+    } else {
+        DeviceType::Unknown
+    }
+}
+
+fn record_profile<B: Backend>(ctx: &ForwardCtx<B>, op: &'static str, elapsed: std::time::Duration, out: &B::Tensor) {
+    let Some(prof) = ctx.profiler() else { return };
+    let Ok(mut p) = prof.lock() else { return };
+    let shape = ctx.backend().ops().shape(out);
+    let bucket = Some(ShapeBucket::from_dims(&shape));
+    p.record_operation_internal(op, elapsed, None, None, device_type_for_backend::<B>(), bucket);
+}
 
 /// Backward for GELU tanh approximation: `0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))`.
 fn gelu_backward_chain<B: Backend>(
@@ -188,7 +210,9 @@ impl<B: Backend> Tape<B> {
     {
         let a_val = self.get_value(a)?.clone();
         let b_val = self.get_value(b)?.clone();
+        let t0 = Instant::now();
         let out = ctx.backend().ops().mul(&a_val, &b_val)?;
+        record_profile(ctx, "mul", t0.elapsed(), &out);
 
         // Store values for backward pass
         Ok(self.record(&[a, b], out, move |grad_out, _store, ops| {
@@ -206,7 +230,9 @@ impl<B: Backend> Tape<B> {
     {
         let a_val = self.get_value(a)?.clone();
         let b_val = self.get_value(b)?.clone();
+        let t0 = Instant::now();
         let out = ctx.backend().ops().add(&a_val, &b_val)?;
+        record_profile(ctx, "add", t0.elapsed(), &out);
 
         Ok(self.record(&[a, b], out, move |grad_out, _store, _ops| {
             // d(a+b)/da = 1, d(a+b)/db = 1
@@ -233,7 +259,9 @@ impl<B: Backend> Tape<B> {
         B::Tensor: Clone,
     {
         let a_val = self.get_value(a)?.clone();
+        let t0 = Instant::now();
         let out = ctx.backend().ops().relu(&a_val)?;
+        record_profile(ctx, "relu", t0.elapsed(), &out);
 
         // Store input for backward (to check which elements were > 0)
         Ok(self.record(&[a], out.clone(), move |grad_out, _store, ops| {
@@ -252,7 +280,9 @@ impl<B: Backend> Tape<B> {
         B::Tensor: Clone,
     {
         let a_val = self.get_value(a)?.clone();
+        let t0 = Instant::now();
         let out = ctx.backend().ops().gelu(&a_val)?;
+        record_profile(ctx, "gelu", t0.elapsed(), &out);
 
         Ok(self.record(&[a], out, move |grad_out, _store, ops| {
             gelu_backward_chain(ops, &a_val, grad_out)
@@ -269,7 +299,9 @@ impl<B: Backend> Tape<B> {
     {
         let a_val = self.get_value(a)?.clone();
         let b_val = self.get_value(b)?.clone();
+        let t0 = Instant::now();
         let out = ctx.backend().ops().matmul(&a_val, &b_val)?;
+        record_profile(ctx, "matmul", t0.elapsed(), &out);
 
         // Move values into the closure so they're owned and 'static
         Ok(self.record(&[a, b], out, move |grad_out, _store, ops| {
@@ -294,7 +326,9 @@ impl<B: Backend> Tape<B> {
         B::Tensor: Clone,
     {
         let x_val = self.get_value(x)?.clone();
+        let t0 = Instant::now();
         let out = ctx.backend().ops().transpose(&x_val)?;
+        record_profile(ctx, "transpose", t0.elapsed(), &out);
         Ok(self.record(&[x], out, move |grad_out, _store, ops| {
             let grad_x = ops.transpose(grad_out)?;
             Ok(vec![grad_x])
@@ -538,10 +572,12 @@ impl<B: Backend> Tape<B> {
         }
         // Prefer axis-aware softmax when supported; fall back to row-wise default softmax.
         let last_dim = in_shape.len() - 1;
+        let t0 = Instant::now();
         let out = match ops_for_shape.softmax_dim(&a_val, last_dim) {
             Ok(t) => t,
             Err(_) => ops_for_shape.softmax(&a_val)?,
         };
+        record_profile(ctx, "softmax", t0.elapsed(), &out);
         let out_shape = in_shape.clone();
 
         Ok(self.record(&[a], out.clone(), move |grad_out, _store, ops| {
