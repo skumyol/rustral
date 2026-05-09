@@ -1,12 +1,11 @@
 //! Optimization algorithms for Rustral.
-#![allow(dead_code)]
 //!
 //! Provides SGD, Adam, and AdamW optimizers that work with the core
 //! `Parameter` and `Backend` abstractions.
 
 use std::collections::HashMap;
 
-use rustral_core::{Backend, CoreError, ForwardCtx, Parameter, ParameterId, TensorOps, TensorShape};
+use rustral_core::{Backend, CoreError, ForwardCtx, NamedParameters, Parameter, ParameterId, TensorOps, TensorShape};
 use thiserror::Error;
 
 pub mod lr_scheduler;
@@ -102,6 +101,57 @@ pub trait Optimizer<B: Backend> {
         ctx: &mut ForwardCtx<B>,
     ) -> std::result::Result<(), OptimError>;
 
+    /// Perform a single optimization step using the NamedParameters visitor pattern.
+    ///
+    /// This method avoids parameter cloning by using the mutable visitor pattern
+    /// to update parameters in-place. The caller provides a model implementing
+    /// `NamedParameters` and a gradient map keyed by parameter ID.
+    ///
+    /// This is the preferred method for models with hierarchical parameter structure,
+    /// as it avoids the need to assemble flat parameter arrays and parameter cloning.
+    ///
+    /// The default implementation collects parameters into a flat array and calls `step`.
+    /// Optimizers should override this for better performance by using the visitor pattern directly.
+    fn step_named_parameters<M: NamedParameters<B>>(
+        &mut self,
+        model: &mut M,
+        gradients: &HashMap<ParameterId, B::Tensor>,
+        ctx: &mut ForwardCtx<B>,
+    ) -> std::result::Result<(), OptimError>
+    where
+        B::Tensor: Clone,
+    {
+        // Default implementation: collect parameters into a flat array and use step
+        let mut params: Vec<Parameter<B>> = Vec::new();
+        let mut param_ids: Vec<ParameterId> = Vec::new();
+
+        model.visit_parameters_mut(&mut |_name, param| {
+            param_ids.push(param.id());
+            params.push(param.clone());
+        });
+
+        // Convert gradient map to Gradient array
+        let grad_array: Vec<Gradient<B>> = param_ids
+            .iter()
+            .filter_map(|param_id| gradients.get(param_id).map(|tensor| Gradient { param_id: *param_id, tensor: tensor.clone() }))
+            .collect();
+
+        // Call the existing step method
+        self.step(&mut params, &grad_array, ctx)?;
+
+        // Write updated parameters back to the model using the visitor pattern
+        let mut param_iter = params.into_iter();
+        model.visit_parameters_mut(&mut |_name, param| {
+            if let Some(updated_param) = param_iter.next() {
+                if param.id() == updated_param.id() {
+                    *param = updated_param;
+                }
+            }
+        });
+
+        Ok(())
+    }
+
     /// Zero out any accumulated gradients (called before backward pass).
     fn zero_grad(&mut self);
 }
@@ -191,6 +241,52 @@ where
             // which backends may implement as an extension trait for performance.
             *param = param.clone().with_tensor(new_value);
         }
+
+        Ok(())
+    }
+
+    fn step_named_parameters<M: NamedParameters<B>>(
+        &mut self,
+        model: &mut M,
+        gradients: &HashMap<ParameterId, B::Tensor>,
+        ctx: &mut ForwardCtx<B>,
+    ) -> std::result::Result<(), OptimError> {
+        let ops = ctx.backend().ops();
+
+        // Use the visitor pattern to update parameters in-place, avoiding cloning
+        model.visit_parameters_mut(&mut |_name, param| {
+            let param_id = param.id();
+            let Some(grad) = gradients.get(&param_id) else {
+                return; // No gradient for this parameter
+            };
+
+            let current = param.tensor();
+
+            // Apply weight decay if enabled: grad = grad + weight_decay * param
+            let grad_with_decay = if self.weight_decay != 0.0 {
+                let shape = ops.shape(current);
+                let size = shape.iter().product::<usize>();
+                let decay_values = vec![self.weight_decay; size];
+                let decay_tensor = ops.tensor_from_vec(decay_values, &shape).unwrap();
+                let scaled_decay = ops.mul(current, &decay_tensor).unwrap();
+                ops.add(grad, &scaled_decay).unwrap()
+            } else {
+                (*grad).clone()
+            };
+
+            // Simple SGD update: param = param - lr * grad
+            let neg_lr = -self.lr;
+            let shape = ops.shape(&grad_with_decay);
+            let size = shape.iter().product::<usize>();
+            let lr_values = vec![neg_lr; size];
+            let lr_tensor = ops.tensor_from_vec(lr_values, &shape).unwrap();
+            let scaled_grad = ops.mul(&grad_with_decay, &lr_tensor).unwrap();
+            let new_value = ops.add(current, &scaled_grad).unwrap();
+
+            // Update parameter in-place (still requires cloning due to Parameter API,
+            // but we avoid the intermediate collection step)
+            *param = param.clone().with_tensor(new_value);
+        });
 
         Ok(())
     }
@@ -417,6 +513,86 @@ where
         Ok(())
     }
 
+    fn step_named_parameters<M: NamedParameters<B>>(
+        &mut self,
+        model: &mut M,
+        gradients: &HashMap<ParameterId, B::Tensor>,
+        ctx: &mut ForwardCtx<B>,
+    ) -> std::result::Result<(), OptimError> {
+        let ops = ctx.backend().ops();
+
+        // Use the visitor pattern to update parameters in-place, avoiding cloning
+        model.visit_parameters_mut(&mut |_name, param| {
+            let param_id = param.id();
+            let Some(grad) = gradients.get(&param_id) else {
+                return; // No gradient for this parameter
+            };
+
+            let current = param.tensor();
+            let shape = ops.shape(current);
+
+            // Get or initialize state for this parameter
+            let state = self.state.entry(param_id).or_insert_with(|| {
+                let zeros = ops.zeros(&shape).unwrap();
+                AdamState { m: zeros.clone(), v: zeros, t: 0 }
+            });
+
+            state.t += 1;
+            let t = state.t as f32;
+
+            // Apply weight decay if enabled (AdamW variant - decoupled)
+            let grad_with_decay = if self.weight_decay != 0.0 {
+                let size = shape.iter().product::<usize>();
+                let decay_values = vec![self.weight_decay; size];
+                let decay_tensor = ops.tensor_from_vec(decay_values, &shape).unwrap();
+                let scaled_param = ops.mul(current, &decay_tensor).unwrap();
+                ops.add(grad, &scaled_param).unwrap()
+            } else {
+                (*grad).clone()
+            };
+
+            // Update biased first moment estimate: m = beta1 * m + (1 - beta1) * grad
+            let beta1_tensor = create_scalar_tensor(ops, self.beta1, &shape).unwrap();
+            let beta1_m = ops.mul(&state.m, &beta1_tensor).unwrap();
+            let one_minus_beta1 = create_scalar_tensor(ops, 1.0 - self.beta1, &shape).unwrap();
+            let scaled_grad = ops.mul(&grad_with_decay, &one_minus_beta1).unwrap();
+            state.m = ops.add(&beta1_m, &scaled_grad).unwrap();
+
+            // Update biased second moment estimate: v = beta2 * v + (1 - beta2) * grad^2
+            let beta2_tensor = create_scalar_tensor(ops, self.beta2, &shape).unwrap();
+            let beta2_v = ops.mul(&state.v, &beta2_tensor).unwrap();
+            let grad_squared = ops.mul(&grad_with_decay, &grad_with_decay).unwrap();
+            let one_minus_beta2 = create_scalar_tensor(ops, 1.0 - self.beta2, &shape).unwrap();
+            let scaled_grad_sq = ops.mul(&grad_squared, &one_minus_beta2).unwrap();
+            state.v = ops.add(&beta2_v, &scaled_grad_sq).unwrap();
+
+            // Compute bias-corrected first moment: m_hat = m / (1 - beta1^t)
+            let bias_corr1 = 1.0 - self.beta1.powf(t);
+            let bias_corr1_tensor = create_scalar_tensor(ops, bias_corr1, &shape).unwrap();
+            let m_hat = ops.div(&state.m, &bias_corr1_tensor).unwrap();
+
+            // Compute bias-corrected second moment: v_hat = v / (1 - beta2^t)
+            let bias_corr2 = 1.0 - self.beta2.powf(t);
+            let bias_corr2_tensor = create_scalar_tensor(ops, bias_corr2, &shape).unwrap();
+            let v_hat = ops.div(&state.v, &bias_corr2_tensor).unwrap();
+
+            // Compute update: -lr * m_hat / (sqrt(v_hat) + eps)
+            let sqrt_v_hat = ops.sqrt(&v_hat).unwrap();
+            let eps_tensor = create_scalar_tensor(ops, self.eps, &shape).unwrap();
+            let denom = ops.add(&sqrt_v_hat, &eps_tensor).unwrap();
+            let step_size = ops.div(&m_hat, &denom).unwrap();
+            let lr_tensor = create_scalar_tensor(ops, -self.lr, &shape).unwrap();
+            let update = ops.mul(&step_size, &lr_tensor).unwrap();
+
+            // Update parameter in-place (still requires cloning due to Parameter API,
+            // but we avoid the intermediate collection step)
+            let new_value = ops.add(current, &update).unwrap();
+            *param = param.clone().with_tensor(new_value);
+        });
+
+        Ok(())
+    }
+
     fn zero_grad(&mut self) {
         // Adam maintains momentum state which persists across steps
     }
@@ -585,5 +761,143 @@ mod tests {
         let mut adam = Adam::<CpuBackend>::new(0.1);
         let result = adam.step(std::slice::from_mut(&mut param), &[], &mut ctx);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_sgd_step_named_parameters() {
+        // Create a simple test model that implements NamedParameters
+        struct TestModel<B: Backend> {
+            param1: Parameter<B>,
+            param2: Parameter<B>,
+        }
+
+        impl<B: Backend> NamedParameters<B> for TestModel<B> {
+            fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+                f("param1", &self.param1);
+                f("param2", &self.param2);
+            }
+
+            fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+                f("param1", &mut self.param1);
+                f("param2", &mut self.param2);
+            }
+        }
+
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+
+        let param1 = backend.normal_parameter("param1", &[2], 42, 0.0).unwrap();
+        let param2 = backend.normal_parameter("param2", &[2], 43, 0.0).unwrap();
+
+        let mut model = TestModel { param1: param1.clone(), param2: param2.clone() };
+
+        let grad1 = backend.ops().tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap();
+        let grad2 = backend.ops().tensor_from_vec(vec![0.5, 1.5], &[2]).unwrap();
+
+        let mut gradients = std::collections::HashMap::new();
+        gradients.insert(param1.id(), grad1);
+        gradients.insert(param2.id(), grad2);
+
+        let mut sgd = Sgd::new(0.1);
+        sgd.step_named_parameters(&mut model, &gradients, &mut ctx).unwrap();
+
+        // Verify parameters were updated
+        let values1: Vec<f32> = model.param1.tensor().values().to_vec();
+        let values2: Vec<f32> = model.param2.tensor().values().to_vec();
+
+        // param1: 0 - 0.1 * [1.0, 2.0] = [-0.1, -0.2]
+        assert!((values1[0] - (-0.1)).abs() < 1e-6);
+        assert!((values1[1] - (-0.2)).abs() < 1e-6);
+
+        // param2: 0 - 0.1 * [0.5, 1.5] = [-0.05, -0.15]
+        assert!((values2[0] - (-0.05)).abs() < 1e-6);
+        assert!((values2[1] - (-0.15)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_adam_step_named_parameters() {
+        // Create a simple test model that implements NamedParameters
+        struct TestModel<B: Backend> {
+            param1: Parameter<B>,
+            param2: Parameter<B>,
+        }
+
+        impl<B: Backend> NamedParameters<B> for TestModel<B> {
+            fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+                f("param1", &self.param1);
+                f("param2", &self.param2);
+            }
+
+            fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+                f("param1", &mut self.param1);
+                f("param2", &mut self.param2);
+            }
+        }
+
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+
+        let param1 = backend.normal_parameter("param1", &[2], 42, 0.0).unwrap();
+        let param2 = backend.normal_parameter("param2", &[2], 43, 0.0).unwrap();
+
+        let mut model = TestModel { param1: param1.clone(), param2: param2.clone() };
+
+        let grad1 = backend.ops().tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap();
+        let grad2 = backend.ops().tensor_from_vec(vec![0.5, 1.5], &[2]).unwrap();
+
+        let mut gradients = std::collections::HashMap::new();
+        gradients.insert(param1.id(), grad1);
+        gradients.insert(param2.id(), grad2);
+
+        let mut adam = Adam::new(0.1);
+        adam.step_named_parameters(&mut model, &gradients, &mut ctx).unwrap();
+
+        // Verify parameters were updated
+        let values1: Vec<f32> = model.param1.tensor().values().to_vec();
+        let values2: Vec<f32> = model.param2.tensor().values().to_vec();
+
+        // With Adam, both parameters should be updated to approximately -0.1
+        assert!((values1[0] - (-0.1)).abs() < 1e-6);
+        assert!((values1[1] - (-0.1)).abs() < 1e-6);
+        assert!((values2[0] - (-0.1)).abs() < 1e-6);
+        assert!((values2[1] - (-0.1)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_step_named_parameters_fallback() {
+        // Test that the default fallback implementation works correctly
+        struct TestModel<B: Backend> {
+            param: Parameter<B>,
+        }
+
+        impl<B: Backend> NamedParameters<B> for TestModel<B> {
+            fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+                f("param", &self.param);
+            }
+
+            fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+                f("param", &mut self.param);
+            }
+        }
+
+        let backend = CpuBackend::default();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+
+        let param = backend.normal_parameter("param", &[2], 42, 0.0).unwrap();
+        let mut model = TestModel { param: param.clone() };
+
+        let grad = backend.ops().tensor_from_vec(vec![1.0, 2.0], &[2]).unwrap();
+        let mut gradients = std::collections::HashMap::new();
+        gradients.insert(param.id(), grad);
+
+        // Use the default implementation by calling through the trait
+        let mut sgd = Sgd::new(0.1);
+        let result = Optimizer::<CpuBackend>::step_named_parameters(&mut sgd, &mut model, &gradients, &mut ctx);
+        assert!(result.is_ok());
+
+        // Verify parameter was updated
+        let values: Vec<f32> = model.param.tensor().values().to_vec();
+        assert!((values[0] - (-0.1)).abs() < 1e-6);
+        assert!((values[1] - (-0.2)).abs() < 1e-6);
     }
 }

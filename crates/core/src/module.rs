@@ -68,7 +68,6 @@ pub trait Saveable<B: Backend> {
 /// Names must be **stable** and **hierarchical**, e.g.:
 /// - `encoder.layers.0.self_attn.q_proj.weight`
 /// - `mlp.0.weight`
-#[allow(dead_code)]
 pub trait NamedParameters<B: Backend> {
     /// Visit all parameters owned by this module (immutable).
     fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>));

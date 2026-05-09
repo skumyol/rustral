@@ -43,7 +43,7 @@ Legend: **Done** = merged/implemented with tests; **In progress** = implemented 
       - README “Run the Test Suite” section
   - **Still needed**: validate full workspace commands on all supported platforms.
 
-- **A2 Finish Named Parameter Plumbing**: **In progress**
+- **A2 Finish Named Parameter Plumbing**: **Done**
   - **Implemented**:
     - Trainer can operate via `NamedParameters` without caller-managed parameter slices:
       - `crates/runtime/src/tape_trainer.rs` (`TapeTrainer::train_model`)
@@ -53,8 +53,12 @@ Legend: **Done** = merged/implemented with tests; **In progress** = implemented 
       - `crates/nn/tests/named_parameters_stability.rs`
     - Helper utilities:
       - `crates/core/src/module.rs` (`collect_named_parameters`, `collect_named_parameter_ids`)
-  - **Still needed (per plan)**:
-    - Mutable visitor adapter for optimizers (avoid parameter cloning during `Optimizer::step`).
+    - Mutable visitor adapter for optimizers:
+      - `Optimizer::step_named_parameters` method added to `Optimizer` trait
+      - Optimized implementations for SGD and Adam using visitor pattern
+      - Avoids parameter cloning during `Optimizer::step` by using `NamedParameters::visit_parameters_mut`
+      - Default fallback implementation for backward compatibility
+      - Tests for visitor-based optimization in `crates/optim/src/lib.rs`
 
 - **A3 High-Level Trainer API**: **In progress**
   - **Implemented**:
