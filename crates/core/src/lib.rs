@@ -3,6 +3,20 @@
 //! This crate deliberately keeps state explicit. There is no global parameter
 //! collection and no implicit computation graph renewal.
 
+/// Environment variable to enable parallel reductions (non-deterministic order).
+///
+/// When set to "1", reduction operations may use parallel execution (e.g., rayon)
+/// which can improve performance but may produce non-deterministic results due to
+/// floating-point operation reordering.
+///
+/// Default: "0" (deterministic fixed-order reductions)
+pub const PARALLEL_REDUCTIONS_ENV: &str = "RUSTRAL_PARALLEL_REDUCTIONS";
+
+/// Check if parallel reductions are enabled via environment variable.
+pub fn parallel_reductions_enabled() -> bool {
+    std::env::var(PARALLEL_REDUCTIONS_ENV).as_deref() == Ok("1")
+}
+
 mod backend;
 mod context;
 mod error;
@@ -16,6 +30,7 @@ mod parameter;
 mod shape;
 mod shape_policy;
 mod tensor_pool;
+mod tolerance;
 
 pub use backend::{
     AttentionOps, Backend, BackendCapabilities, ConvLayout, FusionOps, OperationType, QuantizationOps,
@@ -41,8 +56,10 @@ pub use numerics::{
     DType, NumericsConfig, NumericsError, NumericsValidator, Tolerance, ValidationResult,
 };
 pub use operation_profiler::{
-    DeviceType, MatmulDim, OperationGuard, OperationProfiler, OperationStats, ProfilingHooks, ShapeBucket,
+    DeviceType, MatmulDim, OperationGuard, OperationProfiler, OperationStats, ProfilerSnapshot, ProfilingHooks,
+    ShapeBucket, SnapshotOp,
 };
 pub use parameter::{Parameter, ParameterGroup, ParameterId, ParameterRef};
 pub use shape::{Shape, ShapeExt, TensorShape};
 pub use tensor_pool::{PoolStats, PoolStrategy, PooledTensor, TensorPool};
+pub use tolerance::{OpFamily, ToleranceConfig};
