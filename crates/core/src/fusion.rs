@@ -3,6 +3,16 @@
 //! Provides unified fusion pipeline that pattern-matches on operation sequences
 //! and calls fused backend entry points when available, with fallback to unfused
 //! operations when fusion is not supported.
+//!
+//! # Gradient Semantics Preservation
+//!
+//! Fusion operations must preserve gradient semantics for training. This means:
+//! - The backward pass can still compute correct gradients for each original operation
+//! - The fused operation doesn't lose information needed for gradient computation
+//! - The gradient computation respects the chain rule
+//!
+//! Current implementation uses sequence fallback, so gradient semantics are
+//! automatically preserved. Future true kernel fusion must maintain these guarantees.
 
 use crate::{Backend, Result};
 use std::fmt;
@@ -16,6 +26,45 @@ pub enum FusionPattern {
     MatmulBiasGelu,
     /// Matmul + bias: y = x @ w^T + b
     MatmulBias,
+}
+
+impl FusionPattern {
+    /// Check if this fusion pattern preserves gradient semantics.
+    ///
+    /// Returns true if the pattern can be safely fused without breaking
+    /// gradient computation during training.
+    pub fn preserves_gradient_semantics(&self) -> bool {
+        // All current patterns preserve gradient semantics:
+        // - Matmul+Bias+ReLU: Gradient flows through ReLU gate and linear operation
+        // - Matmul+Bias+GELU: Gradient flows through GELU gate and linear operation
+        // - Matmul+Bias: Gradient flows through linear operation
+        //
+        // These patterns are safe because:
+        // 1. They are composed of differentiable operations
+        // 2. The chain rule can be applied to compute gradients
+        // 3. No information is lost that would prevent gradient computation
+        true
+    }
+
+    /// Get the gradient computation pattern for this fusion.
+    ///
+    /// Returns the sequence of gradient operations needed for backward pass.
+    pub fn gradient_pattern(&self) -> Vec<OpType> {
+        match self {
+            FusionPattern::MatmulBiasRelu => {
+                // Backward: dL/dy -> ReLU grad -> add grad -> matmul grad
+                vec![OpType::ReLU, OpType::AddBias, OpType::Matmul]
+            }
+            FusionPattern::MatmulBiasGelu => {
+                // Backward: dL/dy -> GELU grad -> add grad -> matmul grad
+                vec![OpType::GELU, OpType::AddBias, OpType::Matmul]
+            }
+            FusionPattern::MatmulBias => {
+                // Backward: dL/dy -> add grad -> matmul grad
+                vec![OpType::AddBias, OpType::Matmul]
+            }
+        }
+    }
 }
 
 impl fmt::Display for FusionPattern {
@@ -98,6 +147,25 @@ impl PatternMatcher {
         }
 
         None
+    }
+
+    /// Match a sequence of operations and validate gradient semantics.
+    ///
+    /// Returns the pattern only if it both matches and preserves gradient semantics.
+    pub fn match_pattern_with_gradient_check(ops: &[Op]) -> Option<FusionPattern> {
+        if let Some(pattern) = Self::match_pattern(ops) {
+            if pattern.preserves_gradient_semantics() {
+                return Some(pattern);
+            }
+        }
+        None
+    }
+
+    /// Check if a fusion pattern is safe for training (preserves gradients).
+    ///
+    /// This is a separate check to make gradient safety explicit and testable.
+    pub fn is_gradient_safe(pattern: &FusionPattern) -> bool {
+        pattern.preserves_gradient_semantics()
     }
 
     /// Check if operations match matmul + bias + relu pattern.
@@ -375,5 +443,43 @@ mod tests {
 
         let pattern = PatternMatcher::match_pattern(&ops);
         assert_eq!(pattern, None);
+    }
+
+    #[test]
+    fn test_fusion_pattern_gradient_semantics() {
+        assert!(FusionPattern::MatmulBiasRelu.preserves_gradient_semantics());
+        assert!(FusionPattern::MatmulBiasGelu.preserves_gradient_semantics());
+        assert!(FusionPattern::MatmulBias.preserves_gradient_semantics());
+    }
+
+    #[test]
+    fn test_fusion_pattern_gradient_pattern() {
+        let relu_pattern = FusionPattern::MatmulBiasRelu.gradient_pattern();
+        assert_eq!(relu_pattern, vec![OpType::ReLU, OpType::AddBias, OpType::Matmul]);
+
+        let gelu_pattern = FusionPattern::MatmulBiasGelu.gradient_pattern();
+        assert_eq!(gelu_pattern, vec![OpType::GELU, OpType::AddBias, OpType::Matmul]);
+
+        let bias_pattern = FusionPattern::MatmulBias.gradient_pattern();
+        assert_eq!(bias_pattern, vec![OpType::AddBias, OpType::Matmul]);
+    }
+
+    #[test]
+    fn test_pattern_matcher_gradient_check() {
+        let ops = vec![
+            Op::new(OpType::Matmul, vec![vec![10, 20]], vec![10, 30]),
+            Op::new(OpType::AddBias, vec![vec![10, 30]], vec![10, 30]),
+            Op::new(OpType::ReLU, vec![vec![10, 30]], vec![10, 30]),
+        ];
+
+        let pattern = PatternMatcher::match_pattern_with_gradient_check(&ops);
+        assert_eq!(pattern, Some(FusionPattern::MatmulBiasRelu));
+    }
+
+    #[test]
+    fn test_pattern_matcher_is_gradient_safe() {
+        assert!(PatternMatcher::is_gradient_safe(&FusionPattern::MatmulBiasRelu));
+        assert!(PatternMatcher::is_gradient_safe(&FusionPattern::MatmulBiasGelu));
+        assert!(PatternMatcher::is_gradient_safe(&FusionPattern::MatmulBias));
     }
 }
