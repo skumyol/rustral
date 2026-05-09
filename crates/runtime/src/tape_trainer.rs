@@ -4,10 +4,11 @@
 //! once core layers implement tape-forward.
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use rustral_autodiff::{GradExtFromStore, Tape, TensorId};
-use rustral_core::{Backend, ForwardCtx, Mode, NamedParameters, Parameter, ParameterId, Result, TensorPool};
+use rustral_core::{Backend, ForwardCtx, Mode, NamedParameters, OperationProfiler, Parameter, ParameterId, Result, TensorPool};
 use rustral_optim::{Gradient, Optimizer};
 
 use crate::EpochStats;
@@ -67,7 +68,7 @@ impl Default for TapeTrainerConfig {
 pub struct TapeTrainer<B: Backend, O: Optimizer<B>> {
     pub config: TapeTrainerConfig,
     pub optimizer: O,
-    pub tensor_pool: Option<TensorPool<B>>,
+    pub tensor_pool: Option<Arc<Mutex<TensorPool<B>>>>,
     _phantom: std::marker::PhantomData<B>,
 }
 
@@ -81,6 +82,12 @@ where
 
     /// Set an optional tensor pool for memory management during training.
     pub fn with_tensor_pool(mut self, pool: TensorPool<B>) -> Self {
+        self.tensor_pool = Some(Arc::new(Mutex::new(pool)));
+        self
+    }
+
+    /// Provide a shared tensor pool owned by the caller/runtime.
+    pub fn with_shared_tensor_pool(mut self, pool: Arc<Mutex<TensorPool<B>>>) -> Self {
         self.tensor_pool = Some(pool);
         self
     }
@@ -152,6 +159,12 @@ where
             anyhow::bail!("batch_size must be non-zero");
         }
 
+        let profiler = if std::env::var("RUSTRAL_PROFILE").as_deref() == Ok("1") {
+            Some(Arc::new(Mutex::new(OperationProfiler::new())))
+        } else {
+            None
+        };
+
         let mut stats = Vec::with_capacity(self.config.epochs);
         for epoch in 0..self.config.epochs {
             let start = Instant::now();
@@ -159,6 +172,9 @@ where
 
             for batch in data.chunks(self.config.batch_size) {
                 let mut ctx = ForwardCtx::new(backend, Mode::Train);
+                if let Some(ref p) = profiler {
+                    ctx.set_profiler(Some(p.clone()));
+                }
                 let mut tape = Tape::<B>::new();
 
                 // Register parameters for gradient extraction.
@@ -206,8 +222,10 @@ where
                     .map_err(|e| anyhow::anyhow!("{:?}", e))?;
 
                 // Call tensor pool begin_step after optimizer step for memory management
-                if let Some(ref mut pool) = self.tensor_pool {
-                    pool.begin_step();
+                if let Some(ref pool) = self.tensor_pool {
+                    if let Ok(mut p) = pool.lock() {
+                        p.begin_step();
+                    }
                 }
 
                 // Write back updated tensors by id.
@@ -226,6 +244,12 @@ where
             let mean_loss =
                 if losses.is_empty() { 0.0 } else { losses.iter().sum::<f32>() / losses.len() as f32 };
             stats.push(EpochStats { epoch, examples: data.len(), mean_loss, elapsed: start.elapsed() });
+        }
+
+        if let Some(p) = profiler {
+            if let Ok(p) = p.lock() {
+                p.print_report();
+            }
         }
 
         Ok(stats)
@@ -294,6 +318,12 @@ where
         let mut epochs: Vec<EpochStats> = Vec::with_capacity(self.config.epochs);
         let mut throughput: Vec<ThroughputStats> = Vec::with_capacity(self.config.epochs);
 
+        let profiler = if std::env::var("RUSTRAL_PROFILE").as_deref() == Ok("1") {
+            Some(Arc::new(Mutex::new(OperationProfiler::new())))
+        } else {
+            None
+        };
+
         for epoch in 0..self.config.epochs {
             let start = Instant::now();
             let mut rng =
@@ -310,6 +340,9 @@ where
             for batch_idx in indices.chunks(self.config.batch_size) {
                 batch_count += 1;
                 let mut ctx = ForwardCtx::new(backend, Mode::Train);
+                if let Some(ref p) = profiler {
+                    ctx.set_profiler(Some(p.clone()));
+                }
                 let mut tape = Tape::<B>::new();
 
                 model.visit_parameters(&mut |_name, p| {
@@ -377,8 +410,10 @@ where
                     .map_err(|e| anyhow::anyhow!("{:?}", e))?;
 
                 // Call tensor pool begin_step after optimizer step for memory management
-                if let Some(ref mut pool) = self.tensor_pool {
-                    pool.begin_step();
+                if let Some(ref pool) = self.tensor_pool {
+                    if let Ok(mut p) = pool.lock() {
+                        p.begin_step();
+                    }
                 }
 
                 let mut updated: HashMap<ParameterId, B::Tensor> = HashMap::with_capacity(params_vec.len());
@@ -425,6 +460,12 @@ where
 
             if target_to_class.is_some() && total > 0 {
                 acc_hist.push(correct as f32 / total as f32);
+            }
+        }
+
+        if let Some(p) = profiler {
+            if let Ok(p) = p.lock() {
+                p.print_report();
             }
         }
 

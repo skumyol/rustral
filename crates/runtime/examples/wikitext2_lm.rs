@@ -53,7 +53,7 @@ mod runner {
     use rustral_autodiff::{Tape, TensorId};
     #[cfg(feature = "cuda")]
     use rustral_candle_backend::CandleBackend;
-    use rustral_core::{Backend, ForwardCtx, Mode, NamedParameters, Parameter, Result};
+    use rustral_core::{Backend, ForwardCtx, Mode, NamedParameters, Parameter, PoolStrategy, Result, TensorPool};
     use rustral_data::datasets::wikitext2::load_wikitext2;
     use rustral_data::tokenizer::{WordLevelConfig, WordLevelTokenizer};
     #[cfg(not(feature = "cuda"))]
@@ -556,6 +556,18 @@ mod runner {
         let cfg =
             TapeTrainerConfig { epochs, batch_size: batch, shuffle: !overfit_tiny, seed, learning_rate: lr };
         let mut trainer = TapeTrainer::<DefaultBackend, _>::new(cfg, Adam::new(lr));
+
+        // Optional tensor pooling (high visibility) — opt-in via env var.
+        // - RUSTRAL_POOL=1 enables pooling
+        // - RUSTRAL_POOL_STRATEGY=training_arena|standard (default: training_arena)
+        if std::env::var("RUSTRAL_POOL").as_deref() == Ok("1") {
+            let strategy = match std::env::var("RUSTRAL_POOL_STRATEGY").as_deref() {
+                Ok("standard") => PoolStrategy::Standard,
+                _ => PoolStrategy::TrainingArena,
+            };
+            let pool = TensorPool::with_strategy(strategy);
+            trainer = trainer.with_tensor_pool(pool);
+        }
 
         let train_t0 = Instant::now();
         let report: TrainingReport = trainer.fit_classification(&backend, &mut model, &train)?;
