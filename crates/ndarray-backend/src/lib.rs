@@ -15,7 +15,7 @@ use rand::thread_rng;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use rustral_core::{
     Backend, BackendCapabilities, ConvLayout, CoreError, FusionOps, Parameter, Result, ShapeExt, TensorOps,
-    TrainingDtype,
+    TrainingDtype, parallel_reductions_enabled,
 };
 use serde::{Deserialize, Serialize};
 
@@ -1049,8 +1049,7 @@ impl TensorOps<CpuBackend> for CpuOps {
     fn sum_all(&self, x: &CpuTensor) -> Result<CpuTensor> {
         use wide::f32x8;
 
-        let par = std::env::var("RUSTRAL_PAR_REDUCE").as_deref() == Ok("1")
-            || std::env::var("RUSTRAL_PARALLEL_REDUCTIONS").as_deref() == Ok("1");
+        let par = parallel_reductions_enabled();
 
         let values = &x.values;
 
@@ -1092,8 +1091,7 @@ impl TensorOps<CpuBackend> for CpuOps {
         let batch = x.shape[0];
         let features = x.shape[1];
         let mut out = vec![0.0f32; features];
-        let par = std::env::var("RUSTRAL_PAR_REDUCE").as_deref() == Ok("1")
-            || std::env::var("RUSTRAL_PARALLEL_REDUCTIONS").as_deref() == Ok("1");
+        let par = parallel_reductions_enabled();
 
         // Use SIMD for feature-wise summation when features >= 8
         if features >= 8 {
@@ -1292,8 +1290,7 @@ impl TensorOps<CpuBackend> for CpuOps {
         }
         let out_len: usize = out_shape.iter().product();
         let mut out = vec![0.0f32; out_len];
-        let par = std::env::var("RUSTRAL_PAR_REDUCE").as_deref() == Ok("1")
-            || std::env::var("RUSTRAL_PARALLEL_REDUCTIONS").as_deref() == Ok("1");
+        let par = parallel_reductions_enabled();
 
         // Use SIMD for axis reduction when axis >= 8 (deterministic fixed-order)
         if axis >= 8 {

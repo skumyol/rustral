@@ -3,18 +3,23 @@
 //! This crate deliberately keeps state explicit. There is no global parameter
 //! collection and no implicit computation graph renewal.
 
-/// Environment variable to enable parallel reductions (non-deterministic order).
+/// Primary env var to enable optional parallel reductions on CPU (`ndarray-backend`).
 ///
-/// When set to "1", reduction operations may use parallel execution (e.g., rayon)
-/// which can improve performance but may produce non-deterministic results due to
-/// floating-point operation reordering.
+/// When set to `"1"`, [`parallel_reductions_enabled`] is true. See also [`PAR_REDUCE_ENV`].
 ///
-/// Default: "0" (deterministic fixed-order reductions)
+/// Parallel paths use fixed reduction order per chunk/output element; enabling this can still
+/// change numeric results versus the fully serial path due to floating-point association.
+///
+/// Default: unset or not `"1"` (serial SIMD reductions where implemented).
 pub const PARALLEL_REDUCTIONS_ENV: &str = "RUSTRAL_PARALLEL_REDUCTIONS";
 
-/// Check if parallel reductions are enabled via environment variable.
+/// Shorter alias for [`PARALLEL_REDUCTIONS_ENV`], accepted by `ndarray-backend` and this helper.
+pub const PAR_REDUCE_ENV: &str = "RUSTRAL_PAR_REDUCE";
+
+/// `true` if either [`PARALLEL_REDUCTIONS_ENV`] or [`PAR_REDUCE_ENV`] is set to `"1"`.
 pub fn parallel_reductions_enabled() -> bool {
     std::env::var(PARALLEL_REDUCTIONS_ENV).as_deref() == Ok("1")
+        || std::env::var(PAR_REDUCE_ENV).as_deref() == Ok("1")
 }
 
 mod backend;
