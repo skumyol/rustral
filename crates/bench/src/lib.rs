@@ -71,8 +71,7 @@ impl Sample {
             return 0.0;
         }
         let m = self.mean_ms();
-        let var = self.runs_ms.iter().map(|x| (x - m).powi(2)).sum::<f64>()
-            / (self.runs_ms.len() - 1) as f64;
+        let var = self.runs_ms.iter().map(|x| (x - m).powi(2)).sum::<f64>() / (self.runs_ms.len() - 1) as f64;
         var.sqrt()
     }
 
@@ -152,11 +151,7 @@ fn detect_hostname() -> String {
 fn detect_features() -> Vec<String> {
     // Surfaced from the harness orchestrator when known.
     let raw = std::env::var("RUSTRAL_BENCH_FEATURES").unwrap_or_default();
-    raw.split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .collect()
+    raw.split(',').map(str::trim).filter(|s| !s.is_empty()).map(|s| s.to_string()).collect()
 }
 
 /// Serialize a list of samples to the unified harness JSON schema (v2).

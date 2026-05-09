@@ -17,12 +17,7 @@ use crate::EpochStats;
 /// This is the building block for a high-level `fit(...)` API: the trainer owns the tape,
 /// batching, backprop, optimizer step, and metrics.
 pub trait SupervisedTapeModel<B: Backend, X, Y>: NamedParameters<B> {
-    fn forward_tape(
-        &mut self,
-        input: X,
-        tape: &mut Tape<B>,
-        ctx: &mut ForwardCtx<B>,
-    ) -> Result<TensorId>;
+    fn forward_tape(&mut self, input: X, tape: &mut Tape<B>, ctx: &mut ForwardCtx<B>) -> Result<TensorId>;
 
     fn loss_tape(
         &mut self,
@@ -259,7 +254,7 @@ where
         Y: Clone,
     {
         // Native TUI: auto-init the global dashboard on first training call.
-        #[cfg(feature = "training")]
+        #[cfg(feature = "tui")]
         crate::tui_hook::init_global_dashboard();
 
         use rand::seq::SliceRandom;
@@ -276,7 +271,8 @@ where
 
         for epoch in 0..self.config.epochs {
             let start = Instant::now();
-            let mut rng = rand::rngs::StdRng::seed_from_u64(self.config.seed ^ (epoch as u64).wrapping_mul(0x9E37));
+            let mut rng =
+                rand::rngs::StdRng::seed_from_u64(self.config.seed ^ (epoch as u64).wrapping_mul(0x9E37));
             if self.config.shuffle {
                 indices.shuffle(&mut rng);
             }
@@ -369,7 +365,7 @@ where
             epochs.push(EpochStats { epoch, examples: train.len(), mean_loss, elapsed: start.elapsed() });
 
             // Native TUI: push epoch snapshot to the global dashboard.
-            #[cfg(feature = "training")]
+            #[cfg(feature = "tui")]
             if let Some(dash) = crate::tui_hook::dashboard() {
                 let mut db = dash.lock().unwrap();
                 db.set_total_epochs(self.config.epochs as u64);

@@ -14,7 +14,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytemuck;
-use rustral_core::{Backend, CoreError, Parameter, Result as CoreResult, TensorOps};
+use rustral_core::{
+    Backend, BackendCapabilities, ConvLayout, CoreError, Parameter, Result as CoreResult, TensorOps,
+    TrainingDtype,
+};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
 
@@ -1041,6 +1044,26 @@ impl Backend for WgpuBackend {
 
     fn ops(&self) -> &dyn TensorOps<Self> {
         &self.ops
+    }
+
+    fn capabilities(&self) -> BackendCapabilities {
+        // WGPU backend capabilities - GPU but conservative defaults
+        BackendCapabilities {
+            supports_fp16: true,  // WGPU supports FP16 on most modern GPUs
+            supports_bf16: false, // BF16 support varies, conservative default
+            tensor_cores: true,   // Most GPUs have tensor cores or equivalent
+            optimal_batch_size: 16,
+            optimal_chunk_size: 2048,
+            max_allocation_size: usize::MAX,
+            prefers_contiguous: true,
+            supports_in_place: true,
+            supports_mixed_precision: true,
+            recommended_training_dtype: TrainingDtype::F16,
+            supports_fast_fp16_tensor_cores: true,
+            preferred_conv_layout: ConvLayout::NHWC, // WGPU often prefers NHWC for compatibility
+            supports_strided_layouts: true,
+            supports_packed_layouts: true,
+        }
     }
 
     fn normal_parameter(

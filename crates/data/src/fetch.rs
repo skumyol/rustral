@@ -37,15 +37,12 @@ impl std::fmt::Display for FetchError {
         match self {
             FetchError::Io(e) => write!(f, "io: {e}"),
             FetchError::Http(e) => write!(f, "http: {e}"),
-            FetchError::ChecksumMismatch { expected, actual, url } => write!(
-                f,
-                "checksum mismatch for {url}: expected sha256 {expected}, got {actual}"
-            ),
-            FetchError::Offline { url, cache_path } => write!(
-                f,
-                "RUSTRAL_DATASET_OFFLINE=1 set but {url} is not cached at {}",
-                cache_path.display()
-            ),
+            FetchError::ChecksumMismatch { expected, actual, url } => {
+                write!(f, "checksum mismatch for {url}: expected sha256 {expected}, got {actual}")
+            }
+            FetchError::Offline { url, cache_path } => {
+                write!(f, "RUSTRAL_DATASET_OFFLINE=1 set but {url} is not cached at {}", cache_path.display())
+            }
         }
     }
 }
@@ -92,8 +89,7 @@ fn is_offline() -> bool {
 /// Intended for offline / pre-staged workflows (CI, smoke tests) where the operator owns
 /// cache integrity and the upstream SHA may not yet be pinned in code.
 fn skip_checksum() -> bool {
-    std::env::var("RUSTRAL_DATASET_SKIP_CHECKSUM")
-        .is_ok_and(|s| !s.is_empty() && s != "0")
+    std::env::var("RUSTRAL_DATASET_SKIP_CHECKSUM").is_ok_and(|s| !s.is_empty() && s != "0")
 }
 
 /// Fetch a URL into the rustral cache and verify its SHA-256.

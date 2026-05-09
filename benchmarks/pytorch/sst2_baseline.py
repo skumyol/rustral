@@ -150,9 +150,19 @@ class PreLnEncoderLayer(nn.Module):
 
 
 class Sst2Transformer(nn.Module):
-    def __init__(self, vocab_size: int, seq_len: int, d_model: int, num_heads: int, ffn_dim: int, num_layers: int):
+    def __init__(
+        self,
+        vocab_size: int,
+        seq_len: int,
+        d_model: int,
+        num_heads: int,
+        ffn_dim: int,
+        num_layers: int,
+        pad_id: int,
+    ):
         super().__init__()
         self.seq_len = seq_len
+        self.pad_id = pad_id
         self.tok_embed = nn.Embedding(vocab_size, d_model)
         self.pos_embed = nn.Embedding(seq_len, d_model)
         self.layers = nn.ModuleList(
@@ -168,7 +178,10 @@ class Sst2Transformer(nn.Module):
         x = self.tok_embed(ids) + self.pos_embed(pos)  # [B, T, C]
         for layer in self.layers:
             x = layer(x, attn_mask=None)
-        pooled = x.mean(dim=1)  # [B, C]
+        # Masked mean pool (ignore right-padded positions) — matches Rustral SST-2 example.
+        mask = (ids != self.pad_id).to(dtype=x.dtype).unsqueeze(-1)
+        lengths = mask.sum(dim=1).clamp(min=1.0)
+        pooled = (x * mask).sum(dim=1) / lengths
         logits = self.head(pooled)  # [B, 2]
         return logits
 
@@ -227,6 +240,7 @@ def train_one_seed(
         num_heads=num_heads,
         ffn_dim=ffn_dim,
         num_layers=num_layers,
+        pad_id=pad_id,
     ).to(device)
 
     print(f"[seed {seed}] starting training")
@@ -332,15 +346,29 @@ def main() -> int:
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument(
+        "--curated-version",
+        default=VERSION,
+        help="version string inside the aggregate JSON (default: 0.1.0)",
+    )
+    ap.add_argument(
         "--out-json",
-        default=f"benchmarks/runs/v{VERSION}/nlp/sst2_pytorch.json",
+        default="",
+        help="output path relative to repo root (default: benchmarks/runs/v<curated-version>/nlp/sst2_pytorch.json)",
     )
     ap.add_argument(
         "--benchmark",
         action="store_true",
         help="tiny model + 1 epoch for fast CPU runs (matches run_nlp_real.py --benchmark)",
     )
+    ap.add_argument(
+        "--paper",
+        action="store_true",
+        help="larger model + 5 epochs + full train (matches Rustral --paper defaults)",
+    )
     args = ap.parse_args()
+
+    if not args.out_json:
+        args.out_json = f"benchmarks/runs/v{args.curated_version}/nlp/sst2_pytorch.json"
 
     if args.benchmark:
         args.seq_len = 16
@@ -349,6 +377,15 @@ def main() -> int:
         args.ffn_dim = 64
         args.num_layers = 1
         args.epochs = 1
+    if args.paper:
+        args.seq_len = 64
+        args.d_model = 128
+        args.num_heads = 4
+        args.ffn_dim = 256
+        args.num_layers = 2
+        args.lr = 2e-4
+        args.batch_size = 32
+        args.epochs = 5
 
     seeds = [int(s.strip()) for s in args.seeds.split(",") if s.strip()]
     vocab_path = (REPO_ROOT / args.vocab_path).resolve()
@@ -360,7 +397,7 @@ def main() -> int:
         raise SystemExit("mps requested but not available")
 
     runs: List[Dict[str, Any]] = []
-    train_cap: Optional[int] = 256 if args.benchmark else None
+    train_cap: Optional[int] = 256 if args.benchmark and not args.paper else None
     for seed in seeds:
         print(f"[sst2 pytorch] seed={seed} device={device}")
         manifest = train_one_seed(
@@ -384,7 +421,7 @@ def main() -> int:
     obj: Dict[str, Any] = {
         "schema_version": 1,
         "created_at": now_iso(),
-        "version": VERSION,
+        "version": args.curated_version,
         "task": "sst2_classifier",
         "metric": "dev_accuracy",
         "aggregate": {"mean": mean, "std": std, "n": len(accs)},

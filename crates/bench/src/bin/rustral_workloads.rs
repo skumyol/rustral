@@ -19,8 +19,8 @@ use rustral_bench::{samples_to_json, time_runs, time_train_step, Sample};
 use rustral_core::{Backend, ForwardCtx, Mode, Module, NamedParameters, Parameter};
 use rustral_ndarray_backend::CpuBackend;
 use rustral_nn::{
-    CacheConfig, Conv2d, Conv2dConfig, KVCache, MultiHeadAttention, SelfAttentionConfig,
-    TransformerDecoder, TransformerDecoderConfig, TransformerEncoder, TransformerEncoderConfig,
+    CacheConfig, Conv2d, Conv2dConfig, KVCache, MultiHeadAttention, SelfAttentionConfig, TransformerDecoder,
+    TransformerDecoderConfig, TransformerEncoder, TransformerEncoderConfig,
 };
 use rustral_optim::{Adam, Gradient, Optimizer, Sgd};
 use rustral_runtime::{load_model, save_model};
@@ -103,14 +103,10 @@ fn bench_matmul(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut V
 }
 
 fn bench_attention(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
-    for &(name, d_model, heads, seq_len) in
-        &[("small", 64usize, 4usize, 32usize), ("medium", 256, 8, 128)]
-    {
+    for &(name, d_model, heads, seq_len) in &[("small", 64usize, 4usize, 32usize), ("medium", 256, 8, 128)] {
         let config = SelfAttentionConfig::new(d_model, heads);
         let mha = MultiHeadAttention::new(backend, config, 42).unwrap();
-        let input = backend
-            .tensor_from_vec(vec![1.0f32; seq_len * d_model], &[1, seq_len, d_model])
-            .unwrap();
+        let input = backend.tensor_from_vec(vec![1.0f32; seq_len * d_model], &[1, seq_len, d_model]).unwrap();
         let runs = time_runs(
             || {
                 let mut ctx = ForwardCtx::new(backend, Mode::Inference);
@@ -136,7 +132,7 @@ fn bench_conv2d(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut V
     // Standard NCHW conv2d shapes that match PyTorch / Candle semantics
     // (filter shape `[out, in, kH, kW]` with input in_channels matching filter in_channels).
     let configs: [(&str, [usize; 4], [usize; 4]); 3] = [
-        ("small", [1, 1, 28, 28], [6, 1, 5, 5]),         // MNIST first layer
+        ("small", [1, 1, 28, 28], [6, 1, 5, 5]), // MNIST first layer
         ("medium", [4, 16, 32, 32], [16, 16, 3, 3]),
         ("large", [8, 64, 64, 64], [64, 64, 3, 3]),
     ];
@@ -211,8 +207,7 @@ fn bench_mlp_train_step(backend: &CpuBackend, repeats: usize, warmup: usize, out
 
             // Backward.
             let param_map = tape.param_map().clone();
-            let make_ones =
-                |data: Vec<f32>, shape: &[usize]| ops.tensor_from_vec(data, shape);
+            let make_ones = |data: Vec<f32>, shape: &[usize]| ops.tensor_from_vec(data, shape);
             let grads_store = tape.backward(loss, make_ones, ops).unwrap();
 
             let mut grads: Vec<Gradient<CpuBackend>> = Vec::with_capacity(params.len());
@@ -349,8 +344,8 @@ fn bench_transformer_encoder_forward(
     let seq_len = 128usize;
     let vocab_size = 1024usize;
 
-    let config = TransformerEncoderConfig::new(d_model, num_heads, num_layers, ff_dim)
-        .with_max_seq_len(seq_len);
+    let config =
+        TransformerEncoderConfig::new(d_model, num_heads, num_layers, ff_dim).with_max_seq_len(seq_len);
     let encoder = TransformerEncoder::<CpuBackend>::new(backend, config, vocab_size, 42).unwrap();
     let total_params = count_named_params(&encoder, backend);
 
@@ -392,12 +387,7 @@ fn bench_transformer_encoder_forward(
 /// - `decoder.decode_step`: average forward time over a `prefill_len + decode_steps`
 ///   long context (single call per timed iteration). Cache-accelerated decode lives in
 ///   the K3 micro-bench below.
-fn bench_decoder_prefill_decode(
-    backend: &CpuBackend,
-    repeats: usize,
-    warmup: usize,
-    out: &mut Vec<Sample>,
-) {
+fn bench_decoder_prefill_decode(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
     let d_model = 128usize;
     let num_heads = 4usize;
     let num_layers = 2usize;
@@ -407,8 +397,8 @@ fn bench_decoder_prefill_decode(
     let prefill_len = 64usize;
     let decode_total_len = prefill_len + 64; // 128 tokens total context for the "decode" step.
 
-    let config = TransformerDecoderConfig::new(d_model, num_heads, num_layers, ff_dim)
-        .with_max_seq_len(max_seq_len);
+    let config =
+        TransformerDecoderConfig::new(d_model, num_heads, num_layers, ff_dim).with_max_seq_len(max_seq_len);
     let decoder = TransformerDecoder::<CpuBackend>::new(backend, config, vocab_size, 42).unwrap();
     let total_params = count_named_params(&decoder, backend);
 
@@ -475,12 +465,7 @@ fn bench_decoder_prefill_decode(
 ///
 /// Both runs use the same cache shape (batch=1, num_heads=4, max_seq_len=256, head_dim=32).
 /// The cache is reset between iterations so each run measures the same starting state.
-fn bench_kv_cache_prefill_decode(
-    backend: &CpuBackend,
-    repeats: usize,
-    warmup: usize,
-    out: &mut Vec<Sample>,
-) {
+fn bench_kv_cache_prefill_decode(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
     let num_heads = 4usize;
     let head_dim = 32usize;
     let max_seq_len = 256usize;
@@ -490,18 +475,10 @@ fn bench_kv_cache_prefill_decode(
 
     // Prefill: append a `prefill_len`-token chunk to a fresh cache each time.
     let prefill_elems = num_heads * prefill_len * head_dim;
-    let prefill_k = backend
-        .tensor_from_vec(
-            vec![1.0f32; prefill_elems],
-            &[1, num_heads, prefill_len, head_dim],
-        )
-        .unwrap();
-    let prefill_v = backend
-        .tensor_from_vec(
-            vec![1.0f32; prefill_elems],
-            &[1, num_heads, prefill_len, head_dim],
-        )
-        .unwrap();
+    let prefill_k =
+        backend.tensor_from_vec(vec![1.0f32; prefill_elems], &[1, num_heads, prefill_len, head_dim]).unwrap();
+    let prefill_v =
+        backend.tensor_from_vec(vec![1.0f32; prefill_elems], &[1, num_heads, prefill_len, head_dim]).unwrap();
     let ops = backend.ops();
     let prefill_runs = time_runs(
         || {
@@ -526,12 +503,8 @@ fn bench_kv_cache_prefill_decode(
     // Decode: append a single token at a time to a fresh cache. Measures the per-token
     // append cost separately from prefill.
     let decode_elems = num_heads * head_dim;
-    let decode_k = backend
-        .tensor_from_vec(vec![1.0f32; decode_elems], &[1, num_heads, 1, head_dim])
-        .unwrap();
-    let decode_v = backend
-        .tensor_from_vec(vec![1.0f32; decode_elems], &[1, num_heads, 1, head_dim])
-        .unwrap();
+    let decode_k = backend.tensor_from_vec(vec![1.0f32; decode_elems], &[1, num_heads, 1, head_dim]).unwrap();
+    let decode_v = backend.tensor_from_vec(vec![1.0f32; decode_elems], &[1, num_heads, 1, head_dim]).unwrap();
     let decode_runs = time_runs(
         || {
             let mut cache = KVCache::<CpuBackend>::new(backend, cfg.clone()).unwrap();
@@ -638,9 +611,7 @@ where
     fn new(backend: &B, slabs: usize, slab_size: usize) -> rustral_core::Result<Self> {
         let mut params = Vec::with_capacity(slabs);
         for i in 0..slabs {
-            let t = backend
-                .ops()
-                .tensor_from_vec(vec![0.01f32; slab_size], &[slab_size])?;
+            let t = backend.ops().tensor_from_vec(vec![0.01f32; slab_size], &[slab_size])?;
             params.push(Parameter::new(format!("slab_{i}"), t));
         }
         Ok(Self { params })

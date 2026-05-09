@@ -12,6 +12,8 @@
 //! grow it (or to graduate into a `rustral-tokenizers` crate).
 
 use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 
 /// Padding / unknown / boundary token strings used by both tokenizers.
 pub const PAD_TOKEN: &str = "<pad>";
@@ -35,14 +37,8 @@ pub struct Vocab {
 impl Vocab {
     /// Initialise a vocabulary that just has the four reserved tokens.
     pub fn empty() -> Self {
-        let mut v = Self {
-            tokens: Vec::new(),
-            id_of: HashMap::new(),
-            pad_id: 0,
-            unk_id: 0,
-            bos_id: 0,
-            eos_id: 0,
-        };
+        let mut v =
+            Self { tokens: Vec::new(), id_of: HashMap::new(), pad_id: 0, unk_id: 0, bos_id: 0, eos_id: 0 };
         v.pad_id = v.intern(PAD_TOKEN);
         v.unk_id = v.intern(UNK_TOKEN);
         v.bos_id = v.intern(BOS_TOKEN);
@@ -99,6 +95,22 @@ pub struct WordLevelTokenizer {
 }
 
 impl WordLevelTokenizer {
+    /// Load a fixed vocabulary file: one token per line; line index is the token id.
+    ///
+    /// Blank lines are skipped. Ordering matches the file (for parity with a saved `vocab.txt`).
+    pub fn from_vocab_file(config: WordLevelConfig, path: &Path) -> std::io::Result<Self> {
+        let text = fs::read_to_string(path)?;
+        let mut vocab = Vocab::empty();
+        for line in text.lines() {
+            let t = line.trim_end();
+            if t.is_empty() {
+                continue;
+            }
+            vocab.intern(t);
+        }
+        Ok(Self { config, vocab })
+    }
+
     /// Build a tokenizer by counting tokens across `corpus_lines` (each line is a sentence
     /// or a document). Reserved tokens are always present.
     pub fn fit_from_iter<I, S>(config: WordLevelConfig, corpus_lines: I) -> Self
@@ -114,10 +126,8 @@ impl WordLevelTokenizer {
         }
 
         // Sort by descending frequency, stable on token string for reproducibility.
-        let mut ranked: Vec<(String, usize)> = counts
-            .into_iter()
-            .filter(|(_, c)| *c >= config.min_freq)
-            .collect();
+        let mut ranked: Vec<(String, usize)> =
+            counts.into_iter().filter(|(_, c)| *c >= config.min_freq).collect();
         ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
         let mut vocab = Vocab::empty();
@@ -134,9 +144,7 @@ impl WordLevelTokenizer {
 
     /// Encode a string to token ids, lowercased if configured.
     pub fn encode(&self, s: &str) -> Vec<usize> {
-        Self::raw_tokens(s, self.config.lowercase)
-            .map(|t| self.vocab.lookup(&t))
-            .collect()
+        Self::raw_tokens(s, self.config.lowercase).map(|t| self.vocab.lookup(&t)).collect()
     }
 
     /// Encode `s`, prepend `<bos>`, append `<eos>`.

@@ -2,8 +2,10 @@ use std::collections::BTreeSet;
 
 use rustral_core::NamedParameters;
 use rustral_ndarray_backend::CpuBackend;
-use rustral_nn::{chain, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, LinearBuilder, TransformerDecoder,
-    TransformerDecoderConfig, TransformerEncoder, TransformerEncoderConfig};
+use rustral_nn::{
+    chain, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, LinearBuilder, TransformerDecoder,
+    TransformerDecoderConfig, TransformerEncoder, TransformerEncoderConfig,
+};
 
 fn collect_names<B: rustral_core::Backend, M: NamedParameters<B>>(m: &M) -> Vec<String> {
     let mut names = Vec::new();
@@ -85,4 +87,3 @@ fn named_parameters_have_no_duplicates() {
     let uniq: BTreeSet<String> = names.iter().cloned().collect();
     assert_eq!(uniq.len(), names.len(), "duplicate parameter names detected");
 }
-

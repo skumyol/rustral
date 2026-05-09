@@ -63,10 +63,7 @@ fn tempdir() -> std::io::Result<PathBuf> {
     let base = std::env::temp_dir().join(format!(
         "rustral-sst2-smoke-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
     ));
     fs::create_dir_all(&base)?;
     Ok(base)

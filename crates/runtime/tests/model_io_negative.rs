@@ -123,10 +123,7 @@ fn load_model_errors_on_dtype_mismatch() {
     );
 
     let err = load_model(&mut model_b, &backend, &broken).unwrap_err();
-    assert!(
-        err.to_string().to_lowercase().contains("dtype"),
-        "expected dtype error, got: {err}"
-    );
+    assert!(err.to_string().to_lowercase().contains("dtype"), "expected dtype error, got: {err}");
 }
 
 #[test]
@@ -154,4 +151,3 @@ fn strict_load_still_preserves_outputs_on_valid_bytes() {
     let out_b_vec = backend.ops().tensor_to_vec(&out_b).unwrap();
     assert_eq!(out_a_vec, out_b_vec);
 }
-

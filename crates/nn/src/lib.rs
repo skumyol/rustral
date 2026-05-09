@@ -18,6 +18,7 @@ mod conv;
 mod dropout;
 mod embedding;
 mod expert_choice;
+mod fusion_helper;
 mod kv_cache;
 mod linear;
 mod loss;
@@ -53,6 +54,7 @@ pub use expert_choice::{
     ExpertAssignments, ExpertChoiceConfig, ExpertChoiceRouter, ExpertChoiceStats, RoutingComparison,
     TokenAssignment,
 };
+pub use fusion_helper::FusionHelper;
 pub use kv_cache::{
     BatchedCache, CacheConfig, CacheMemoryStats, CacheQuantization, KVCache, PagedCache, SlidingWindowCache,
 };

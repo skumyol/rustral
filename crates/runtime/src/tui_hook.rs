@@ -17,8 +17,7 @@ use rustral_tui::{DashboardConfig, DashboardRenderer, TrainingDashboard};
 static GLOBAL_DASHBOARD: OnceLock<Arc<Mutex<TrainingDashboard>>> = OnceLock::new();
 
 /// Whether the TUI was already activated this process.
-static TUI_ACTIVATED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static TUI_ACTIVATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Initialize the global TUI dashboard (called once).
 pub fn init_global_dashboard() {
@@ -28,11 +27,7 @@ pub fn init_global_dashboard() {
     }
     TUI_ACTIVATED.store(true, Ordering::Relaxed);
 
-    let cfg = DashboardConfig {
-        title: "Rustral Training".into(),
-        alt_screen: true,
-        ..Default::default()
-    };
+    let cfg = DashboardConfig { title: "Rustral Training".into(), alt_screen: true, ..Default::default() };
 
     let dashboard = Arc::new(Mutex::new(TrainingDashboard::new(cfg)));
 

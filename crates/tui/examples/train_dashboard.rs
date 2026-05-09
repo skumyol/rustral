@@ -9,17 +9,14 @@
 //! cargo run -p rustral-tui --example train_dashboard
 //! ```
 
+use rustral_tui::{DashboardConfig, TrainingDashboard};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use rustral_tui::{DashboardConfig, TrainingDashboard};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── Setup dashboard ───────────────────────────────────────────
-    let cfg = DashboardConfig {
-        title: "Rustral Training Demo".into(),
-        history_len: 80,
-        ..Default::default()
-    };
+    let cfg =
+        DashboardConfig { title: "Rustral Training Demo".into(), history_len: 80, ..Default::default() };
 
     let dashboard = Arc::new(Mutex::new(TrainingDashboard::new(cfg)));
     let render_dashboard = dashboard.clone();
@@ -148,9 +145,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Simple random f64 generator (no external dependency needed).
 fn rand_f64() -> f64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_nanos();
     (nanos as f64) / 1_000_000_000.0
 }

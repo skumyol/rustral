@@ -25,15 +25,11 @@ use crate::fetch::{fetch_url, FetchError};
 ///
 /// HuggingFace `SetFit/sst2` JSONL distribution. SHA-256 verified on download; if upstream
 /// rehashes the artifact this code fails loudly so the pin is updated deliberately.
-pub const SST2_TRAIN_URL: &str =
-    "https://huggingface.co/datasets/SetFit/sst2/resolve/main/train.jsonl";
-pub const SST2_TRAIN_SHA256: &str =
-    "7a4b1cfdd65be1dc48339404db86528bb2427e1d8772860ef838b76b8c38c4a8";
+pub const SST2_TRAIN_URL: &str = "https://huggingface.co/datasets/SetFit/sst2/resolve/main/train.jsonl";
+pub const SST2_TRAIN_SHA256: &str = "7a4b1cfdd65be1dc48339404db86528bb2427e1d8772860ef838b76b8c38c4a8";
 
-pub const SST2_DEV_URL: &str =
-    "https://huggingface.co/datasets/SetFit/sst2/resolve/main/dev.jsonl";
-pub const SST2_DEV_SHA256: &str =
-    "573c3ed18d96aa0a79a6e5980a544b80543317a319f18bd4f1660c16b2f6b939";
+pub const SST2_DEV_URL: &str = "https://huggingface.co/datasets/SetFit/sst2/resolve/main/dev.jsonl";
+pub const SST2_DEV_SHA256: &str = "573c3ed18d96aa0a79a6e5980a544b80543317a319f18bd4f1660c16b2f6b939";
 
 // Backwards-compatible alias names so any external caller (or older docs) still resolves.
 #[doc(hidden)]
@@ -165,9 +161,7 @@ fn extract_int_field(line: &str, key: &str) -> Option<i64> {
     let rest = &line[start..];
     let colon = rest.find(':')? + 1;
     let after_colon = rest[colon..].trim_start();
-    let end = after_colon
-        .find(|c: char| !(c.is_ascii_digit() || c == '-'))
-        .unwrap_or(after_colon.len());
+    let end = after_colon.find(|c: char| !(c.is_ascii_digit() || c == '-')).unwrap_or(after_colon.len());
     after_colon[..end].parse::<i64>().ok()
 }
 
@@ -185,10 +179,7 @@ mod tests {
     #[test]
     fn parse_jsonl_handles_escapes() {
         let line = "{\"text\": \"quote \\\"x\\\" and tab\\there\", \"label\": 0}";
-        assert_eq!(
-            extract_string_field(line, "text").as_deref(),
-            Some("quote \"x\" and tab\there"),
-        );
+        assert_eq!(extract_string_field(line, "text").as_deref(), Some("quote \"x\" and tab\there"),);
         assert_eq!(extract_int_field(line, "label"), Some(0));
     }
 }

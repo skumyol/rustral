@@ -577,8 +577,7 @@ impl<B: Backend> Tape<B> {
                     }
                     let mut log_probs_vec = vec![0.0f32; batch_for_grad * classes_for_grad];
                     for i in 0..batch_for_grad {
-                        let row =
-                            &logits_vec[i * classes_for_grad..i * classes_for_grad + classes_for_grad];
+                        let row = &logits_vec[i * classes_for_grad..i * classes_for_grad + classes_for_grad];
                         let mut row_max = f32::NEG_INFINITY;
                         for &v in row {
                             if v > row_max {
@@ -1288,13 +1287,14 @@ mod tests {
         let mut ctx = ForwardCtx::new(&backend, Mode::Train);
         let mut tape = Tape::<CpuBackend>::new();
 
-            let logits = tape.watch(backend.tensor_from_vec(vec![1.0, 2.0, 3.0, 0.0, -1.0, 2.0], &[2, 3]).unwrap());
+        let logits =
+            tape.watch(backend.tensor_from_vec(vec![1.0, 2.0, 3.0, 0.0, -1.0, 2.0], &[2, 3]).unwrap());
 
-            // Index targets (encoded as f32 ids): [batch]
-            let target = tape.watch(backend.tensor_from_vec(vec![2.0, 0.0], &[2]).unwrap());
+        // Index targets (encoded as f32 ids): [batch]
+        let target = tape.watch(backend.tensor_from_vec(vec![2.0, 0.0], &[2]).unwrap());
         let loss = tape.cross_entropy_loss(logits, target, &mut ctx).unwrap();
 
-            let loss_val: Vec<f32> = tape.value(loss).unwrap().values().to_vec();
+        let loss_val: Vec<f32> = tape.value(loss).unwrap().values().to_vec();
         assert_eq!(loss_val.len(), 1);
         assert!(loss_val[0] > 0.0);
 
@@ -1303,14 +1303,14 @@ mod tests {
         assert!(grads.contains_key(&logits));
         assert!(grads.contains_key(&target));
 
-            // For cross-entropy, per-row gradient sums to ~0 (softmax - one_hot).
-            let grad_logits = grads.get(&logits).unwrap();
-            let g = backend.ops().tensor_to_vec(grad_logits).unwrap();
-            assert_eq!(g.len(), 2 * 3);
-            for row in 0..2 {
-                let s: f32 = g[row * 3..row * 3 + 3].iter().sum();
-                assert!(s.abs() <= 1e-5, "row {row} grad sum expected ~0, got {s}");
-            }
+        // For cross-entropy, per-row gradient sums to ~0 (softmax - one_hot).
+        let grad_logits = grads.get(&logits).unwrap();
+        let g = backend.ops().tensor_to_vec(grad_logits).unwrap();
+        assert_eq!(g.len(), 2 * 3);
+        for row in 0..2 {
+            let s: f32 = g[row * 3..row * 3 + 3].iter().sum();
+            assert!(s.abs() <= 1e-5, "row {row} grad sum expected ~0, got {s}");
+        }
     }
 
     #[test]

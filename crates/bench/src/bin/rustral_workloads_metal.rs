@@ -81,10 +81,7 @@ fn bench_matmul(device: &Device, repeats: usize, warmup: usize, out: &mut Vec<Sa
 }
 
 fn bench_attention(device: &Device, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
-    for &(name, d_model, heads, seq_len) in &[
-        ("small", 64usize, 4usize, 32usize),
-        ("medium", 256, 8, 128),
-    ] {
+    for &(name, d_model, heads, seq_len) in &[("small", 64usize, 4usize, 32usize), ("medium", 256, 8, 128)] {
         let q = Tensor::ones((1, seq_len, d_model), DType::F32, device).unwrap();
         let k = Tensor::ones((1, seq_len, d_model), DType::F32, device).unwrap();
         let v = Tensor::ones((1, seq_len, d_model), DType::F32, device).unwrap();

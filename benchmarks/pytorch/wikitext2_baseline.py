@@ -356,15 +356,29 @@ def main() -> int:
     ap.add_argument("--train-windows", type=int, default=2_000)
     ap.add_argument("--eval-windows", type=int, default=20_000)
     ap.add_argument(
+        "--curated-version",
+        default=VERSION,
+        help="version string inside the aggregate JSON (default: 0.1.0)",
+    )
+    ap.add_argument(
         "--out-json",
-        default=f"benchmarks/runs/v{VERSION}/nlp/wikitext2_pytorch.json",
+        default="",
+        help="output path relative to repo root (default: benchmarks/runs/v<curated-version>/nlp/wikitext2_pytorch.json)",
     )
     ap.add_argument(
         "--benchmark",
         action="store_true",
         help="tiny model + minimal data for fast CPU runs (matches run_nlp_real.py --benchmark)",
     )
+    ap.add_argument(
+        "--paper",
+        action="store_true",
+        help="larger LM + 200k tokens train cap (matches Rustral --paper defaults)",
+    )
     args = ap.parse_args()
+
+    if not args.out_json:
+        args.out_json = f"benchmarks/runs/v{args.curated_version}/nlp/wikitext2_pytorch.json"
 
     if args.benchmark:
         args.block_size = 16
@@ -376,6 +390,19 @@ def main() -> int:
         args.train_tokens = 4_000
         args.train_windows = 150
         args.eval_windows = 300
+    elif args.paper:
+        args.block_size = 64
+        args.d_model = 256
+        args.num_heads = 4
+        args.ffn_dim = 1024
+        args.num_layers = 4
+        args.lr = 3e-4
+        args.epochs = 5
+        args.batch_size = 32
+        args.train_tokens = 200_000
+        args.train_windows = 0
+        # Match scripts/eval/run_nlp_real.py --paper (8192 valid windows for wall-clock).
+        args.eval_windows = 8192
 
     seeds = [int(s.strip()) for s in args.seeds.split(",") if s.strip()]
     vocab_path = (REPO_ROOT / args.vocab_path).resolve()
@@ -412,7 +439,7 @@ def main() -> int:
     obj: Dict[str, Any] = {
         "schema_version": 1,
         "created_at": now_iso(),
-        "version": VERSION,
+        "version": args.curated_version,
         "task": "wikitext2_word_lm",
         "metric": "dev_perplexity",
         "aggregate": {"mean": mean, "std": std, "n": len(ppls)},

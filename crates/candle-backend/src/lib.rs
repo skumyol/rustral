@@ -14,7 +14,10 @@
 //! ```
 
 use candle_core::{Device, IndexOp, Tensor};
-use rustral_core::{Backend, BackendCapabilities, CoreError, FusionOps, Parameter, Result, TensorOps};
+use rustral_core::{
+    AttentionOps, Backend, BackendCapabilities, ConvLayout, CoreError, FusionOps, Parameter, Result,
+    TensorOps, TrainingDtype,
+};
 use thiserror::Error;
 
 /// Errors specific to the candle backend.
@@ -71,9 +74,7 @@ impl CandleBackend {
         }
         #[cfg(not(feature = "metal"))]
         {
-            Err(CoreError::Backend(
-                "Metal feature not enabled. Rebuild with --features metal".to_string(),
-            ))
+            Err(CoreError::Backend("Metal feature not enabled. Rebuild with --features metal".to_string()))
         }
     }
 
@@ -128,6 +129,10 @@ impl Backend for CandleBackend {
         Some(&self.ops)
     }
 
+    fn attention_ops(&self) -> Option<&dyn AttentionOps<Self>> {
+        Some(&self.ops)
+    }
+
     fn capabilities(&self) -> BackendCapabilities {
         match &self.device {
             Device::Cuda(_) => BackendCapabilities {
@@ -139,6 +144,12 @@ impl Backend for CandleBackend {
                 max_allocation_size: usize::MAX,
                 prefers_contiguous: true,
                 supports_in_place: true,
+                supports_mixed_precision: true,
+                recommended_training_dtype: TrainingDtype::F16,
+                supports_fast_fp16_tensor_cores: true,
+                preferred_conv_layout: ConvLayout::NCHW, // CUDA prefers NCHW
+                supports_strided_layouts: true,
+                supports_packed_layouts: true,
             },
             Device::Metal(_) => BackendCapabilities {
                 supports_fp16: true,
@@ -149,6 +160,12 @@ impl Backend for CandleBackend {
                 max_allocation_size: usize::MAX,
                 prefers_contiguous: true,
                 supports_in_place: true,
+                supports_mixed_precision: true,
+                recommended_training_dtype: TrainingDtype::Bf16,
+                supports_fast_fp16_tensor_cores: true,
+                preferred_conv_layout: ConvLayout::NHWC, // Metal prefers NHWC
+                supports_strided_layouts: true,
+                supports_packed_layouts: true,
             },
             Device::Cpu => BackendCapabilities {
                 supports_fp16: false,
@@ -159,6 +176,12 @@ impl Backend for CandleBackend {
                 max_allocation_size: usize::MAX,
                 prefers_contiguous: true,
                 supports_in_place: false,
+                supports_mixed_precision: false,
+                recommended_training_dtype: TrainingDtype::F32,
+                supports_fast_fp16_tensor_cores: false,
+                preferred_conv_layout: ConvLayout::NCHW, // CPU default
+                supports_strided_layouts: true,
+                supports_packed_layouts: false,
             },
         }
     }
@@ -198,7 +221,7 @@ impl FusionOps<CandleBackend> for CandleOps {
     ) -> Result<Tensor> {
         let w = weight.tensor();
         let b = bias.tensor();
-        
+
         // matmul + add_row_vector (fused into single operation sequence)
         let input = input.contiguous().map_err(|e| CoreError::Backend(e.to_string()))?;
         let w_t = w
@@ -219,7 +242,7 @@ impl FusionOps<CandleBackend> for CandleOps {
     ) -> Result<Tensor> {
         let w = weight.tensor();
         let b = bias.tensor();
-        
+
         // matmul + add_row_vector + relu (fused sequence)
         let input = input.contiguous().map_err(|e| CoreError::Backend(e.to_string()))?;
         let w_t = w
@@ -241,7 +264,7 @@ impl FusionOps<CandleBackend> for CandleOps {
     ) -> Result<Tensor> {
         let w = weight.tensor();
         let b = bias.tensor();
-        
+
         // matmul + add_row_vector + gelu (fused sequence)
         let input = input.contiguous().map_err(|e| CoreError::Backend(e.to_string()))?;
         let w_t = w
@@ -251,30 +274,196 @@ impl FusionOps<CandleBackend> for CandleOps {
             .map_err(|e| CoreError::Backend(e.to_string()))?;
         let output = input.matmul(&w_t).map_err(|e| CoreError::Backend(e.to_string()))?;
         let output = output.broadcast_add(b).map_err(|e| CoreError::Backend(e.to_string()))?;
-        
+
         // GELU: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
         let x = &output;
         let x_cubed = (x * x * x).map_err(|e| CoreError::Backend(e.to_string()))?;
         let scalar_0_044715 = Tensor::from_vec(vec![0.044715f32], &[], &self.device)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
-        let scalar_0_044715_broadcasted = scalar_0_044715.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
-        let x_plus = (x + (&scalar_0_044715_broadcasted * x_cubed)).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_0_044715_broadcasted =
+            scalar_0_044715.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let x_plus =
+            (x + (&scalar_0_044715_broadcasted * x_cubed)).map_err(|e| CoreError::Backend(e.to_string()))?;
         let sqrt_2_pi = (2.0f32 / std::f32::consts::PI).sqrt();
         let scalar_sqrt_2_pi = Tensor::from_vec(vec![sqrt_2_pi], &[], &self.device)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
-        let scalar_sqrt_2_pi_broadcasted = scalar_sqrt_2_pi.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
-        let tanh_arg = (x_plus * scalar_sqrt_2_pi_broadcasted).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_sqrt_2_pi_broadcasted =
+            scalar_sqrt_2_pi.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let tanh_arg =
+            (x_plus * scalar_sqrt_2_pi_broadcasted).map_err(|e| CoreError::Backend(e.to_string()))?;
         let tanh_val = tanh_arg.tanh().map_err(|e| CoreError::Backend(e.to_string()))?;
         let scalar_1 = Tensor::from_vec(vec![1.0f32], &[], &self.device)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
-        let scalar_1_broadcasted = scalar_1.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_1_broadcasted =
+            scalar_1.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
         let one_plus = (&scalar_1_broadcasted + tanh_val).map_err(|e| CoreError::Backend(e.to_string()))?;
         let scalar_0_5 = Tensor::from_vec(vec![0.5f32], &[], &self.device)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
-        let scalar_0_5_broadcasted = scalar_0_5.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
-        let gelu_output = ((&scalar_0_5_broadcasted * x) * one_plus).map_err(|e| CoreError::Backend(e.to_string()))?;
-        
+        let scalar_0_5_broadcasted =
+            scalar_0_5.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let gelu_output =
+            ((&scalar_0_5_broadcasted * x) * one_plus).map_err(|e| CoreError::Backend(e.to_string()))?;
+
         Ok(gelu_output)
+    }
+}
+
+impl AttentionOps<CandleBackend> for CandleOps {
+    fn flash_attention_2(
+        &self,
+        query: &Tensor,
+        key: &Tensor,
+        value: &Tensor,
+        causal_mask: bool,
+    ) -> Result<Tensor> {
+        // Note: This is a simplified implementation for demonstration.
+        // A full Flash Attention 2 implementation would use memory-efficient tiling
+        // and online softmax to achieve O(seq_len) memory complexity.
+        // For production use, this should use candle's native flash attention kernels
+        // when available, or custom CUDA kernels.
+
+        // For now, fall back to standard attention with the pattern established
+        // This allows the trait to be used while we develop the full implementation
+        self.standard_attention(query, key, value, causal_mask)
+    }
+
+    fn flash_attention_2_with_mask(
+        &self,
+        query: &Tensor,
+        key: &Tensor,
+        value: &Tensor,
+        mask: &Tensor,
+    ) -> Result<Tensor> {
+        // Simplified implementation - use standard attention with mask
+        self.standard_attention_with_mask(query, key, value, mask)
+    }
+}
+
+impl CandleOps {
+    /// Standard scaled dot-product attention (fallback for Flash Attention).
+    ///
+    /// This is used as a fallback when Flash Attention kernels are not available.
+    /// It has O(seq_len^2) memory complexity but provides correct results.
+    fn standard_attention(
+        &self,
+        query: &Tensor,
+        key: &Tensor,
+        value: &Tensor,
+        causal_mask: bool,
+    ) -> Result<Tensor> {
+        // query, key, value: [batch, seq_len, num_heads, head_dim]
+        let q_dims = query.dims();
+        let k_dims = key.dims();
+        let v_dims = value.dims();
+
+        if q_dims.len() != 4 || k_dims.len() != 4 || v_dims.len() != 4 {
+            return Err(CoreError::InvalidArgument(format!(
+                "Flash attention expects 4D tensors [batch, seq_len, num_heads, head_dim], got q:{:?}, k:{:?}, v:{:?}",
+                q_dims, k_dims, v_dims
+            )));
+        }
+
+        let _seq_len = q_dims[1];
+        let head_dim = q_dims[3];
+
+        // Compute attention scores: Q @ K^T / sqrt(head_dim)
+        let k_t = key.transpose(2, 3).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scores = query.matmul(&k_t).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scale = Tensor::new((head_dim as f32).sqrt(), &self.device)
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scores = (scores / scale).map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        // Apply causal mask if needed
+        let scores = if causal_mask { self.apply_causal_mask(&scores)? } else { scores };
+
+        // Apply softmax manually using candle-core operations
+        // softmax(x) = exp(x - max(x)) / sum(exp(x - max(x)))
+        let scores_max = scores.max(3).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scores_max = scores_max.unsqueeze(3).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scores_shifted = (scores - scores_max).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let exp_scores = scores_shifted.exp().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let sum_exp = exp_scores.sum(3).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let sum_exp = sum_exp.unsqueeze(3).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let attn_weights = (exp_scores / sum_exp).map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        // Apply attention to values: attn_weights @ V
+        let output = attn_weights.matmul(value).map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        Ok(output)
+    }
+
+    /// Standard attention with custom mask.
+    fn standard_attention_with_mask(
+        &self,
+        query: &Tensor,
+        key: &Tensor,
+        value: &Tensor,
+        mask: &Tensor,
+    ) -> Result<Tensor> {
+        let q_dims = query.dims();
+        let head_dim = q_dims[3];
+
+        // Compute attention scores
+        let k_t = key.transpose(2, 3).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scores = query.matmul(&k_t).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scale = Tensor::new((head_dim as f32).sqrt(), &self.device)
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scores = (scores / scale).map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        // Apply custom mask (mask: 1.0 = attend, 0.0 = mask)
+        // Convert to additive mask: -inf where mask is 0
+        let neg_inf =
+            Tensor::new(f32::NEG_INFINITY, &self.device).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let mask_broadcasted =
+            mask.broadcast_as(scores.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let zero = Tensor::new(0.0, &self.device).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let additive_mask =
+            mask_broadcasted.where_cond(&zero, &neg_inf).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scores = (scores + additive_mask).map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        // Apply softmax manually
+        let scores_max = scores.max(3).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scores_max = scores_max.unsqueeze(3).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scores_shifted = (scores - scores_max).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let exp_scores = scores_shifted.exp().map_err(|e| CoreError::Backend(e.to_string()))?;
+        let sum_exp = exp_scores.sum(3).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let sum_exp = sum_exp.unsqueeze(3).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let attn_weights = (exp_scores / sum_exp).map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        // Apply attention to values
+        let output = attn_weights.matmul(value).map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        Ok(output)
+    }
+
+    /// Apply causal mask to attention scores.
+    fn apply_causal_mask(&self, scores: &Tensor) -> Result<Tensor> {
+        let dims = scores.dims();
+        let seq_len = dims[1];
+
+        // Create causal mask: lower triangular matrix
+        let mut mask_data = vec![0.0f32; seq_len * seq_len];
+        for i in 0..seq_len {
+            for j in 0..=i {
+                mask_data[i * seq_len + j] = 1.0;
+            }
+        }
+
+        let mask = Tensor::from_vec(mask_data, &[seq_len, seq_len], &self.device)
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        // Broadcast mask to match scores shape
+        let mask_broadcasted = mask.broadcast_as(dims).map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        // Apply mask: set masked positions to -inf
+        let neg_inf =
+            Tensor::new(f32::NEG_INFINITY, &self.device).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let zero = Tensor::new(0.0, &self.device).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let masked_scores =
+            mask_broadcasted.where_cond(&zero, &neg_inf).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let masked_scores = (scores + masked_scores).map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        Ok(masked_scores)
     }
 }
 
@@ -405,22 +594,29 @@ impl TensorOps<CandleBackend> for CandleOps {
         let x_cubed = (x * x * x).map_err(|e| CoreError::Backend(e.to_string()))?;
         let scalar_0_044715 = Tensor::from_vec(vec![0.044715f32], &[], &self.device)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
-        let scalar_0_044715_broadcasted = scalar_0_044715.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
-        let x_plus = (x + (&scalar_0_044715_broadcasted * x_cubed)).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_0_044715_broadcasted =
+            scalar_0_044715.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let x_plus =
+            (x + (&scalar_0_044715_broadcasted * x_cubed)).map_err(|e| CoreError::Backend(e.to_string()))?;
         let sqrt_2_pi = (2.0f32 / std::f32::consts::PI).sqrt();
         let scalar_sqrt_2_pi = Tensor::from_vec(vec![sqrt_2_pi], &[], &self.device)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
-        let scalar_sqrt_2_pi_broadcasted = scalar_sqrt_2_pi.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
-        let tanh_arg = (x_plus * scalar_sqrt_2_pi_broadcasted).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_sqrt_2_pi_broadcasted =
+            scalar_sqrt_2_pi.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let tanh_arg =
+            (x_plus * scalar_sqrt_2_pi_broadcasted).map_err(|e| CoreError::Backend(e.to_string()))?;
         let tanh_val = tanh_arg.tanh().map_err(|e| CoreError::Backend(e.to_string()))?;
         let scalar_1 = Tensor::from_vec(vec![1.0f32], &[], &self.device)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
-        let scalar_1_broadcasted = scalar_1.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_1_broadcasted =
+            scalar_1.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
         let one_plus = (&scalar_1_broadcasted + tanh_val).map_err(|e| CoreError::Backend(e.to_string()))?;
         let scalar_0_5 = Tensor::from_vec(vec![0.5f32], &[], &self.device)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
-        let scalar_0_5_broadcasted = scalar_0_5.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
-        let gelu_output = ((&scalar_0_5_broadcasted * x) * one_plus).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let scalar_0_5_broadcasted =
+            scalar_0_5.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let gelu_output =
+            ((&scalar_0_5_broadcasted * x) * one_plus).map_err(|e| CoreError::Backend(e.to_string()))?;
         Ok(gelu_output)
     }
 
@@ -615,7 +811,8 @@ impl TensorOps<CandleBackend> for CandleOps {
         }
         let s = self.sum_dim(x, dim, keepdim)?;
         let scale = 1.0 / (n as f32);
-        let t = Tensor::from_vec(vec![scale], &[], &self.device).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let t = Tensor::from_vec(vec![scale], &[], &self.device)
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
         (s * t).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
@@ -639,7 +836,8 @@ impl TensorOps<CandleBackend> for CandleOps {
         let s = self.sum_dim(&sq, dim, keepdim)?;
         let denom = if unbiased { (n - 1) as f32 } else { n as f32 };
         let scale = 1.0 / denom;
-        let t = Tensor::from_vec(vec![scale], &[], &self.device).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let t = Tensor::from_vec(vec![scale], &[], &self.device)
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
         (s * t).map_err(|e| CoreError::Backend(e.to_string()))
     }
 

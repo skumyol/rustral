@@ -58,10 +58,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{
-        Block, BorderType, Borders, Gauge, Paragraph,
-        Sparkline,
-    },
+    widgets::{Block, BorderType, Borders, Gauge, Paragraph, Sparkline},
     Frame, Terminal,
 };
 use std::collections::VecDeque;
@@ -387,10 +384,7 @@ impl TrainingDashboard {
     pub fn report_unstable_allocations(&mut self, count: usize) {
         self.unstable_allocations = count;
         if count > 10 {
-            self.add_warning(format!(
-                "Unstable allocations detected: {} active allocations",
-                count
-            ));
+            self.add_warning(format!("Unstable allocations detected: {} active allocations", count));
         }
     }
 
@@ -483,9 +477,9 @@ impl TrainingDashboard {
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(8),   // Top: progress + throughput
-                Constraint::Min(10),     // Middle: metrics + memory + leaktection
-                Constraint::Length(7),   // Bottom: warnings + events
+                Constraint::Length(8), // Top: progress + throughput
+                Constraint::Min(10),   // Middle: metrics + memory + leaktection
+                Constraint::Length(7), // Bottom: warnings + events
             ])
             .split(area);
 
@@ -495,10 +489,7 @@ impl TrainingDashboard {
         // ── Middle Row: Metrics | Memory | Leaks ──────────────────
         let mid_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(50),
-                Constraint::Percentage(50),
-            ])
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(main_chunks[1]);
 
         self.render_metrics_panel(f, mid_chunks[0]);
@@ -523,10 +514,7 @@ impl TrainingDashboard {
         } else {
             0
         };
-        let epoch_label = format!(
-            " Epoch {}/{} ({:3}%) ",
-            self.current_epoch, self.total_epochs, epoch_pct
-        );
+        let epoch_label = format!(" Epoch {}/{} ({:3}%) ", self.current_epoch, self.total_epochs, epoch_pct);
         let epoch_gauge = Gauge::default()
             .block(
                 Block::default()
@@ -544,10 +532,7 @@ impl TrainingDashboard {
         } else {
             0
         };
-        let batch_label = format!(
-            " Batch {}/{} ({:3}%) ",
-            self.current_batch, self.total_batches, batch_pct
-        );
+        let batch_label = format!(" Batch {}/{} ({:3}%) ", self.current_batch, self.total_batches, batch_pct);
         let batch_gauge = Gauge::default()
             .block(
                 Block::default()
@@ -594,11 +579,7 @@ impl TrainingDashboard {
 
         // ── Loss mini-chart (Sparkline) ──
         if !self.loss_history.is_empty() {
-            let loss_data: Vec<u64> = self
-                .loss_history
-                .iter()
-                .map(|&v| (v * 1000.0) as u64)
-                .collect();
+            let loss_data: Vec<u64> = self.loss_history.iter().map(|&v| (v * 1000.0) as u64).collect();
             let min_loss = self.loss_history.iter().cloned().fold(f64::INFINITY, f64::min);
             let max_loss = self.loss_history.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
 
@@ -613,8 +594,7 @@ impl TrainingDashboard {
                 .style(Style::default().fg(Color::Red));
             f.render_widget(sparkline, chart_area);
         } else {
-            let empty = Paragraph::new("No loss data yet...")
-                .style(Style::default().fg(Color::DarkGray));
+            let empty = Paragraph::new("No loss data yet...").style(Style::default().fg(Color::DarkGray));
             f.render_widget(empty, chart_area);
         }
 
@@ -708,7 +688,8 @@ impl TrainingDashboard {
                 Style::default().fg(self.oom_risk().color()),
             )),
             Line::from(Span::styled(
-                format!(" Allocs:   {} ({} active)",
+                format!(
+                    " Allocs:   {} ({} active)",
                     self.total_allocations,
                     self.total_allocations.saturating_sub(self.total_deallocations),
                 ),
@@ -732,10 +713,8 @@ impl TrainingDashboard {
 
         // Per-tag breakdown (top entries)
         if !self.memory_by_tag.is_empty() {
-            mem_lines.push(Line::from(Span::styled(
-                " Top allocations:",
-                Style::default().fg(Color::DarkGray),
-            )));
+            mem_lines
+                .push(Line::from(Span::styled(" Top allocations:", Style::default().fg(Color::DarkGray))));
             for (tag, bytes) in self.memory_by_tag.iter().take(3) {
                 mem_lines.push(Line::from(Span::styled(
                     format!("   {}: {}", tag, Self::format_bytes(*bytes)),
@@ -750,14 +729,10 @@ impl TrainingDashboard {
     }
 
     fn render_warnings_panel(&self, f: &mut Frame, area: Rect) {
-        let has_critical = !self.warnings.is_empty() || self.has_leaks()
-            || self.oom_risk() == OomRiskLevel::Critical;
+        let has_critical =
+            !self.warnings.is_empty() || self.has_leaks() || self.oom_risk() == OomRiskLevel::Critical;
 
-        let border_color = if has_critical {
-            Color::Red
-        } else {
-            Color::DarkGray
-        };
+        let border_color = if has_critical { Color::Red } else { Color::DarkGray };
 
         let block = Block::default()
             .title(if has_critical { " ⚠ Alerts " } else { " Status " })
@@ -787,9 +762,7 @@ impl TrainingDashboard {
 
         let lines: Vec<Line> = items
             .iter()
-            .map(|(color, text)| {
-                Line::from(Span::styled(text.as_str(), Style::default().fg(*color)))
-            })
+            .map(|(color, text)| Line::from(Span::styled(text.as_str(), Style::default().fg(*color))))
             .collect();
 
         let par = Paragraph::new(Text::from(lines));
@@ -877,11 +850,7 @@ impl DashboardRenderer {
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend)?;
 
-        Ok(Self {
-            terminal,
-            dashboard,
-            running: true,
-        })
+        Ok(Self { terminal, dashboard, running: true })
     }
 
     /// Render the dashboard once. Returns `true` if the user pressed 'q'.
@@ -940,11 +909,7 @@ impl DashboardRenderer {
 impl Drop for DashboardRenderer {
     fn drop(&mut self) {
         // Restore terminal
-        crossterm::execute!(
-            self.terminal.backend_mut(),
-            crossterm::terminal::LeaveAlternateScreen,
-        )
-        .ok();
+        crossterm::execute!(self.terminal.backend_mut(), crossterm::terminal::LeaveAlternateScreen,).ok();
         crossterm::terminal::disable_raw_mode().ok();
     }
 }
@@ -959,10 +924,8 @@ fn format_duration(d: Duration) -> String {
 
 /// Get current time as ISO string for JSON dumps.
 fn chrono_now() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
     // Simple ISO-like format
     format!("1970-01-01T00:00:{}Z", now)
 }
@@ -1162,11 +1125,7 @@ mod tests {
     #[test]
     fn test_memory_by_tag() {
         let mut db = TrainingDashboard::new(DashboardConfig::default());
-        let tags = vec![
-            ("weight".into(), 1000),
-            ("gradient".into(), 500),
-            ("activations".into(), 300),
-        ];
+        let tags = vec![("weight".into(), 1000), ("gradient".into(), 500), ("activations".into(), 300)];
         db.set_memory_by_tag(tags);
         assert_eq!(db.memory_by_tag.len(), 3);
         assert_eq!(db.memory_by_tag[0].1, 1000);

@@ -13,7 +13,10 @@
 
 use rand::thread_rng;
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use rustral_core::{Backend, BackendCapabilities, CoreError, Parameter, Result, ShapeExt, TensorOps};
+use rustral_core::{
+    Backend, BackendCapabilities, ConvLayout, CoreError, Parameter, Result, ShapeExt, TensorOps,
+    TrainingDtype,
+};
 use serde::{Deserialize, Serialize};
 
 /// Dense row-major CPU tensor used by the reference backend.
@@ -109,6 +112,12 @@ impl Backend for CpuBackend {
             max_allocation_size: usize::MAX,
             prefers_contiguous: true,
             supports_in_place: false,
+            supports_mixed_precision: false,
+            recommended_training_dtype: TrainingDtype::F32,
+            supports_fast_fp16_tensor_cores: false,
+            preferred_conv_layout: ConvLayout::NCHW, // CPU default
+            supports_strided_layouts: true,          // ndarray supports strided views
+            supports_packed_layouts: false,
         }
     }
 
@@ -457,24 +466,32 @@ impl TensorOps<CpuBackend> for CpuOps {
         let sqrt_2_pi = (2.0_f32 / std::f32::consts::PI).sqrt();
         if x.values.len() > 4096 {
             use rayon::prelude::*;
-            let out: Vec<f32> = x.values.par_iter().map(|&v| {
-                let x_cubed = v * v * v;
-                let x_plus = v + 0.044715 * x_cubed;
-                let tanh_arg = sqrt_2_pi * x_plus;
-                let tanh_val = tanh_arg.tanh();
-                let one_plus = 1.0 + tanh_val;
-                0.5 * v * one_plus
-            }).collect();
+            let out: Vec<f32> = x
+                .values
+                .par_iter()
+                .map(|&v| {
+                    let x_cubed = v * v * v;
+                    let x_plus = v + 0.044715 * x_cubed;
+                    let tanh_arg = sqrt_2_pi * x_plus;
+                    let tanh_val = tanh_arg.tanh();
+                    let one_plus = 1.0 + tanh_val;
+                    0.5 * v * one_plus
+                })
+                .collect();
             CpuTensor::new(out, &x.shape)
         } else {
-            let out: Vec<f32> = x.values.iter().map(|&v| {
-                let x_cubed = v * v * v;
-                let x_plus = v + 0.044715 * x_cubed;
-                let tanh_arg = sqrt_2_pi * x_plus;
-                let tanh_val = tanh_arg.tanh();
-                let one_plus = 1.0 + tanh_val;
-                0.5 * v * one_plus
-            }).collect();
+            let out: Vec<f32> = x
+                .values
+                .iter()
+                .map(|&v| {
+                    let x_cubed = v * v * v;
+                    let x_plus = v + 0.044715 * x_cubed;
+                    let tanh_arg = sqrt_2_pi * x_plus;
+                    let tanh_val = tanh_arg.tanh();
+                    let one_plus = 1.0 + tanh_val;
+                    0.5 * v * one_plus
+                })
+                .collect();
             CpuTensor::new(out, &x.shape)
         }
     }

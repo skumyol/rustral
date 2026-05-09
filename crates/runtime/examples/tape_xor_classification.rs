@@ -63,14 +63,11 @@ fn main() -> anyhow::Result<()> {
         l2: LinearBuilder::new(8, 2).with_bias(true).seed(2).build(&backend)?,
     };
 
-    let train: Vec<([f32; 2], usize)> = vec![
-        ([0.0, 0.0], 0),
-        ([0.0, 1.0], 1),
-        ([1.0, 0.0], 1),
-        ([1.0, 1.0], 0),
-    ];
+    let train: Vec<([f32; 2], usize)> =
+        vec![([0.0, 0.0], 0), ([0.0, 1.0], 1), ([1.0, 0.0], 1), ([1.0, 1.0], 0)];
 
-    let config = TapeTrainerConfig { epochs: 5000, batch_size: 4, shuffle: true, seed: 0, ..Default::default() };
+    let config =
+        TapeTrainerConfig { epochs: 5000, batch_size: 4, shuffle: true, seed: 0, ..Default::default() };
     let optimizer = Adam::new(0.01);
     let mut trainer = TapeTrainer::<CpuBackend, _>::new(config, optimizer);
 
@@ -91,4 +88,3 @@ fn main() -> anyhow::Result<()> {
 fn main() {
     eprintln!("This example requires `--features training`.");
 }
-

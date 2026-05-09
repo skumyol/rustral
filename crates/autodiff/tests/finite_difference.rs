@@ -13,14 +13,7 @@ fn assert_allclose(a: &[f32], b: &[f32], atol: f32, rtol: f32, what: &str) {
     for i in 0..a.len() {
         let diff = (a[i] - b[i]).abs();
         let tol = atol + rtol * b[i].abs().max(a[i].abs());
-        assert!(
-            diff <= tol,
-            "{what}: idx={i} a={} b={} diff={} tol={}",
-            a[i],
-            b[i],
-            diff,
-            tol
-        );
+        assert!(diff <= tol, "{what}: idx={i} a={} b={} diff={} tol={}", a[i], b[i], diff, tol);
     }
 }
 
@@ -53,9 +46,7 @@ fn finite_difference_matmul_matches_tape() {
     let b = tape.watch(ops.tensor_from_vec(b0.clone(), &[3, 2]).unwrap());
     let c = tape.matmul(a, b, &mut ctx).unwrap();
     let loss = tape.sum_all_tape(c, &mut ctx).unwrap();
-    let grads = tape
-        .backward(loss, |data, shape| ops.tensor_from_vec(data, shape), ops)
-        .unwrap();
+    let grads = tape.backward(loss, |data, shape| ops.tensor_from_vec(data, shape), ops).unwrap();
     let ga = ops.tensor_to_vec(grads.get(&a).unwrap()).unwrap();
     let gb = ops.tensor_to_vec(grads.get(&b).unwrap()).unwrap();
 
@@ -103,9 +94,7 @@ fn finite_difference_linear_weight_and_bias_match_tape() {
     let yid = lin.forward_tape(xid, &mut tape, &mut ctx).unwrap();
     let loss = tape.sum_all_tape(yid, &mut ctx).unwrap();
     let param_map = tape.param_map().clone();
-    let grads = tape
-        .backward(loss, |data, shape| ops.tensor_from_vec(data, shape), ops)
-        .unwrap();
+    let grads = tape.backward(loss, |data, shape| ops.tensor_from_vec(data, shape), ops).unwrap();
 
     let gw = lin.weight().gradient_from_store(&grads, &param_map).unwrap();
     let gb = lin.bias().unwrap().gradient_from_store(&grads, &param_map).unwrap();
@@ -173,9 +162,7 @@ fn finite_difference_embedding_table_matches_tape_on_used_rows() {
     let out = tape.gather_rows_tape(&table, ids_t, &mut ctx).unwrap();
     let loss = tape.sum_all_tape(out, &mut ctx).unwrap();
     let param_map = tape.param_map().clone();
-    let grads = tape
-        .backward(loss, |data, shape| ops.tensor_from_vec(data, shape), ops)
-        .unwrap();
+    let grads = tape.backward(loss, |data, shape| ops.tensor_from_vec(data, shape), ops).unwrap();
     let gt = table.gradient_from_store(&grads, &param_map).unwrap();
     let gt = ops.tensor_to_vec(gt).unwrap();
 
@@ -219,9 +206,7 @@ fn finite_difference_layer_norm_gamma_beta_match_tape() {
     let y = tape.layer_norm_tape(x, &gamma, &beta, 1e-5, 2, &mut ctx).unwrap();
     let loss = tape.sum_all_tape(y, &mut ctx).unwrap();
     let param_map = tape.param_map().clone();
-    let grads = tape
-        .backward(loss, |data, shape| ops.tensor_from_vec(data, shape), ops)
-        .unwrap();
+    let grads = tape.backward(loss, |data, shape| ops.tensor_from_vec(data, shape), ops).unwrap();
     let gg = ops.tensor_to_vec(gamma.gradient_from_store(&grads, &param_map).unwrap()).unwrap();
     let gb = ops.tensor_to_vec(beta.gradient_from_store(&grads, &param_map).unwrap()).unwrap();
 
@@ -268,9 +253,7 @@ fn finite_difference_cross_entropy_logits_match_tape() {
     let logits = tape.watch(ops.tensor_from_vec(logits0.clone(), &[2, 3]).unwrap());
     let tgt = tape.watch(ops.tensor_from_vec(target.clone(), &[2]).unwrap());
     let loss = tape.cross_entropy_loss(logits, tgt, &mut ctx).unwrap();
-    let grads = tape
-        .backward(loss, |data, shape| ops.tensor_from_vec(data, shape), ops)
-        .unwrap();
+    let grads = tape.backward(loss, |data, shape| ops.tensor_from_vec(data, shape), ops).unwrap();
     let gl = ops.tensor_to_vec(grads.get(&logits).unwrap()).unwrap();
 
     // numeric
@@ -285,4 +268,3 @@ fn finite_difference_cross_entropy_logits_match_tape() {
 
     assert_allclose(&gl, &gnl, 2e-2, 2e-2, "cross_entropy dLogits");
 }
-

@@ -47,13 +47,13 @@ mod runner {
     use std::time::Instant;
 
     use rustral_autodiff::{Tape, TensorId};
+    #[cfg(feature = "cuda")]
+    use rustral_candle_backend::CandleBackend;
     use rustral_core::{Backend, ForwardCtx, Mode, NamedParameters, Parameter, Result};
     use rustral_data::datasets::sst2::{load_sst2, Sst2Example};
     use rustral_data::tokenizer::{WordLevelConfig, WordLevelTokenizer};
     #[cfg(not(feature = "cuda"))]
     use rustral_ndarray_backend::CpuBackend;
-    #[cfg(feature = "cuda")]
-    use rustral_candle_backend::CandleBackend;
     use rustral_nn::tape::TapeModule;
     use rustral_nn::tape_transformer::{TapeTransformerEncoderConfig, TapeTransformerEncoderLayer};
     use rustral_nn::{Embedding, EmbeddingConfig, Linear, LinearBuilder};
@@ -92,6 +92,8 @@ mod runner {
         pub layers: Vec<TapeTransformerEncoderLayer<B>>,
         pub head: Linear<B>,
         pub seq_len: usize,
+        /// Used for masked mean-pooling over non-padding positions only.
+        pub pad_id: usize,
     }
 
     fn make_backend() -> Result<DefaultBackend> {
@@ -130,7 +132,14 @@ mod runner {
     where
         B::Tensor: Clone,
     {
-        pub fn new(backend: &B, vocab_size: usize, num_layers: usize, seed: u64, dims: Sst2Dims) -> Result<Self> {
+        pub fn new(
+            backend: &B,
+            vocab_size: usize,
+            num_layers: usize,
+            seed: u64,
+            dims: Sst2Dims,
+            pad_id: usize,
+        ) -> Result<Self> {
             let tok_embed = Embedding::new(
                 backend,
                 EmbeddingConfig::new(vocab_size, dims.d_model),
@@ -152,7 +161,7 @@ mod runner {
                 .with_bias(true)
                 .seed(seed.wrapping_add(999))
                 .build(backend)?;
-            Ok(Self { tok_embed, pos_embed, layers, head, seq_len: dims.seq_len })
+            Ok(Self { tok_embed, pos_embed, layers, head, seq_len: dims.seq_len, pad_id })
         }
 
         /// Single-sample inference: returns flat `[NUM_CLASSES]` logits.
@@ -194,12 +203,23 @@ mod runner {
                 x = layer.forward_tape(x, tape, ctx)?;
             }
 
-            // Mean pool over sequence dim: [1, seq_len] @ [seq_len, d_model] -> [1, d_model],
-            // then divide by seq_len.
-            let ones_row = ops.tensor_from_vec(vec![1.0_f32; self.seq_len], &[1, self.seq_len])?;
-            let ones_id = tape.watch(ones_row);
-            let pooled_sum = tape.matmul(ones_id, x, ctx)?;
-            let pooled = tape.mul_scalar(pooled_sum, 1.0 / self.seq_len as f32, ctx)?;
+            // Masked mean pool: average only non-`<pad>` positions (right-padded sequences).
+            // Uniform weights over valid tokens sum to 1 so matmul yields the true mean.
+            let valid_len = {
+                let mut end = ids.len();
+                while end > 0 && ids[end - 1] == self.pad_id {
+                    end -= 1;
+                }
+                end.max(1)
+            };
+            let mut weights = vec![0.0_f32; self.seq_len];
+            let inv = 1.0 / valid_len as f32;
+            for w in weights.iter_mut().take(valid_len.min(self.seq_len)) {
+                *w = inv;
+            }
+            let mask_row = ops.tensor_from_vec(weights, &[1, self.seq_len])?;
+            let mask_id = tape.watch(mask_row);
+            let pooled = tape.matmul(mask_id, x, ctx)?;
 
             // Final classification head: [1, d_model] -> [1, NUM_CLASSES].
             self.head.forward_tape(pooled, tape, ctx)
@@ -299,10 +319,7 @@ mod runner {
 
         for (ids, label) in examples {
             let logits_vec = model.logits(backend, ids)?;
-            let logits = [
-                *logits_vec.first().unwrap_or(&0.0),
-                *logits_vec.get(1).unwrap_or(&0.0),
-            ];
+            let logits = [*logits_vec.first().unwrap_or(&0.0), *logits_vec.get(1).unwrap_or(&0.0)];
 
             let pred = if logits[1] > logits[0] { 1usize } else { 0usize };
             let true_label = (*label as usize).min(1);
@@ -344,6 +361,104 @@ mod runner {
             c[idx] += 1;
         }
         c
+    }
+
+    /// Macro-F1 plus per-class precision / recall from `confusion[true_label][pred_label]`.
+    fn classification_scores(confusion: [[u64; 2]; 2]) -> (f32, [f32; 2], [f32; 2]) {
+        let mut prec = [0.0_f32; 2];
+        let mut rec = [0.0_f32; 2];
+        let mut f1 = [0.0_f32; 2];
+        for k in 0..2 {
+            let tp = confusion[k][k] as f32;
+            let pred_k = (confusion[0][k] + confusion[1][k]) as f32;
+            let true_k = (confusion[k][0] + confusion[k][1]) as f32;
+            prec[k] = if pred_k > 0.0 { tp / pred_k } else { 0.0 };
+            rec[k] = if true_k > 0.0 { tp / true_k } else { 0.0 };
+            f1[k] = if prec[k] + rec[k] > 1e-12 { 2.0 * prec[k] * rec[k] / (prec[k] + rec[k]) } else { 0.0 };
+        }
+        let macro_f1 = (f1[0] + f1[1]) * 0.5;
+        (macro_f1, prec, rec)
+    }
+
+    fn parameter_l2_by_prefix_json<B: Backend, M: NamedParameters<B>>(backend: &B, model: &M) -> String {
+        use std::collections::HashMap;
+        let ops = backend.ops();
+        let mut sumsq: HashMap<String, f64> = HashMap::new();
+        model.visit_parameters(&mut |name, p| {
+            let prefix = name.split('.').take(2).collect::<Vec<_>>().join(".");
+            if let Ok(v) = ops.tensor_to_vec(p.tensor()) {
+                let s: f64 = v.iter().map(|x| (*x as f64).powi(2)).sum();
+                *sumsq.entry(prefix).or_insert(0.0) += s;
+            }
+        });
+        let mut parts: Vec<String> =
+            sumsq.into_iter().map(|(k, s)| format!("\"{}\": {:.6}", json_escape(&k), s.sqrt())).collect();
+        parts.sort();
+        format!("{{{}}}", parts.join(", "))
+    }
+
+    fn fmt_f32_list(xs: &[f32]) -> String {
+        let mut s = String::from("[");
+        for (i, v) in xs.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push_str(&format!("{:.6}", v));
+        }
+        s.push(']');
+        s
+    }
+
+    fn build_sst2_diagnostics_json(
+        train_label_counts: [u64; 2],
+        dev_label_counts: [u64; 2],
+        eval: &EvalDiagnostics,
+        epoch_losses: &[f32],
+        param_l2_json: &str,
+    ) -> String {
+        let (macro_f1, prec, rec) = classification_scores(eval.confusion);
+        format!(
+            "{{\n\
+  \"train_label_counts\": [{}, {}],\n\
+  \"dev_label_counts\": [{}, {}],\n\
+  \"dev_confusion_matrix\": [[{}, {}], [{}, {}]],\n\
+  \"dev_predicted_counts\": [{}, {}],\n\
+  \"dev_positive_prob_hist\": {{\"bins\": {}, \"counts\": [{}, {}, {}, {}, {}, {}, {}, {}, {}, {}]}},\n\
+  \"macro_f1\": {:.6},\n\
+  \"per_class_precision\": [{:.6}, {:.6}],\n\
+  \"per_class_recall\": [{:.6}, {:.6}],\n\
+  \"epoch_mean_losses\": {},\n\
+  \"parameter_l2_by_prefix\": {}\n\
+}}",
+            train_label_counts[0],
+            train_label_counts[1],
+            dev_label_counts[0],
+            dev_label_counts[1],
+            eval.confusion[0][0],
+            eval.confusion[0][1],
+            eval.confusion[1][0],
+            eval.confusion[1][1],
+            eval.predicted_counts[0],
+            eval.predicted_counts[1],
+            eval.pos_prob_hist_bins,
+            eval.pos_prob_hist_counts[0],
+            eval.pos_prob_hist_counts[1],
+            eval.pos_prob_hist_counts[2],
+            eval.pos_prob_hist_counts[3],
+            eval.pos_prob_hist_counts[4],
+            eval.pos_prob_hist_counts[5],
+            eval.pos_prob_hist_counts[6],
+            eval.pos_prob_hist_counts[7],
+            eval.pos_prob_hist_counts[8],
+            eval.pos_prob_hist_counts[9],
+            macro_f1,
+            prec[0],
+            prec[1],
+            rec[0],
+            rec[1],
+            fmt_f32_list(epoch_losses),
+            param_l2_json,
+        )
     }
 
     /// Hash the concatenation of the train + dev sentences with a stable Fnv1a so the
@@ -404,7 +519,8 @@ mod runner {
 
     pub fn run() -> anyhow::Result<()> {
         let args: Vec<String> = std::env::args().collect();
-        let quick = parse_flag(&args, "--quick");
+        let paper = parse_flag(&args, "--paper");
+        let quick = parse_flag(&args, "--quick") && !paper;
         let overfit_32 = parse_flag(&args, "--overfit-32");
         let use_sgd = parse_flag(&args, "--sgd");
         let parity_dump_path = parse_arg_opt(&args, "--parity-dump");
@@ -418,19 +534,30 @@ mod runner {
             if quick {
                 1
             } else if overfit_32 {
-                50
+                300
+            } else if paper {
+                5
             } else {
                 DEFAULT_EPOCHS
             },
         );
-        let batch: usize = parse_arg(&args, "--batch", DEFAULT_BATCH);
-        let lr: f32 = parse_arg(&args, "--lr", DEFAULT_LR);
-        let seq_len: usize = parse_arg(&args, "--seq-len", DEFAULT_SEQ_LEN);
-        let d_model: usize = parse_arg(&args, "--d-model", DEFAULT_D_MODEL);
-        let num_heads: usize = parse_arg(&args, "--num-heads", DEFAULT_NUM_HEADS);
-        let ffn_dim: usize = parse_arg(&args, "--ffn-dim", DEFAULT_FFN_DIM);
-        let out_dir =
-            PathBuf::from(parse_arg::<String>(&args, "--out-dir", "out/sst2".into()));
+        let batch: usize = parse_arg(&args, "--batch", if paper { 32 } else { DEFAULT_BATCH });
+        let lr: f32 = parse_arg(
+            &args,
+            "--lr",
+            if overfit_32 {
+                1e-3
+            } else if paper {
+                2e-4
+            } else {
+                DEFAULT_LR
+            },
+        );
+        let seq_len: usize = parse_arg(&args, "--seq-len", if paper { 64 } else { DEFAULT_SEQ_LEN });
+        let d_model: usize = parse_arg(&args, "--d-model", if paper { 128 } else { DEFAULT_D_MODEL });
+        let num_heads: usize = parse_arg(&args, "--num-heads", if paper { 4 } else { DEFAULT_NUM_HEADS });
+        let ffn_dim: usize = parse_arg(&args, "--ffn-dim", if paper { 256 } else { DEFAULT_FFN_DIM });
+        let out_dir = PathBuf::from(parse_arg::<String>(&args, "--out-dir", "out/sst2".into()));
         fs::create_dir_all(&out_dir)?;
 
         if seq_len == 0 {
@@ -456,6 +583,7 @@ mod runner {
         println!("batch_size : {batch}");
         println!("lr         : {lr}");
         println!("overfit_32 : {overfit_32}");
+        println!("paper      : {paper}");
         println!("optimizer  : {}", if use_sgd { "sgd" } else { "adam" });
         if parity_one_step {
             println!("parity_one_step: true (batch={})", parity_batch);
@@ -467,12 +595,7 @@ mod runner {
         let load_t0 = Instant::now();
         let (mut train_raw, dev_raw) = load_sst2()?;
         let load_elapsed = load_t0.elapsed();
-        println!(
-            "loaded {} train / {} dev examples in {:?}",
-            train_raw.len(),
-            dev_raw.len(),
-            load_elapsed
-        );
+        println!("loaded {} train / {} dev examples in {:?}", train_raw.len(), dev_raw.len(), load_elapsed);
 
         let train_label_counts = label_counts(&train_raw);
         let dev_label_counts = label_counts(&dev_raw);
@@ -484,20 +607,23 @@ mod runner {
             train_raw.truncate(32);
         }
 
-        let tok = WordLevelTokenizer::fit_from_iter(
-            WordLevelConfig { lowercase: true, max_vocab: Some(MAX_VOCAB), min_freq: 1 },
-            train_raw.iter().map(|e| e.sentence.as_str()),
-        );
+        let tok = if let Some(vp) = parse_arg_opt(&args, "--vocab") {
+            WordLevelTokenizer::from_vocab_file(
+                WordLevelConfig { lowercase: true, max_vocab: Some(MAX_VOCAB), min_freq: 1 },
+                std::path::Path::new(&vp),
+            )?
+        } else {
+            WordLevelTokenizer::fit_from_iter(
+                WordLevelConfig { lowercase: true, max_vocab: Some(MAX_VOCAB), min_freq: 1 },
+                train_raw.iter().map(|e| e.sentence.as_str()),
+            )
+        };
         println!("vocab_size : {} (capped at {})", tok.vocab_size(), MAX_VOCAB);
 
-        let train: Vec<(Vec<usize>, u8)> = train_raw
-            .iter()
-            .map(|e| (encode_padded(&tok, &e.sentence, seq_len), e.label))
-            .collect();
-        let dev: Vec<(Vec<usize>, u8)> = dev_raw
-            .iter()
-            .map(|e| (encode_padded(&tok, &e.sentence, seq_len), e.label))
-            .collect();
+        let train: Vec<(Vec<usize>, u8)> =
+            train_raw.iter().map(|e| (encode_padded(&tok, &e.sentence, seq_len), e.label)).collect();
+        let dev: Vec<(Vec<usize>, u8)> =
+            dev_raw.iter().map(|e| (encode_padded(&tok, &e.sentence, seq_len), e.label)).collect();
 
         let dataset_hash = {
             let mut buf = Vec::new();
@@ -515,6 +641,7 @@ mod runner {
             num_layers,
             seed,
             Sst2Dims { seq_len, d_model, num_heads, ffn_dim },
+            tok.vocab.pad_id,
         )?;
         let total_params = count_total_params::<DefaultBackend, _>(&backend, &model);
         println!("total parameters: {}", total_params);
@@ -554,13 +681,9 @@ mod runner {
             let train_t0 = Instant::now();
             let report: TrainingReport = trainer.fit_classification(&backend, &mut model, &train)?;
             let train_elapsed = train_t0.elapsed();
-            let throughput =
-                (train.len() * epochs) as f32 / train_elapsed.as_secs_f32().max(1e-9);
+            let throughput = (train.len() * epochs) as f32 / train_elapsed.as_secs_f32().max(1e-9);
             for e in &report.epochs {
-                println!(
-                    "epoch {:>3}: train_loss={:.4} elapsed={:?}",
-                    e.epoch, e.mean_loss, e.elapsed
-                );
+                println!("epoch {:>3}: train_loss={:.4} elapsed={:?}", e.epoch, e.mean_loss, e.elapsed);
             }
             if let Some(acc) = report.accuracy.as_ref().and_then(|v| v.last()) {
                 println!("final train acc: {:.3}", acc);
@@ -578,35 +701,14 @@ mod runner {
             fs::write(&vocab_path, tok.vocab.tokens.join("\n"))?;
             println!("wrote {}", vocab_path.display());
 
-            let diagnostics_json = format!(
-                "{{\n\
-  \"train_label_counts\": [{}, {}],\n\
-  \"dev_label_counts\": [{}, {}],\n\
-  \"dev_confusion_matrix\": [[{}, {}], [{}, {}]],\n\
-  \"dev_predicted_counts\": [{}, {}],\n\
-  \"dev_positive_prob_hist\": {{\"bins\": {}, \"counts\": [{}, {}, {}, {}, {}, {}, {}, {}, {}, {}]}}\n\
-}}",
-                train_label_counts[0],
-                train_label_counts[1],
-                dev_label_counts[0],
-                dev_label_counts[1],
-                eval.confusion[0][0],
-                eval.confusion[0][1],
-                eval.confusion[1][0],
-                eval.confusion[1][1],
-                eval.predicted_counts[0],
-                eval.predicted_counts[1],
-                eval.pos_prob_hist_bins,
-                eval.pos_prob_hist_counts[0],
-                eval.pos_prob_hist_counts[1],
-                eval.pos_prob_hist_counts[2],
-                eval.pos_prob_hist_counts[3],
-                eval.pos_prob_hist_counts[4],
-                eval.pos_prob_hist_counts[5],
-                eval.pos_prob_hist_counts[6],
-                eval.pos_prob_hist_counts[7],
-                eval.pos_prob_hist_counts[8],
-                eval.pos_prob_hist_counts[9],
+            let epoch_losses: Vec<f32> = report.epochs.iter().map(|e| e.mean_loss).collect();
+            let param_l2 = parameter_l2_by_prefix_json(&backend, &model);
+            let diagnostics_json = build_sst2_diagnostics_json(
+                train_label_counts,
+                dev_label_counts,
+                &eval,
+                &epoch_losses,
+                &param_l2,
             );
 
             let manifest = serde_json_minimal::Object::new()
@@ -635,6 +737,12 @@ mod runner {
                 .insert_str("dataset", "SST-2 (binary, HuggingFace SetFit/sst2 mirror)")
                 .insert_str("tokenizer", "rustral-data WordLevelTokenizer (whitespace, lowercased)")
                 .insert_bool("quick_mode", quick)
+                .insert_bool("paper_mode", paper)
+                .insert_u64("warmup_steps_planned", if paper { 500 } else { 0 })
+                .insert_str(
+                    "lr_schedule_note",
+                    if paper { "planned_linear_warmup_not_applied_in_optimizer_yet" } else { "constant" },
+                )
                 .insert_bool("overfit_32", overfit_32)
                 .insert_raw("diagnostics", &diagnostics_json);
             let manifest_path = out_dir.join("manifest.json");
@@ -650,13 +758,9 @@ mod runner {
         let train_t0 = Instant::now();
         let report: TrainingReport = trainer.fit_classification(&backend, &mut model, &train)?;
         let train_elapsed = train_t0.elapsed();
-        let throughput =
-            (train.len() * epochs) as f32 / train_elapsed.as_secs_f32().max(1e-9);
+        let throughput = (train.len() * epochs) as f32 / train_elapsed.as_secs_f32().max(1e-9);
         for e in &report.epochs {
-            println!(
-                "epoch {:>3}: train_loss={:.4} elapsed={:?}",
-                e.epoch, e.mean_loss, e.elapsed
-            );
+            println!("epoch {:>3}: train_loss={:.4} elapsed={:?}", e.epoch, e.mean_loss, e.elapsed);
         }
         if let Some(acc) = report.accuracy.as_ref().and_then(|v| v.last()) {
             println!("final train acc: {:.3}", acc);
@@ -674,35 +778,14 @@ mod runner {
         fs::write(&vocab_path, tok.vocab.tokens.join("\n"))?;
         println!("wrote {}", vocab_path.display());
 
-        let diagnostics_json = format!(
-            "{{\n\
-  \"train_label_counts\": [{}, {}],\n\
-  \"dev_label_counts\": [{}, {}],\n\
-  \"dev_confusion_matrix\": [[{}, {}], [{}, {}]],\n\
-  \"dev_predicted_counts\": [{}, {}],\n\
-  \"dev_positive_prob_hist\": {{\"bins\": {}, \"counts\": [{}, {}, {}, {}, {}, {}, {}, {}, {}, {}]}}\n\
-}}",
-            train_label_counts[0],
-            train_label_counts[1],
-            dev_label_counts[0],
-            dev_label_counts[1],
-            eval.confusion[0][0],
-            eval.confusion[0][1],
-            eval.confusion[1][0],
-            eval.confusion[1][1],
-            eval.predicted_counts[0],
-            eval.predicted_counts[1],
-            eval.pos_prob_hist_bins,
-            eval.pos_prob_hist_counts[0],
-            eval.pos_prob_hist_counts[1],
-            eval.pos_prob_hist_counts[2],
-            eval.pos_prob_hist_counts[3],
-            eval.pos_prob_hist_counts[4],
-            eval.pos_prob_hist_counts[5],
-            eval.pos_prob_hist_counts[6],
-            eval.pos_prob_hist_counts[7],
-            eval.pos_prob_hist_counts[8],
-            eval.pos_prob_hist_counts[9],
+        let epoch_losses: Vec<f32> = report.epochs.iter().map(|e| e.mean_loss).collect();
+        let param_l2 = parameter_l2_by_prefix_json(&backend, &model);
+        let diagnostics_json = build_sst2_diagnostics_json(
+            train_label_counts,
+            dev_label_counts,
+            &eval,
+            &epoch_losses,
+            &param_l2,
         );
 
         let manifest = serde_json_minimal::Object::new()
@@ -731,6 +814,12 @@ mod runner {
             .insert_str("dataset", "SST-2 (binary, HuggingFace SetFit/sst2 mirror)")
             .insert_str("tokenizer", "rustral-data WordLevelTokenizer (whitespace, lowercased)")
             .insert_bool("quick_mode", quick)
+            .insert_bool("paper_mode", paper)
+            .insert_u64("warmup_steps_planned", if paper { 500 } else { 0 })
+            .insert_str(
+                "lr_schedule_note",
+                if paper { "planned_linear_warmup_not_applied_in_optimizer_yet" } else { "constant" },
+            )
             .insert_bool("overfit_32", overfit_32)
             .insert_raw("diagnostics", &diagnostics_json);
         let manifest_path = out_dir.join("manifest.json");
@@ -977,8 +1066,7 @@ mod runner {
         });
 
         let mut opt = Adam::new(args.lr);
-        opt.step(&mut params_vec, &grads, &mut ctx)
-            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        opt.step(&mut params_vec, &grads, &mut ctx).map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
         // Capture updated params by ParameterId (stable and unambiguous).
         let mut tok_table_after: Option<Vec<f32>> = None;
@@ -1074,10 +1162,7 @@ mod runner {
         // Dataset label counts for sanity.
         let tr = label_counts(train_raw);
         let dv = label_counts(dev_raw);
-        s.push_str(&format!(
-            "  \"train_label_counts\": [{}, {}],\n",
-            tr[0], tr[1]
-        ));
+        s.push_str(&format!("  \"train_label_counts\": [{}, {}],\n", tr[0], tr[1]));
         s.push_str(&format!("  \"dev_label_counts\": [{}, {}]\n", dv[0], dv[1]));
         s.push_str("}\n");
 

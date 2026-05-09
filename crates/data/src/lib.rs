@@ -7,10 +7,10 @@
 //! under [`fetch`] and [`datasets`], gated by `feature = "fetch"`.
 
 #[cfg(feature = "fetch")]
+pub mod datasets;
+#[cfg(feature = "fetch")]
 pub mod fetch;
 pub mod tokenizer;
-#[cfg(feature = "fetch")]
-pub mod datasets;
 
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;

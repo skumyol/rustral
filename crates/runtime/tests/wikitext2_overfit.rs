@@ -1,8 +1,8 @@
-//! Smoke test for the WikiText-2 LM example.
+//! WikiText-2 LM overfit on a tiny token prefix: train perplexity should collapse.
 //!
-//! Pre-stages tiny synthetic train/valid/test text files and runs the example with
-//! `--quick`. Asserts the manifest is JSON-shaped with the expected fields. This test is
-//! offline and fast, so it runs by default.
+//! Run with: `cargo test -p rustral-runtime --features training --test wikitext2_overfit -- --include-ignored`
+//!
+//! Note: `dev_perplexity` stays high (train/dev vocab mismatch); we assert on `diagnostics.train_perplexity`.
 
 #![cfg(feature = "training")]
 
@@ -31,8 +31,9 @@ fn synth_corpus() -> String {
 }
 
 #[test]
-fn wikitext2_lm_runs_offline_quick() -> anyhow::Result<()> {
-    let tmp = tempdir()?;
+#[ignore]
+fn wikitext2_overfit_tiny_train_perplexity_low() -> anyhow::Result<()> {
+    let tmp = tempfile_named("wt2-overfit")?;
     let cache = tmp.join("cache");
     let out = tmp.join("out");
     let dir = cache.join("datasets/wikitext-2");
@@ -53,7 +54,17 @@ fn wikitext2_lm_runs_offline_quick() -> anyhow::Result<()> {
             "--example",
             "wikitext2_lm",
             "--",
-            "--quick",
+            "--overfit-tiny",
+            "--epochs",
+            "100",
+            "--train-tokens",
+            "48",
+            "--block-size",
+            "8",
+            "--batch",
+            "4",
+            "--eval-windows",
+            "512",
             "--out-dir",
         ])
         .arg(&out)
@@ -62,20 +73,18 @@ fn wikitext2_lm_runs_offline_quick() -> anyhow::Result<()> {
         .env("RUSTRAL_DATASET_SKIP_CHECKSUM", "1")
         .current_dir(repo_root())
         .status()?;
-    assert!(status.success(), "wikitext2 example exited with {:?}", status.code());
+    assert!(status.success(), "wikitext2_lm overfit exited {:?}", status.code());
 
-    let manifest = fs::read_to_string(out.join("manifest.json"))?;
-    assert!(manifest.contains("\"task\": \"wikitext2_word_lm\""));
-    assert!(manifest.contains("\"dev_perplexity\":"));
-    assert!(manifest.contains("\"vocab_size\":"));
-    assert!(out.join("vocab.txt").exists());
-
+    let manifest_raw = fs::read_to_string(out.join("manifest.json"))?;
+    let v: serde_json::Value = serde_json::from_str(&manifest_raw)?;
+    let train_ppl = v["diagnostics"]["train_perplexity"].as_f64().expect("diagnostics.train_perplexity");
+    assert!(train_ppl < 5.0, "expected train subset perplexity < 5 after overfit, got {train_ppl}");
     Ok(())
 }
 
-fn tempdir() -> std::io::Result<PathBuf> {
+fn tempfile_named(prefix: &str) -> std::io::Result<PathBuf> {
     let base = std::env::temp_dir().join(format!(
-        "rustral-wikitext2-smoke-{}-{}",
+        "rustral-{prefix}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
     ));

@@ -51,13 +51,13 @@ mod runner {
     use std::time::Instant;
 
     use rustral_autodiff::{Tape, TensorId};
+    #[cfg(feature = "cuda")]
+    use rustral_candle_backend::CandleBackend;
     use rustral_core::{Backend, ForwardCtx, Mode, NamedParameters, Parameter, Result};
     use rustral_data::datasets::wikitext2::load_wikitext2;
     use rustral_data::tokenizer::{WordLevelConfig, WordLevelTokenizer};
     #[cfg(not(feature = "cuda"))]
     use rustral_ndarray_backend::CpuBackend;
-    #[cfg(feature = "cuda")]
-    use rustral_candle_backend::CandleBackend;
     use rustral_nn::tape::TapeModule;
     use rustral_nn::tape_transformer::{
         causal_mask_tape, TapeTransformerEncoderConfig, TapeTransformerEncoderLayer,
@@ -141,11 +141,8 @@ mod runner {
         B::Tensor: Clone,
     {
         pub fn new(backend: &B, vocab: usize, seed: u64, dims: WikiLmDims) -> Result<Self> {
-            let tok_embed = Embedding::new(
-                backend,
-                EmbeddingConfig::new(vocab, dims.d_model),
-                seed.wrapping_add(1),
-            )?;
+            let tok_embed =
+                Embedding::new(backend, EmbeddingConfig::new(vocab, dims.d_model), seed.wrapping_add(1))?;
             let pos_embed = Embedding::new(
                 backend,
                 EmbeddingConfig::new(dims.block, dims.d_model),
@@ -251,19 +248,21 @@ mod runner {
         out
     }
 
-    /// Compute mean cross-entropy over `examples`, returning (loss_nats, perplexity).
+    /// Mean CE / perplexity / top-1 / top-5 accuracy on next-token prediction.
     fn evaluate<B: Backend>(
         backend: &B,
         model: &WikiTextLm<B>,
         examples: &[(Vec<usize>, usize)],
-    ) -> Result<(f32, f32)>
+    ) -> Result<(f32, f32, f32, f32)>
     where
         B::Tensor: Clone,
     {
         if examples.is_empty() {
-            return Ok((0.0, 1.0));
+            return Ok((0.0, 1.0, 0.0, 0.0));
         }
         let mut total_loss = 0.0f64;
+        let mut top1_ok = 0u64;
+        let mut top5_ok = 0u64;
         for (ids, label) in examples {
             let logits = model.logits(backend, ids)?;
             let mut max_v = f32::NEG_INFINITY;
@@ -278,10 +277,55 @@ mod runner {
             }
             let log_denom = (max_v as f64) + sum_exp.ln();
             total_loss += log_denom - logits[*label] as f64;
+
+            let lab = *label;
+            let mut order: Vec<usize> = (0..logits.len()).collect();
+            order.sort_by(|&a, &b| logits[b].partial_cmp(&logits[a]).unwrap_or(std::cmp::Ordering::Equal));
+            if order.first().copied() == Some(lab) {
+                top1_ok += 1;
+            }
+            if order.iter().take(5).any(|&i| i == lab) {
+                top5_ok += 1;
+            }
         }
+        let n = examples.len() as f32;
         let mean = (total_loss / examples.len() as f64) as f32;
         let ppl = (mean as f64).exp() as f32;
-        Ok((mean, ppl))
+        Ok((mean, ppl, top1_ok as f32 / n, top5_ok as f32 / n))
+    }
+
+    fn fmt_f32_list(xs: &[f32]) -> String {
+        let mut s = String::from("[");
+        for (i, v) in xs.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push_str(&format!("{:.6}", v));
+        }
+        s.push(']');
+        s
+    }
+
+    fn parameter_l2_by_prefix_json<B: Backend, M: NamedParameters<B>>(backend: &B, model: &M) -> String {
+        use std::collections::HashMap;
+        let ops = backend.ops();
+        let mut sumsq: HashMap<String, f64> = HashMap::new();
+        model.visit_parameters(&mut |name, p| {
+            let prefix = name.split('.').take(2).collect::<Vec<_>>().join(".");
+            if let Ok(v) = ops.tensor_to_vec(p.tensor()) {
+                let s: f64 = v.iter().map(|x| (*x as f64).powi(2)).sum();
+                *sumsq.entry(prefix).or_insert(0.0) += s;
+            }
+        });
+        let mut parts: Vec<String> = sumsq
+            .into_iter()
+            .map(|(k, s)| {
+                let esc = k.replace('\\', "\\\\").replace('"', "\\\"");
+                format!("\"{esc}\": {:.6}", s.sqrt())
+            })
+            .collect();
+        parts.sort();
+        format!("{{{}}}", parts.join(", "))
     }
 
     fn fnv1a_hex(data: &[u8]) -> String {
@@ -331,25 +375,77 @@ mod runner {
 
     pub fn run() -> anyhow::Result<()> {
         let args: Vec<String> = std::env::args().collect();
-        let quick = parse_flag(&args, "--quick");
+        let paper = parse_flag(&args, "--paper");
+        let overfit_tiny = parse_flag(&args, "--overfit-tiny");
+        let quick = parse_flag(&args, "--quick") && !paper;
         let seed: u64 = parse_arg(&args, "--seed", DEFAULT_SEED);
-        let epochs: usize = parse_arg(&args, "--epochs", DEFAULT_EPOCHS);
-        let batch: usize = parse_arg(&args, "--batch", DEFAULT_BATCH);
-        let lr: f32 = parse_arg(&args, "--lr", DEFAULT_LR);
-        let eval_windows_cap: usize = parse_arg(&args, "--eval-windows", DEFAULT_EVAL_WINDOWS);
+        let epochs: usize = parse_arg(
+            &args,
+            "--epochs",
+            if overfit_tiny {
+                200
+            } else if paper {
+                5
+            } else if quick {
+                1
+            } else {
+                DEFAULT_EPOCHS
+            },
+        );
+        let batch: usize = parse_arg(
+            &args,
+            "--batch",
+            if overfit_tiny {
+                8
+            } else if paper {
+                32
+            } else {
+                DEFAULT_BATCH
+            },
+        );
+        let lr: f32 = parse_arg(
+            &args,
+            "--lr",
+            if paper {
+                3e-4
+            } else if overfit_tiny {
+                1e-3
+            } else {
+                DEFAULT_LR
+            },
+        );
+        let eval_windows_cap: usize =
+            parse_arg(&args, "--eval-windows", if overfit_tiny { 2_048 } else { DEFAULT_EVAL_WINDOWS });
         let train_windows_cap: usize = parse_arg(&args, "--train-windows", DEFAULT_TRAIN_WINDOWS);
         let train_token_cap: usize = parse_arg(
             &args,
             "--train-tokens",
-            if quick { DEFAULT_TRAIN_TOKENS_QUICK } else { DEFAULT_TRAIN_TOKENS },
+            if overfit_tiny {
+                64
+            } else if paper {
+                200_000
+            } else if quick {
+                DEFAULT_TRAIN_TOKENS_QUICK
+            } else {
+                DEFAULT_TRAIN_TOKENS
+            },
         );
-        let block_size: usize = parse_arg(&args, "--block-size", DEFAULT_BLOCK_SIZE);
-        let d_model: usize = parse_arg(&args, "--d-model", DEFAULT_D_MODEL);
-        let num_heads: usize = parse_arg(&args, "--num-heads", DEFAULT_NUM_HEADS);
-        let ffn_dim: usize = parse_arg(&args, "--ffn-dim", DEFAULT_FFN_DIM);
-        let num_layers: usize = parse_arg(&args, "--num-layers", DEFAULT_NUM_LAYERS);
-        let out_dir =
-            PathBuf::from(parse_arg::<String>(&args, "--out-dir", "out/wikitext2".into()));
+        let block_size: usize = parse_arg(
+            &args,
+            "--block-size",
+            if overfit_tiny {
+                8
+            } else if paper {
+                64
+            } else {
+                DEFAULT_BLOCK_SIZE
+            },
+        );
+        let d_model: usize = parse_arg(&args, "--d-model", if paper { 256 } else { DEFAULT_D_MODEL });
+        let num_heads: usize = parse_arg(&args, "--num-heads", if paper { 4 } else { DEFAULT_NUM_HEADS });
+        let ffn_dim: usize = parse_arg(&args, "--ffn-dim", if paper { 1024 } else { DEFAULT_FFN_DIM });
+        let num_layers: usize = parse_arg(&args, "--num-layers", if paper { 4 } else { DEFAULT_NUM_LAYERS });
+        let out_dir = PathBuf::from(parse_arg::<String>(&args, "--out-dir", "out/wikitext2".into()));
         fs::create_dir_all(&out_dir)?;
 
         if block_size == 0 || d_model == 0 || num_heads == 0 || ffn_dim == 0 || num_layers == 0 {
@@ -371,9 +467,17 @@ mod runner {
         println!("epochs       : {epochs}");
         println!("batch_size   : {batch}");
         println!("lr           : {lr}");
+        println!("paper        : {paper}");
+        println!("overfit_tiny : {overfit_tiny}");
         println!("train_tokens : {train_token_cap}");
-        println!("train_windows: {}", if train_windows_cap == 0 { "all".into() } else { train_windows_cap.to_string() });
-        println!("eval_windows : {}", if eval_windows_cap == 0 { "all".into() } else { eval_windows_cap.to_string() });
+        println!(
+            "train_windows: {}",
+            if train_windows_cap == 0 { "all".into() } else { train_windows_cap.to_string() }
+        );
+        println!(
+            "eval_windows : {}",
+            if eval_windows_cap == 0 { "all".into() } else { eval_windows_cap.to_string() }
+        );
         println!("offline      : {}", std::env::var("RUSTRAL_DATASET_OFFLINE").is_ok());
         println!("out_dir      : {}", out_dir.display());
         println!();
@@ -388,10 +492,32 @@ mod runner {
             load_t0.elapsed()
         );
 
-        let tok = WordLevelTokenizer::fit_from_iter(
-            WordLevelConfig { lowercase: true, max_vocab: Some(MAX_VOCAB), min_freq: 1 },
-            std::iter::once(splits.train.as_str()),
-        );
+        fn parse_arg_opt(args: &[String], name: &str) -> Option<String> {
+            for w in args.windows(2) {
+                if w[0] == name {
+                    return Some(w[1].clone());
+                }
+            }
+            None
+        }
+
+        let tok = if let Some(vp) = parse_arg_opt(&args, "--vocab") {
+            WordLevelTokenizer::from_vocab_file(
+                WordLevelConfig { lowercase: true, max_vocab: Some(MAX_VOCAB), min_freq: 1 },
+                std::path::Path::new(&vp),
+            )?
+        } else {
+            let fit_on = if overfit_tiny {
+                // Fit only on the tiny prefix we train on so vocab (and LM head) stay small.
+                splits.train.split_whitespace().take(train_token_cap.max(1)).collect::<Vec<_>>().join(" ")
+            } else {
+                splits.train.clone()
+            };
+            WordLevelTokenizer::fit_from_iter(
+                WordLevelConfig { lowercase: true, max_vocab: Some(MAX_VOCAB), min_freq: 1 },
+                std::iter::once(fit_on.as_str()),
+            )
+        };
         println!("vocab_size   : {} (capped at {})", tok.vocab_size(), MAX_VOCAB);
 
         let mut train_ids = tok.encode(&splits.train);
@@ -403,20 +529,14 @@ mod runner {
         let mut train = build_windows(&train_ids, block_size);
         let valid = build_windows(&valid_ids, block_size);
         println!("train_windows: {}  valid_windows: {}", train.len(), valid.len());
-        let train_windows_used: usize = if train_windows_cap == 0 {
-            train.len()
-        } else {
-            train.len().min(train_windows_cap)
-        };
+        let train_windows_used: usize =
+            if train_windows_cap == 0 { train.len() } else { train.len().min(train_windows_cap) };
         if train_windows_used != train.len() {
             println!("train_windows_used: {} (cap {})", train_windows_used, train_windows_cap);
             train.truncate(train_windows_used);
         }
-        let eval_windows_used: usize = if eval_windows_cap == 0 {
-            valid.len()
-        } else {
-            valid.len().min(eval_windows_cap)
-        };
+        let eval_windows_used: usize =
+            if eval_windows_cap == 0 { valid.len() } else { valid.len().min(eval_windows_cap) };
         if eval_windows_used != valid.len() {
             println!("eval_windows_used: {} (cap {})", eval_windows_used, eval_windows_cap);
         }
@@ -428,24 +548,13 @@ mod runner {
             &backend,
             tok.vocab_size(),
             seed,
-            WikiLmDims {
-                block: block_size,
-                d_model,
-                num_heads,
-                ffn_dim,
-                num_layers,
-            },
+            WikiLmDims { block: block_size, d_model, num_heads, ffn_dim, num_layers },
         )?;
         let total_params = count_total_params::<DefaultBackend, _>(&backend, &model);
         println!("total parameters: {}", total_params);
 
-        let cfg = TapeTrainerConfig {
-            epochs,
-            batch_size: batch,
-            shuffle: true,
-            seed,
-            learning_rate: lr,
-        };
+        let cfg =
+            TapeTrainerConfig { epochs, batch_size: batch, shuffle: !overfit_tiny, seed, learning_rate: lr };
         let mut trainer = TapeTrainer::<DefaultBackend, _>::new(cfg, Adam::new(lr));
 
         let train_t0 = Instant::now();
@@ -453,19 +562,46 @@ mod runner {
         let train_elapsed = train_t0.elapsed();
         let throughput = (train.len() * epochs) as f32 / train_elapsed.as_secs_f32().max(1e-9);
         for e in &report.epochs {
-            println!(
-                "epoch {:>3}: train_loss={:.4} elapsed={:?}",
-                e.epoch, e.mean_loss, e.elapsed
-            );
+            println!("epoch {:>3}: train_loss={:.4} elapsed={:?}", e.epoch, e.mean_loss, e.elapsed);
         }
 
-        let (val_loss, val_ppl) = evaluate(&backend, &model, &valid[..eval_windows_used])?;
-        println!("dev: loss={:.4} ppl={:.2}", val_loss, val_ppl);
+        let (val_loss, val_ppl, val_top1, val_top5) =
+            evaluate(&backend, &model, &valid[..eval_windows_used])?;
+        let train_metrics_windows = train.len().min(2048);
+        let (train_loss, train_ppl, train_top1, train_top5) =
+            evaluate(&backend, &model, &train[..train_metrics_windows])?;
+        println!("dev: loss={:.4} ppl={:.2} top1={:.3} top5={:.3}", val_loss, val_ppl, val_top1, val_top5);
         println!("training throughput: {:.1} windows/sec", throughput);
 
         let vocab_path = out_dir.join("vocab.txt");
         fs::write(&vocab_path, tok.vocab.tokens.join("\n"))?;
         println!("wrote {}", vocab_path.display());
+
+        let epoch_losses: Vec<f32> = report.epochs.iter().map(|e| e.mean_loss).collect();
+        let param_l2 = parameter_l2_by_prefix_json(&backend, &model);
+        let diagnostics_json = format!(
+            "{{\n\
+  \"epoch_mean_losses\": {},\n\
+  \"epoch_gradient_l2_norms\": [],\n\
+  \"train_eval_subset_windows\": {},\n\
+  \"train_loss_nats\": {:.6},\n\
+  \"train_perplexity\": {:.6},\n\
+  \"train_top1_acc\": {:.6},\n\
+  \"train_top5_acc\": {:.6},\n\
+  \"dev_top1_acc\": {:.6},\n\
+  \"dev_top5_acc\": {:.6},\n\
+  \"parameter_l2_by_prefix\": {}\n\
+}}",
+            fmt_f32_list(&epoch_losses),
+            train_metrics_windows,
+            train_loss,
+            train_ppl,
+            train_top1,
+            train_top5,
+            val_top1,
+            val_top5,
+            param_l2,
+        );
 
         let manifest = serde_json_minimal::Object::new()
             .insert_str("task", "wikitext2_word_lm")
@@ -495,7 +631,14 @@ mod runner {
             .insert_f32("train_elapsed_sec", train_elapsed.as_secs_f32())
             .insert_str("dataset", "WikiText-2 raw v1 (smerity.com mirror)")
             .insert_str("tokenizer", "rustral-data WordLevelTokenizer (whitespace, lowercased)")
-            .insert_bool("quick_mode", quick);
+            .insert_bool("quick_mode", quick)
+            .insert_bool("paper_mode", paper)
+            .insert_bool("overfit_tiny", overfit_tiny)
+            .insert_str(
+                "gradient_clip_note",
+                if paper { "clip_1.0_not_wired_in_tape_trainer_yet" } else { "none" },
+            )
+            .insert_raw("diagnostics", &diagnostics_json);
         let manifest_path = out_dir.join("manifest.json");
         fs::write(&manifest_path, manifest.to_pretty_json())?;
         println!("wrote {}", manifest_path.display());
@@ -545,6 +688,11 @@ mod runner {
             }
             pub fn insert_bool(mut self, k: &str, v: bool) -> Self {
                 self.entries.push((k.into(), v.to_string()));
+                self
+            }
+
+            pub fn insert_raw(mut self, k: &str, raw_json: &str) -> Self {
+                self.entries.push((k.into(), raw_json.to_string()));
                 self
             }
 

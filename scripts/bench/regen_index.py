@@ -84,6 +84,12 @@ def render_row(version_dir: str, doc: Dict) -> str:
     else:
         suites_str = str(suites)
     notes = str(doc.get("notes", ""))
+    nlp_dir = RUNS_DIR / version_dir / "nlp"
+    if nlp_dir.is_dir():
+        names = sorted(p.name for p in nlp_dir.glob("*.json"))
+        if names:
+            suffix = " Files under nlp/: " + ", ".join(names)
+            notes = (notes + suffix).strip()
     return f"| {version} | {date} | {hardware} | {suites_str} | {notes} |"
 
 

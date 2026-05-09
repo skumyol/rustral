@@ -122,6 +122,7 @@ docs/assets/rustral_system_diagram_download/
 # EMNLP demo determinism reports (generated)
 emnlp_determinism_report.json
 benchmarks/results/
+benchmarks/queue_logs/
 # Benchmark run results (generated)
 benchmarks/runs/*/nlp/*/seed_*/
 benchmarks/runs/*/manifest.json

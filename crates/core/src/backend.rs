@@ -19,6 +19,18 @@ pub struct BackendCapabilities {
     pub prefers_contiguous: bool,
     /// Whether the backend supports in-place operations.
     pub supports_in_place: bool,
+    /// Whether the backend supports mixed precision training (FP16/BF16 compute, FP32 master weights).
+    pub supports_mixed_precision: bool,
+    /// Recommended dtype for training (FP16, BF16, or FP32).
+    pub recommended_training_dtype: TrainingDtype,
+    /// Whether the backend supports fast FP16 tensor cores.
+    pub supports_fast_fp16_tensor_cores: bool,
+    /// Preferred convolution memory layout (NHWC vs NCHW).
+    pub preferred_conv_layout: ConvLayout,
+    /// Whether the backend supports strided memory layouts.
+    pub supports_strided_layouts: bool,
+    /// Whether the backend supports packed/tiled layouts for tensor cores.
+    pub supports_packed_layouts: bool,
 }
 
 impl Default for BackendCapabilities {
@@ -32,8 +44,34 @@ impl Default for BackendCapabilities {
             max_allocation_size: usize::MAX,
             prefers_contiguous: true,
             supports_in_place: false,
+            supports_mixed_precision: false,
+            recommended_training_dtype: TrainingDtype::F32,
+            supports_fast_fp16_tensor_cores: false,
+            preferred_conv_layout: ConvLayout::NCHW,
+            supports_strided_layouts: true,
+            supports_packed_layouts: false,
         }
     }
+}
+
+/// Convolution memory layout preference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConvLayout {
+    /// NCHW layout: [batch, channels, height, width] - common in PyTorch/CUDA
+    NCHW,
+    /// NHWC layout: [batch, height, width, channels] - common in TensorFlow/Metal
+    NHWC,
+}
+
+/// Training dtype selection for mixed precision training.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrainingDtype {
+    /// FP32 training (full precision, no mixed precision).
+    F32,
+    /// FP16 mixed precision (FP16 compute, FP32 master weights).
+    F16,
+    /// BF16 mixed precision (BF16 compute, FP32 master weights, better for large models).
+    Bf16,
 }
 
 /// Execution backend contract.
@@ -61,6 +99,24 @@ pub trait Backend: Clone + Send + Sync + 'static {
     /// Layer implementations should try this first and fall back to
     /// individual operations if it returns None.
     fn fusion_ops(&self) -> Option<&dyn FusionOps<Self>> {
+        None
+    }
+
+    /// Return optional attention operations for this backend.
+    ///
+    /// Returns None if the backend doesn't support optimized attention (e.g., Flash Attention).
+    /// Attention implementations should try this first and fall back to
+    /// standard attention if it returns None.
+    fn attention_ops(&self) -> Option<&dyn AttentionOps<Self>> {
+        None
+    }
+
+    /// Return optional quantization operations for this backend.
+    ///
+    /// Returns None if the backend doesn't support quantization (e.g., INT8 operations).
+    /// Quantization-aware code should try this first and fall back to
+    /// full precision if it returns None.
+    fn quantization_ops(&self) -> Option<&dyn QuantizationOps<Self>> {
         None
     }
 
@@ -359,7 +415,12 @@ pub trait FusionOps<B: Backend>: TensorOps<B> {
     /// # Returns
     ///
     /// Output tensor of shape `[batch, out_features]`
-    fn fused_linear_bias(&self, input: &B::Tensor, weight: &Parameter<B>, bias: &Parameter<B>) -> Result<B::Tensor>;
+    fn fused_linear_bias(
+        &self,
+        input: &B::Tensor,
+        weight: &Parameter<B>,
+        bias: &Parameter<B>,
+    ) -> Result<B::Tensor>;
 
     /// Fused linear + bias + ReLU operation: `y = relu(x @ w^T + b)`
     ///
@@ -375,7 +436,12 @@ pub trait FusionOps<B: Backend>: TensorOps<B> {
     /// # Returns
     ///
     /// Output tensor of shape `[batch, out_features]`
-    fn fused_linear_bias_relu(&self, input: &B::Tensor, weight: &Parameter<B>, bias: &Parameter<B>) -> Result<B::Tensor>;
+    fn fused_linear_bias_relu(
+        &self,
+        input: &B::Tensor,
+        weight: &Parameter<B>,
+        bias: &Parameter<B>,
+    ) -> Result<B::Tensor>;
 
     /// Fused linear + bias + GELU operation: `y = gelu(x @ w^T + b)`
     ///
@@ -391,5 +457,147 @@ pub trait FusionOps<B: Backend>: TensorOps<B> {
     /// # Returns
     ///
     /// Output tensor of shape `[batch, out_features]`
-    fn fused_linear_bias_gelu(&self, input: &B::Tensor, weight: &Parameter<B>, bias: &Parameter<B>) -> Result<B::Tensor>;
+    fn fused_linear_bias_gelu(
+        &self,
+        input: &B::Tensor,
+        weight: &Parameter<B>,
+        bias: &Parameter<B>,
+    ) -> Result<B::Tensor>;
+}
+
+/// Optional trait for attention optimizations (e.g., Flash Attention 2).
+///
+/// This trait provides optimized attention implementations that reduce memory usage
+/// and improve performance by fusing operations and using memory-efficient algorithms.
+/// Backends that don't implement this trait will fall back to standard attention.
+///
+/// # Design Principles
+///
+/// - **Optional**: Backends can implement this trait for hardware-specific optimizations
+/// - **Fallback**: Model code should check `backend.attention_ops()` and fall back to standard attention
+/// - **Backend-agnostic**: The trait abstracts backend-specific attention implementations
+pub trait AttentionOps<B: Backend>: TensorOps<B> {
+    /// Flash Attention 2: Memory-efficient scaled dot-product attention.
+    ///
+    /// Computes attention with O(N) memory complexity instead of O(N^2) by
+    /// tiling the computation and using online softmax. This is the key
+    /// optimization that enables training long-context models.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - Query tensor of shape `[batch, seq_len, num_heads, head_dim]`
+    /// * `key` - Key tensor of shape `[batch, seq_len, num_heads, head_dim]`
+    /// * `value` - Value tensor of shape `[batch, seq_len, num_heads, head_dim]`
+    /// * `causal_mask` - Whether to apply causal masking (for autoregressive models)
+    ///
+    /// # Returns
+    ///
+    /// Output tensor of shape `[batch, seq_len, num_heads, head_dim]`
+    ///
+    /// # Memory Complexity
+    ///
+    /// - Standard attention: O(seq_len^2) for attention matrix
+    /// - Flash Attention: O(seq_len) by tiling and online softmax
+    fn flash_attention_2(
+        &self,
+        query: &B::Tensor,
+        key: &B::Tensor,
+        value: &B::Tensor,
+        causal_mask: bool,
+    ) -> Result<B::Tensor>;
+
+    /// Memory-efficient attention with custom attention mask.
+    ///
+    /// Similar to `flash_attention_2` but supports arbitrary attention masks.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - Query tensor of shape `[batch, seq_len, num_heads, head_dim]`
+    /// * `key` - Key tensor of shape `[batch, seq_len, num_heads, head_dim]`
+    /// * `value` - Value tensor of shape `[batch, seq_len, num_heads, head_dim]`
+    /// * `mask` - Attention mask of shape `[batch, seq_len, seq_len]` (1.0 = attend, 0.0 = mask)
+    ///
+    /// # Returns
+    ///
+    /// Output tensor of shape `[batch, seq_len, num_heads, head_dim]`
+    fn flash_attention_2_with_mask(
+        &self,
+        query: &B::Tensor,
+        key: &B::Tensor,
+        value: &B::Tensor,
+        mask: &B::Tensor,
+    ) -> Result<B::Tensor>;
+}
+
+/// Optional trait for quantization operations (e.g., INT8 quantization).
+///
+/// This trait provides quantization operations that reduce memory usage and
+/// improve inference speed by using lower precision representations.
+/// Backends that don't implement this trait will fall back to full precision.
+///
+/// # Design Principles
+///
+/// - **Optional**: Backends can implement this trait for hardware-specific quantization support
+/// - **Fallback**: Model code should check `backend.quantization_ops()` and fall back to FP32
+/// - **Backend-agnostic**: The trait abstracts backend-specific quantization implementations
+pub trait QuantizationOps<B: Backend>: TensorOps<B> {
+    /// Quantize a tensor from FP32 to INT8.
+    ///
+    /// Uses symmetric quantization with scale and zero-point.
+    /// Formula: `int8 = round(fp32 / scale)`
+    ///
+    /// # Arguments
+    ///
+    /// * `tensor` - FP32 tensor to quantize
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (quantized INT8 tensor, scale factor)
+    fn quantize_int8(&self, tensor: &B::Tensor) -> Result<(B::Tensor, f32)>;
+
+    /// Dequantize a tensor from INT8 to FP32.
+    ///
+    /// Formula: `fp32 = int8 * scale`
+    ///
+    /// # Arguments
+    ///
+    /// * `tensor` - INT8 tensor to dequantize
+    /// * `scale` - Scale factor used during quantization
+    ///
+    /// # Returns
+    ///
+    /// Dequantized FP32 tensor
+    fn dequantize_int8(&self, tensor: &B::Tensor, scale: f32) -> Result<B::Tensor>;
+
+    /// Quantize a parameter from FP32 to INT8 for inference.
+    ///
+    /// This is a convenience method that quantizes a parameter and stores
+    /// the scale factor for later dequantization.
+    ///
+    /// # Arguments
+    ///
+    /// * `parameter` - Parameter to quantize
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (quantized parameter, scale factor)
+    fn quantize_parameter_int8(&self, parameter: &Parameter<B>) -> Result<(B::Tensor, f32)>;
+
+    /// INT8 matrix multiplication (quantized matmul).
+    ///
+    /// Performs matrix multiplication on INT8 tensors with accumulation in INT32,
+    /// then dequantizes the result to FP32. This is much faster than FP32 matmul
+    /// on hardware with INT8 support (e.g., NVIDIA tensor cores, ARM NEON).
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - First INT8 tensor
+    /// * `b` - Second INT8 tensor
+    /// * `scale_a` - Scale factor for tensor A
+    /// * `scale_b` - Scale factor for tensor B
+    ///
+    /// # Returns
+    ///
+    /// Dequantized FP32 result of matmul
+    fn int8_matmul(&self, a: &B::Tensor, b: &B::Tensor, scale_a: f32, scale_b: f32) -> Result<B::Tensor>;
 }

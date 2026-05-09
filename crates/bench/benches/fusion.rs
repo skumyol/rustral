@@ -3,9 +3,9 @@
 //! Compares performance of fused linear+bias+activation vs unfused operations.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use rustral_core::{Backend, ForwardCtx, Mode, Module};
 use rustral_candle_backend::CandleBackend;
-use rustral_nn::{Linear, LinearConfig, LinearReLU, LinearGELU};
+use rustral_core::{Backend, ForwardCtx, Mode, Module};
+use rustral_nn::{Linear, LinearConfig, LinearGELU, LinearReLU};
 
 fn bench_fusion_relu(c: &mut Criterion) {
     let backend = CandleBackend::new();
@@ -18,12 +18,13 @@ fn bench_fusion_relu(c: &mut Criterion) {
 
     for &(in_dim, out_dim) in &sizes {
         let config = LinearConfig { in_dim, out_dim, bias: true };
-        
+
         // Create layers
         let linear_relu = LinearReLU::new(&backend, config.clone()).unwrap();
         let linear = Linear::new(&backend, config.clone()).unwrap();
 
-        let input = backend.tensor_from_vec(vec![1.0f32; batch_size * in_dim], &[batch_size, in_dim]).unwrap();
+        let input =
+            backend.tensor_from_vec(vec![1.0f32; batch_size * in_dim], &[batch_size, in_dim]).unwrap();
 
         // Benchmark fused operation
         group.bench_with_input(
@@ -65,12 +66,13 @@ fn bench_fusion_gelu(c: &mut Criterion) {
 
     for &(in_dim, out_dim) in &sizes {
         let config = LinearConfig { in_dim, out_dim, bias: true };
-        
+
         // Create layers
         let linear_gelu = LinearGELU::new(&backend, config.clone()).unwrap();
         let linear = Linear::new(&backend, config.clone()).unwrap();
 
-        let input = backend.tensor_from_vec(vec![1.0f32; batch_size * in_dim], &[batch_size, in_dim]).unwrap();
+        let input =
+            backend.tensor_from_vec(vec![1.0f32; batch_size * in_dim], &[batch_size, in_dim]).unwrap();
 
         // Benchmark fused operation
         group.bench_with_input(

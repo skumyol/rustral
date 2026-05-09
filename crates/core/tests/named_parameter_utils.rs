@@ -45,4 +45,3 @@ fn collect_named_parameters_refs_match_visit_parameters_ids() {
     let ref_ids: Vec<_> = refs.into_iter().map(|(_n, r)| r.id).collect();
     assert_eq!(ref_ids, seen_ids);
 }
-

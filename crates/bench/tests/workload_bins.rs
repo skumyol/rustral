@@ -15,8 +15,9 @@ fn run_bin(bin_env: &str) -> Value {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    serde_json::from_slice(&out.stdout)
-        .unwrap_or_else(|e| panic!("binary did not emit valid JSON: {e}\n{}", String::from_utf8_lossy(&out.stdout)))
+    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+        panic!("binary did not emit valid JSON: {e}\n{}", String::from_utf8_lossy(&out.stdout))
+    })
 }
 
 fn sample_names(doc: &Value) -> HashSet<String> {
@@ -24,34 +25,18 @@ fn sample_names(doc: &Value) -> HashSet<String> {
         .and_then(Value::as_array)
         .expect("samples must be an array")
         .iter()
-        .map(|s| {
-            s.get("name")
-                .and_then(Value::as_str)
-                .expect("sample.name must be a string")
-                .to_string()
-        })
+        .map(|s| s.get("name").and_then(Value::as_str).expect("sample.name must be a string").to_string())
         .collect()
 }
 
 fn assert_schema_v2_envelope(doc: &Value, expected_suite: &str) {
-    assert_eq!(
-        doc.get("suite").and_then(Value::as_str),
-        Some(expected_suite),
-        "suite mismatch"
-    );
-    assert_eq!(
-        doc.get("schema_version").and_then(Value::as_str),
-        Some("2.0.0"),
-        "schema version mismatch"
-    );
+    assert_eq!(doc.get("suite").and_then(Value::as_str), Some(expected_suite), "suite mismatch");
+    assert_eq!(doc.get("schema_version").and_then(Value::as_str), Some("2.0.0"), "schema version mismatch");
     let machine = doc.get("machine").expect("missing machine object");
     for key in ["os", "arch", "hostname", "rustc", "commit", "features"] {
         assert!(machine.get(key).is_some(), "machine.{key} missing");
     }
-    let samples = doc
-        .get("samples")
-        .and_then(Value::as_array)
-        .expect("samples must be array");
+    let samples = doc.get("samples").and_then(Value::as_array).expect("samples must be array");
     assert!(!samples.is_empty(), "samples must not be empty");
     for sample in samples {
         for key in [

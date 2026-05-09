@@ -15,9 +15,7 @@ use rustral_ndarray_backend::CpuBackend;
 use rustral_nn::tape::TapeModule;
 use rustral_nn::{Embedding, EmbeddingConfig, Linear, LinearBuilder};
 use rustral_optim::Adam;
-use rustral_runtime::{
-    load_model, save_model, SupervisedTapeModel, TapeTrainer, TapeTrainerConfig,
-};
+use rustral_runtime::{load_model, save_model, SupervisedTapeModel, TapeTrainer, TapeTrainerConfig};
 
 const CORPUS: &str = "abcabcabcabcabcabcabcabcabcabcabcabcabc";
 const BLOCK_SIZE: usize = 4;
@@ -175,17 +173,11 @@ fn emnlp_char_lm_trains_save_load_roundtrip_and_is_deterministic() {
     // Save -> load -> infer roundtrip preserves logits exactly.
     let backend = CpuBackend::default();
     let vocab = CharVocab::from_corpus(CORPUS);
-    let mut fresh = CharLm::<CpuBackend>::new(
-        &backend,
-        vocab.size(),
-        BLOCK_SIZE,
-        EMBED_DIM,
-        seed.wrapping_add(7777),
-    )
-    .expect("fresh model");
+    let mut fresh =
+        CharLm::<CpuBackend>::new(&backend, vocab.size(), BLOCK_SIZE, EMBED_DIM, seed.wrapping_add(7777))
+            .expect("fresh model");
     load_model(&mut fresh, &backend, &bytes_a).expect("load_model");
-    let probe: Vec<usize> =
-        CORPUS.chars().take(BLOCK_SIZE).map(|c| vocab.encode(c)).collect();
+    let probe: Vec<usize> = CORPUS.chars().take(BLOCK_SIZE).map(|c| vocab.encode(c)).collect();
     let logits_loaded = fresh.logits(&backend, &probe).expect("logits");
     assert_eq!(logits_a, logits_loaded, "save/load roundtrip changed logits");
 }

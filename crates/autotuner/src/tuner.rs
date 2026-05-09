@@ -224,6 +224,15 @@ impl<'a> TuningSession<'a> {
     pub fn run<K: TunableKernel>(&mut self, kernel: &K) -> TuningResult {
         let space = kernel.config_space();
 
+        // Enforce CI-safe mode constraints
+        if self.tuner.config.ci_mode {
+            // CI mode: use deterministic strategy with bounded iterations
+            // The strategy is already configured by with_ci_mode(), but we enforce it here
+            if self.tuner.config.verbose {
+                println!("Running in CI-safe mode with bounded budget");
+            }
+        }
+
         // Create search strategy
         let mut strategy: Box<dyn SearchStrategy> = match &self.tuner.config.strategy {
             TunerStrategy::Grid => Box::new(GridSearch::new(&space)),
@@ -240,10 +249,18 @@ impl<'a> TuningSession<'a> {
 
         // Search for better configs
         while let Some(config) = strategy.next_config(&space) {
-            // Check time budget
+            // Check time budget (enforced in both normal and CI mode)
             if self.start_time.elapsed() > self.tuner.config.max_tuning_time {
                 if self.tuner.config.verbose {
                     println!("Tuning time budget exhausted");
+                }
+                break;
+            }
+
+            // In CI mode, also enforce iteration limit strictly
+            if self.tuner.config.ci_mode && configs_tried >= 5 {
+                if self.tuner.config.verbose {
+                    println!("CI mode iteration limit reached");
                 }
                 break;
             }
@@ -269,12 +286,12 @@ impl<'a> TuningSession<'a> {
 
         // Convert to OpConfig result
         let op_results: Vec<(OpConfig, PerfMetrics)> =
-            self.results.iter().map(|(kc, pm)| (self.kernel_config_to_op_config(kc), *pm)).collect();
+            self.results.iter().map(|(kc, pm)| (self.tuner.kernel_config_to_op_config(kc), *pm)).collect();
 
         let best_op_config = self
             .best_config
             .as_ref()
-            .map(|kc| self.kernel_config_to_op_config(kc))
+            .map(|kc| self.tuner.kernel_config_to_op_config(kc))
             .unwrap_or_else(|| self.default_op_config());
 
         let mut result = TuningResult {
@@ -342,36 +359,6 @@ impl<'a> TuningSession<'a> {
         PerfMetrics::from_duration(duration, flops, bytes)
     }
 
-    /// Convert KernelConfig to OpConfig.
-    fn kernel_config_to_op_config(&self, config: &KernelConfig) -> OpConfig {
-        // Simplified conversion
-        use crate::kernel_config::{AlgorithmConfig, MatmulAlgorithm};
-        use crate::{ConvAlgorithm as OpConvAlg, ReduceAlgorithm as OpReduceAlg};
-
-        match &config.algorithm {
-            AlgorithmConfig::Matmul(MatmulAlgorithm::Tiled) => OpConfig::Matmul {
-                algorithm: MatmulAlgorithm::Tiled,
-                block_m: config.params.get("tile_m").copied().unwrap_or(128) as usize,
-                block_n: config.params.get("tile_n").copied().unwrap_or(128) as usize,
-                block_k: config.params.get("tile_k").copied().unwrap_or(8) as usize,
-                num_stages: 2,
-            },
-            AlgorithmConfig::Conv(_) => {
-                OpConfig::Conv2d { algorithm: OpConvAlg::ImplicitGemm, tile_size: 16, num_filters: 64 }
-            }
-            AlgorithmConfig::Reduce(_) => OpConfig::Reduce {
-                block_size: config.workgroup.x as usize,
-                items_per_thread: config.params.get("items_per_thread").copied().unwrap_or(8) as usize,
-                algorithm: OpReduceAlg::Tree,
-            },
-            _ => OpConfig::Elementwise {
-                block_size: config.workgroup.x as usize,
-                items_per_thread: config.params.get("items_per_thread").copied().unwrap_or(4) as usize,
-                vector_width: config.memory.vector_width,
-            },
-        }
-    }
-
     /// Get default OpConfig.
     fn default_op_config(&self) -> OpConfig {
         OpConfig::Elementwise { block_size: 256, items_per_thread: 4, vector_width: 4 }
@@ -399,6 +386,14 @@ impl AutoTuner {
 
     /// Tune a kernel for given input shapes.
     pub fn tune<K: TunableKernel>(&mut self, kernel: &K) -> TuningResult {
+        // Check if autotuning is disabled
+        if !self.config.enabled {
+            if self.config.verbose {
+                println!("Autotuning disabled, returning default configuration");
+            }
+            return self.default_result(kernel);
+        }
+
         let key = format!("{}:{:?}", kernel.kernel_id(), kernel.input_signature());
 
         // Check cache first
@@ -421,20 +416,9 @@ impl AutoTuner {
                 if self.config.verbose {
                     println!("Using cached configuration for {}", key);
                 }
-                // Return cached result (would need to store metrics too)
-                return TuningResult {
-                    best_config: OpConfig::Elementwise {
-                        block_size: config.workgroup.x as usize,
-                        items_per_thread: 4,
-                        vector_width: config.memory.vector_width,
-                    },
-                    best_time_us: 0.0, // Unknown from cache
-                    default_time_us: 0.0,
-                    speedup: 1.0,
-                    configs_tried: 0,
-                    tuning_time: Duration::ZERO,
-                    all_results: Vec::new(),
-                };
+                // Benchmark the cached config to get realistic metrics
+                let cached_time = self.benchmark_cached_config(kernel, &config);
+                return self.cached_result(config, cached_time);
             }
         }
 
@@ -480,6 +464,111 @@ impl AutoTuner {
     /// Clear the cache.
     pub fn clear_cache(&mut self) {
         // Would need to add clear method to TuningCache
+    }
+
+    /// Return a default result when autotuning is disabled.
+    fn default_result<K: TunableKernel>(&self, kernel: &K) -> TuningResult {
+        let default_config = KernelConfig::default_for(kernel.kernel_id());
+        let op_config = self.kernel_config_to_op_config(&default_config);
+
+        TuningResult {
+            best_config: op_config,
+            best_time_us: 0.0,
+            default_time_us: 0.0,
+            speedup: 1.0,
+            configs_tried: 0,
+            tuning_time: Duration::ZERO,
+            all_results: Vec::new(),
+        }
+    }
+
+    /// Benchmark a cached configuration to get realistic metrics.
+    fn benchmark_cached_config<K: TunableKernel>(&self, kernel: &K, config: &KernelConfig) -> f64 {
+        let mut bench_kernel = kernel.with_config(config);
+        let duration = benchmark_kernel(
+            || bench_kernel(),
+            self.config.warmup_iterations,
+            self.config.timing_iterations,
+        );
+        duration.as_micros() as f64
+    }
+
+    /// Return a result from cache with realistic metrics.
+    fn cached_result(&self, config: KernelConfig, cached_time: f64) -> TuningResult {
+        let op_config = self.kernel_config_to_op_config(&config);
+
+        TuningResult {
+            best_config: op_config,
+            best_time_us: cached_time,
+            default_time_us: cached_time, // Assume cached is optimal
+            speedup: 1.0,
+            configs_tried: 0,
+            tuning_time: Duration::ZERO,
+            all_results: Vec::new(),
+        }
+    }
+
+    /// Convert KernelConfig to OpConfig.
+    fn kernel_config_to_op_config(&self, config: &KernelConfig) -> OpConfig {
+        // Simplified conversion
+        use crate::kernel_config::{AlgorithmConfig, MatmulAlgorithm};
+        use crate::{ConvAlgorithm as OpConvAlg, ReduceAlgorithm as OpReduceAlg};
+
+        match &config.algorithm {
+            AlgorithmConfig::Matmul(alg) => match alg {
+                MatmulAlgorithm::Tiled => OpConfig::Matmul {
+                    algorithm: *alg,
+                    block_m: config.params.get("tile_m").copied().unwrap_or(128) as usize,
+                    block_n: config.params.get("tile_n").copied().unwrap_or(128) as usize,
+                    block_k: config.params.get("tile_k").copied().unwrap_or(8) as usize,
+                    num_stages: 2,
+                },
+                MatmulAlgorithm::Naive => OpConfig::Matmul {
+                    algorithm: *alg,
+                    block_m: config.workgroup.x as usize,
+                    block_n: config.workgroup.y as usize,
+                    block_k: 32,
+                    num_stages: 1,
+                },
+                MatmulAlgorithm::Strassen => OpConfig::Matmul {
+                    algorithm: *alg,
+                    block_m: config.workgroup.x as usize,
+                    block_n: config.workgroup.y as usize,
+                    block_k: 32,
+                    num_stages: 2,
+                },
+                _ => OpConfig::Matmul {
+                    algorithm: MatmulAlgorithm::Tiled,
+                    block_m: config.workgroup.x as usize,
+                    block_n: config.workgroup.y as usize,
+                    block_k: 32,
+                    num_stages: 2,
+                },
+            },
+            AlgorithmConfig::Conv(_) => {
+                OpConfig::Conv2d { algorithm: OpConvAlg::ImplicitGemm, tile_size: 16, num_filters: 64 }
+            }
+            AlgorithmConfig::Reduce(_) => OpConfig::Reduce {
+                block_size: config.workgroup.x as usize,
+                items_per_thread: config.params.get("items_per_thread").copied().unwrap_or(8) as usize,
+                algorithm: OpReduceAlg::Tree,
+            },
+            AlgorithmConfig::Elementwise => OpConfig::Elementwise {
+                block_size: config.workgroup.x as usize,
+                items_per_thread: config.params.get("items_per_thread").copied().unwrap_or(4) as usize,
+                vector_width: config.memory.vector_width,
+            },
+            AlgorithmConfig::Attention { use_flash, block_size_m, block_size_n } => OpConfig::Attention {
+                block_size_m: *block_size_m,
+                block_size_n: *block_size_n,
+                use_flash: *use_flash,
+            },
+            AlgorithmConfig::Custom(_) => OpConfig::Elementwise {
+                block_size: config.workgroup.x as usize,
+                items_per_thread: 4,
+                vector_width: config.memory.vector_width,
+            },
+        }
     }
 
     /// Get tuner statistics.
@@ -618,6 +707,32 @@ mod tests {
             .with_dtype("f16".to_string());
         assert_eq!(config.device_id, "cuda:0");
         assert_eq!(config.dtype, "f16");
+    }
+
+    #[test]
+    fn test_auto_tuner_disabled() {
+        let mut tuner = AutoTuner::new(TunerConfig::disabled());
+        let kernel = TestKernel { id: "matmul", sig: vec![64, 64, 64] };
+
+        let result = tuner.tune(&kernel);
+
+        // When disabled, should return default config with no tuning
+        assert_eq!(result.configs_tried, 0);
+        assert_eq!(result.tuning_time, Duration::ZERO);
+        assert_eq!(result.speedup, 1.0);
+    }
+
+    #[test]
+    fn test_auto_tuner_ci_mode_enforces_iteration_limit() {
+        let mut config = TunerConfig::default().with_ci_mode(true);
+        config.verbose = false; // Don't clutter test output
+        let mut tuner = AutoTuner::new(config);
+        let kernel = TestKernel { id: "matmul", sig: vec![128, 128, 128] };
+
+        let result = tuner.tune(&kernel);
+
+        // In CI mode, should limit iterations to 5
+        assert!(result.configs_tried <= 5);
     }
 
     #[test]

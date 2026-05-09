@@ -2,12 +2,23 @@
 """
 Run real-data NLP evals (3 seeds) and curate manifests.
 
-Writes:
+Writes (default / quick):
   benchmarks/runs/v0.1.0/nlp/sst2.json
   benchmarks/runs/v0.1.0/nlp/wikitext2.json
 
+With --paper (larger model + full SST-2 train + 200k wiki tokens):
+  benchmarks/runs/v0.2.0/nlp/sst2.json
+  benchmarks/runs/v0.2.0/nlp/wikitext2.json
+  (optional) sst2_pytorch.json / wikitext2_pytorch.json when --pytorch is set
+
 Each curated JSON embeds the raw per-seed manifests (as emitted by the Rust examples)
 and adds mean/std aggregates for the headline metric.
+
+Paper mode fits vocabulary on the first seed only, then reuses that vocab.txt for other
+seeds so aggregates are comparable. Use:
+
+  python3 scripts/eval/run_nlp_real.py --paper --clean
+  # or: ./scripts/eval/run_paper_bench.sh
 """
 
 from __future__ import annotations
@@ -214,13 +225,13 @@ def _run_wikitext2(
     return RunResult(seed=seed, out_dir=out_dir, manifest=_read_json(manifest_path))
 
 
-def _curate_sst2(runs: List[RunResult], out_path: Path) -> None:
+def _curate_sst2(runs: List[RunResult], out_path: Path, curated_version: str) -> None:
     accs = [float(r.manifest["dev_accuracy"]) for r in runs]
     mean, std = _mean_std(accs)
     obj: Dict[str, Any] = {
         "schema_version": 1,
         "created_at": _now_iso(),
-        "version": VERSION,
+        "version": curated_version,
         "task": "sst2_classifier",
         "metric": "dev_accuracy",
         "aggregate": {"mean": mean, "std": std, "n": len(accs)},
@@ -236,13 +247,13 @@ def _curate_sst2(runs: List[RunResult], out_path: Path) -> None:
     _write_json(out_path, obj)
 
 
-def _curate_wikitext2(runs: List[RunResult], out_path: Path) -> None:
+def _curate_wikitext2(runs: List[RunResult], out_path: Path, curated_version: str) -> None:
     ppls = [float(r.manifest["dev_perplexity"]) for r in runs]
     mean, std = _mean_std(ppls)
     obj: Dict[str, Any] = {
         "schema_version": 1,
         "created_at": _now_iso(),
-        "version": VERSION,
+        "version": curated_version,
         "task": "wikitext2_word_lm",
         "metric": "dev_perplexity",
         "aggregate": {"mean": mean, "std": std, "n": len(ppls)},
@@ -316,14 +327,46 @@ def main() -> int:
         help="fast preset: tiny transformer + minimal data (for CI / local iteration)",
     )
     ap.add_argument(
+        "--paper",
+        action="store_true",
+        help="paper preset: Rust --paper examples, 200k train tokens, shared vocab per task; "
+        "writes under benchmarks/runs/v0.2.0/nlp/ (override with --curated-version)",
+    )
+    ap.add_argument(
+        "--curated-version",
+        default="",
+        help="version field + runs folder (e.g. 0.2.0). Default: 0.1.0, or 0.2.0 when --paper",
+    )
+    ap.add_argument(
+        "--pytorch",
+        action="store_true",
+        help="after Rust runs, run benchmarks/pytorch/*_baseline.py --paper with shared vocabs (requires torch)",
+    )
+    ap.add_argument(
         "--clean",
         action="store_true",
         help="delete --out-root before running",
     )
     args = ap.parse_args()
 
+    if args.benchmark and args.paper:
+        raise SystemExit("use at most one of --benchmark and --paper")
+
     sst2_extra: Optional[List[str]] = None
     wiki_extra: Optional[List[str]] = None
+    if args.paper:
+        if args.out_root == "out/nlp_real":
+            args.out_root = "out/paper_bench"
+        args.wikitext_train_tokens = 200_000
+        args.wikitext_train_windows = 0
+        # Full valid split is huge; cap for wall-clock unless user overrides.
+        if args.wikitext_eval_windows == 800:
+            args.wikitext_eval_windows = 8192
+        sst2_extra = ["--paper"]
+        wiki_extra = ["--paper"]
+        args.vocab_path = ""
+        args.wikitext_vocab_path = ""
+
     if args.benchmark:
         # Small model + small data; finishes in minutes on CPU.
         args.wikitext_train_tokens = 4_000
@@ -358,6 +401,8 @@ def main() -> int:
             "1",
         ]
 
+    curated_version = args.curated_version.strip() or ("0.2.0" if args.paper else VERSION)
+
     seeds = [int(s.strip()) for s in args.seeds.split(",") if s.strip()]
     if not seeds:
         raise SystemExit("no seeds provided")
@@ -379,6 +424,8 @@ def main() -> int:
     print(f"cache_dir            : {cache_dir if cache_dir else '(default)'}")
     print(f"seeds                : {seeds}")
     print(f"benchmark            : {args.benchmark}")
+    print(f"paper                : {args.paper}")
+    print(f"curated_version      : {curated_version}")
     print(f"device               : {args.device}")
     print(f"wikitext_train_tokens: {args.wikitext_train_tokens}")
     print(f"wikitext_train_windows: {args.wikitext_train_windows}")
@@ -388,16 +435,33 @@ def main() -> int:
     sst2_runs: List[RunResult] = []
     wikitext_runs: List[RunResult] = []
 
+    ref_seed = seeds[0]
+    sst2_shared = out_root / "sst2" / f"seed_{ref_seed}" / "vocab.txt"
+    wiki_shared = out_root / "wikitext2" / f"seed_{ref_seed}" / "vocab.txt"
+
     for seed in seeds:
-        vocab_path = Path(args.vocab_path) if args.vocab_path else None
+        if args.paper and not args.skip_sst2:
+            sst2_vocab: Optional[Path] = None if seed == ref_seed else sst2_shared
+            if seed != ref_seed and not sst2_shared.exists():
+                raise RuntimeError(f"expected shared SST-2 vocab at {sst2_shared} (seed {ref_seed} first)")
+        else:
+            sst2_vocab = Path(args.vocab_path).resolve() if args.vocab_path else None
+
         if not args.skip_sst2:
             print(f"[sst2] seed={seed}")
             sst2_runs.append(
-                _run_sst2(seed, out_root / "sst2" / f"seed_{seed}", cache_dir, args.device, vocab_path, sst2_extra)
+                _run_sst2(seed, out_root / "sst2" / f"seed_{seed}", cache_dir, args.device, sst2_vocab, sst2_extra)
             )
+
+        if args.paper and not args.skip_wikitext2:
+            wv: Optional[Path] = None if seed == ref_seed else wiki_shared
+            if seed != ref_seed and not wiki_shared.exists():
+                raise RuntimeError(f"expected shared WikiText-2 vocab at {wiki_shared} (seed {ref_seed} first)")
+        else:
+            wv = Path(args.wikitext_vocab_path).resolve() if args.wikitext_vocab_path else None
+
         if not args.skip_wikitext2:
             print(f"[wikitext2] seed={seed}")
-            wikitext_vocab_path = Path(args.wikitext_vocab_path) if args.wikitext_vocab_path else None
             wikitext_runs.append(
                 _run_wikitext2(
                     seed,
@@ -407,16 +471,54 @@ def main() -> int:
                     train_tokens=args.wikitext_train_tokens,
                     train_windows=args.wikitext_train_windows,
                     eval_windows=args.wikitext_eval_windows,
-                    vocab_path=wikitext_vocab_path,
+                    vocab_path=wv,
                     extra_args=wiki_extra,
                 )
             )
 
-    curated_dir = REPO_ROOT / "benchmarks" / "runs" / f"v{VERSION}" / "nlp"
+    curated_dir = REPO_ROOT / "benchmarks" / "runs" / f"v{curated_version}" / "nlp"
     if not args.skip_sst2:
-        _curate_sst2(sst2_runs, curated_dir / "sst2.json")
+        _curate_sst2(sst2_runs, curated_dir / "sst2.json", curated_version)
     if not args.skip_wikitext2:
-        _curate_wikitext2(wikitext_runs, curated_dir / "wikitext2.json")
+        _curate_wikitext2(wikitext_runs, curated_dir / "wikitext2.json", curated_version)
+
+    if args.pytorch:
+        py = sys.executable
+        nlp_dir = curated_dir
+        if not args.skip_sst2 and sst2_shared.exists():
+            rel_s = sst2_shared.resolve().relative_to(REPO_ROOT)
+            cmd_s = [
+                py,
+                str(REPO_ROOT / "benchmarks" / "pytorch" / "sst2_baseline.py"),
+                "--paper",
+                "--seeds",
+                args.seeds,
+                "--vocab-path",
+                str(rel_s),
+                "--out-json",
+                str((nlp_dir / "sst2_pytorch.json").relative_to(REPO_ROOT)),
+                "--curated-version",
+                curated_version,
+            ]
+            print("[pytorch] sst2:", " ".join(cmd_s))
+            _run(cmd_s, env=dict(os.environ), cwd=REPO_ROOT)
+        if not args.skip_wikitext2 and wiki_shared.exists():
+            rel_w = wiki_shared.resolve().relative_to(REPO_ROOT)
+            cmd_w = [
+                py,
+                str(REPO_ROOT / "benchmarks" / "pytorch" / "wikitext2_baseline.py"),
+                "--paper",
+                "--seeds",
+                args.seeds,
+                "--vocab-path",
+                str(rel_w),
+                "--out-json",
+                str((nlp_dir / "wikitext2_pytorch.json").relative_to(REPO_ROOT)),
+                "--curated-version",
+                curated_version,
+            ]
+            print("[pytorch] wikitext2:", " ".join(cmd_w))
+            _run(cmd_w, env=dict(os.environ), cwd=REPO_ROOT)
 
     print()
     print("Wrote curated manifests:")
@@ -424,6 +526,11 @@ def main() -> int:
         print(f"  {curated_dir / 'sst2.json'}")
     if not args.skip_wikitext2:
         print(f"  {curated_dir / 'wikitext2.json'}")
+    if args.pytorch:
+        if not args.skip_sst2:
+            print(f"  {curated_dir / 'sst2_pytorch.json'}")
+        if not args.skip_wikitext2:
+            print(f"  {curated_dir / 'wikitext2_pytorch.json'}")
     return 0
 
 

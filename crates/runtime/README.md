@@ -12,6 +12,12 @@ Enable autodiff + optim + checkpoint helpers:
 rustral-runtime = { path = "../crates/runtime", features = ["training"] }
 ```
 
+Optional live terminal dashboard during `TapeTrainer` runs (pulls in `rustral-tui`):
+
+```toml
+rustral-runtime = { path = "../crates/runtime", features = ["training", "tui"] }
+```
+
 The `training` feature powers:
 
 - `TapeTrainer` and `SupervisedTapeModel`.

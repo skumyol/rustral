@@ -3147,6 +3147,7 @@ name = "rustral-core"
 version = "0.1.0"
 dependencies = [
  "lazy_static",
+ "rand 0.8.6",
  "rustral-ndarray-backend",
  "rustral-nn",
  "serde",

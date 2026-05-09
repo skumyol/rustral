@@ -78,7 +78,11 @@ where
             .get(name)
             .ok_or_else(|| anyhow::anyhow!("load_model: missing key after precheck: {name}"))?;
         if stored_shape != shape {
-            anyhow::bail!("load_model: shape mismatch for '{name}': expected {:?}, got {:?}", shape, stored_shape);
+            anyhow::bail!(
+                "load_model: shape mismatch for '{name}': expected {:?}, got {:?}",
+                shape,
+                stored_shape
+            );
         }
         let expected_elems: usize = shape.iter().product();
         if values.len() != expected_elems {

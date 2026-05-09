@@ -39,20 +39,12 @@ pub struct TensorPool<B: Backend> {
 impl<B: Backend> TensorPool<B> {
     /// Create a new tensor pool with default limits.
     pub fn new() -> Self {
-        Self {
-            pool: HashMap::new(),
-            max_size_per_shape: 10,
-            max_total_tensors: 100,
-        }
+        Self { pool: HashMap::new(), max_size_per_shape: 10, max_total_tensors: 100 }
     }
 
     /// Create a new tensor pool with custom limits.
     pub fn with_limits(max_size_per_shape: usize, max_total_tensors: usize) -> Self {
-        Self {
-            pool: HashMap::new(),
-            max_size_per_shape,
-            max_total_tensors,
-        }
+        Self { pool: HashMap::new(), max_size_per_shape, max_total_tensors }
     }
 
     /// Get a tensor from the pool or create a new one.
@@ -70,7 +62,7 @@ impl<B: Backend> TensorPool<B> {
     /// Return a tensor to the pool for reuse.
     pub fn return_tensor(&mut self, tensor: B::Tensor, ops: &dyn crate::TensorOps<B>) {
         let shape = ops.shape(&tensor);
-        
+
         // Check if we should add to pool
         if self.should_pool_tensor(&shape) {
             if let Some(tensors) = self.pool.get_mut(&shape) {
@@ -105,7 +97,7 @@ impl<B: Backend> TensorPool<B> {
     /// Enforce total tensor limit by removing oldest tensors.
     fn enforce_total_limit(&mut self) {
         let total_count: usize = self.pool.values().map(|v| v.len()).sum();
-        
+
         if total_count > self.max_total_tensors {
             // Remove tensors from largest shapes first
             let mut shapes: Vec<_> = self.pool.keys().cloned().collect();
@@ -137,7 +129,8 @@ impl<B: Backend> TensorPool<B> {
     /// Get pool statistics.
     pub fn stats(&self) -> PoolStats {
         let total_tensors: usize = self.pool.values().map(|v| v.len()).sum();
-        let total_memory: usize = self.pool
+        let total_memory: usize = self
+            .pool
             .iter()
             .map(|(shape, tensors)| {
                 let elements: usize = shape.iter().product();
@@ -191,12 +184,12 @@ pub struct PooledTensor<B: Backend> {
 
 impl<B: Backend> PooledTensor<B> {
     /// Create a new pooled tensor guard.
-    pub fn new(tensor: B::Tensor, pool: Arc<Mutex<TensorPool<B>>>, ops: Arc<dyn crate::TensorOps<B> + Send + Sync>) -> Self {
-        Self {
-            tensor: Some(tensor),
-            pool: Some(pool),
-            ops: Some(ops),
-        }
+    pub fn new(
+        tensor: B::Tensor,
+        pool: Arc<Mutex<TensorPool<B>>>,
+        ops: Arc<dyn crate::TensorOps<B> + Send + Sync>,
+    ) -> Self {
+        Self { tensor: Some(tensor), pool: Some(pool), ops: Some(ops) }
     }
 
     /// Get access to the underlying tensor.
@@ -244,10 +237,21 @@ mod tests {
             fn capabilities(&self) -> crate::BackendCapabilities {
                 Default::default()
             }
-            fn normal_parameter(&self, _name: &str, _shape: &[usize], _seed: u64, _scale: f32) -> Result<crate::Parameter<Self>> {
+            fn normal_parameter(
+                &self,
+                _name: &str,
+                _shape: &[usize],
+                _seed: u64,
+                _scale: f32,
+            ) -> Result<crate::Parameter<Self>> {
                 unimplemented!()
             }
-            fn parameter_from_vec(&self, _name: &str, _values: Vec<f32>, _shape: &[usize]) -> Result<crate::Parameter<Self>> {
+            fn parameter_from_vec(
+                &self,
+                _name: &str,
+                _values: Vec<f32>,
+                _shape: &[usize],
+            ) -> Result<crate::Parameter<Self>> {
                 unimplemented!()
             }
         }
@@ -271,10 +275,21 @@ mod tests {
             fn capabilities(&self) -> crate::BackendCapabilities {
                 Default::default()
             }
-            fn normal_parameter(&self, _name: &str, _shape: &[usize], _seed: u64, _scale: f32) -> Result<crate::Parameter<Self>> {
+            fn normal_parameter(
+                &self,
+                _name: &str,
+                _shape: &[usize],
+                _seed: u64,
+                _scale: f32,
+            ) -> Result<crate::Parameter<Self>> {
                 unimplemented!()
             }
-            fn parameter_from_vec(&self, _name: &str, _values: Vec<f32>, _shape: &[usize]) -> Result<crate::Parameter<Self>> {
+            fn parameter_from_vec(
+                &self,
+                _name: &str,
+                _values: Vec<f32>,
+                _shape: &[usize],
+            ) -> Result<crate::Parameter<Self>> {
                 unimplemented!()
             }
         }
@@ -299,10 +314,21 @@ mod tests {
             fn capabilities(&self) -> crate::BackendCapabilities {
                 Default::default()
             }
-            fn normal_parameter(&self, _name: &str, _shape: &[usize], _seed: u64, _scale: f32) -> Result<crate::Parameter<Self>> {
+            fn normal_parameter(
+                &self,
+                _name: &str,
+                _shape: &[usize],
+                _seed: u64,
+                _scale: f32,
+            ) -> Result<crate::Parameter<Self>> {
                 unimplemented!()
             }
-            fn parameter_from_vec(&self, _name: &str, _values: Vec<f32>, _shape: &[usize]) -> Result<crate::Parameter<Self>> {
+            fn parameter_from_vec(
+                &self,
+                _name: &str,
+                _values: Vec<f32>,
+                _shape: &[usize],
+            ) -> Result<crate::Parameter<Self>> {
                 unimplemented!()
             }
         }
@@ -327,10 +353,21 @@ mod tests {
             fn capabilities(&self) -> crate::BackendCapabilities {
                 Default::default()
             }
-            fn normal_parameter(&self, _name: &str, _shape: &[usize], _seed: u64, _scale: f32) -> Result<crate::Parameter<Self>> {
+            fn normal_parameter(
+                &self,
+                _name: &str,
+                _shape: &[usize],
+                _seed: u64,
+                _scale: f32,
+            ) -> Result<crate::Parameter<Self>> {
                 unimplemented!()
             }
-            fn parameter_from_vec(&self, _name: &str, _values: Vec<f32>, _shape: &[usize]) -> Result<crate::Parameter<Self>> {
+            fn parameter_from_vec(
+                &self,
+                _name: &str,
+                _values: Vec<f32>,
+                _shape: &[usize],
+            ) -> Result<crate::Parameter<Self>> {
                 unimplemented!()
             }
         }

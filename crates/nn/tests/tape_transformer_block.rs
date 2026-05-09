@@ -24,16 +24,16 @@ fn make_input(backend: &CpuBackend, seq_len: usize, d_model: usize) -> <CpuBacke
     ops.tensor_from_vec(data, &[seq_len, d_model]).unwrap()
 }
 
-fn collect_named_params<B: Backend, M: NamedParameters<B>>(
-    model: &M,
-) -> Vec<(String, &Parameter<B>)> {
+fn collect_named_params<B: Backend, M: NamedParameters<B>>(model: &M) -> Vec<(String, &Parameter<B>)> {
     let mut out: Vec<(String, &Parameter<B>)> = Vec::new();
-    model.visit_parameters(&mut |name, p| out.push((name.to_string(), unsafe {
-        // Lifetime-extending the &Parameter<B> reference is safe here because `model` outlives
-        // `out`. The visitor closure borrows for the duration of the closure call only, so we
-        // re-borrow through a raw pointer.
-        &*(p as *const _)
-    })));
+    model.visit_parameters(&mut |name, p| {
+        out.push((name.to_string(), unsafe {
+            // Lifetime-extending the &Parameter<B> reference is safe here because `model` outlives
+            // `out`. The visitor closure borrows for the duration of the closure call only, so we
+            // re-borrow through a raw pointer.
+            &*(p as *const _)
+        }))
+    });
     out
 }
 
@@ -57,11 +57,7 @@ fn assert_all_params_have_nonzero_grads<B: Backend, M: NamedParameters<B>>(
             None => zero_or_missing.push(format!("{name} (missing from grad store)")),
         }
     }
-    assert!(
-        zero_or_missing.is_empty(),
-        "parameters with zero/missing gradients: {:?}",
-        zero_or_missing
-    );
+    assert!(zero_or_missing.is_empty(), "parameters with zero/missing gradients: {:?}", zero_or_missing);
 }
 
 #[test]

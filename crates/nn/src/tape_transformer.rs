@@ -132,11 +132,8 @@ where
         }
 
         // Concat heads along dim 0: each is [d_head, seq_len]; stacked is [d_model, seq_len].
-        let concat_t = if self.num_heads == 1 {
-            head_outs_t[0]
-        } else {
-            tape.concat_tape(&head_outs_t, 0, ctx)?
-        };
+        let concat_t =
+            if self.num_heads == 1 { head_outs_t[0] } else { tape.concat_tape(&head_outs_t, 0, ctx)? };
         // Transpose back to [seq_len, d_model] for the output projection.
         let concat = tape.transpose_tape(concat_t, ctx)?;
 

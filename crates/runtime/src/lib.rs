@@ -8,7 +8,7 @@ pub mod serious_training;
 #[cfg(feature = "training")]
 pub mod tape_trainer;
 mod trainer;
-#[cfg(feature = "training")]
+#[cfg(all(feature = "training", feature = "tui"))]
 pub mod tui_hook;
 
 pub use inference::{InferencePool, InferenceRequest, InferenceResponse};

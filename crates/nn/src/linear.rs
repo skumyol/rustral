@@ -204,6 +204,162 @@ impl<B: Backend> Saveable<B> for Linear<B> {
     }
 }
 
+/// Dense affine projection with ReLU activation: `y = relu(x * W^T + b)`.
+///
+/// This layer attempts to use fused operations (linear + bias + ReLU) when
+/// available in the backend, falling back to the unfused sequence otherwise.
+pub struct LinearReLU<B: Backend> {
+    linear: Linear<B>,
+}
+
+impl<B: Backend> LinearReLU<B> {
+    /// Create a new LinearReLU layer from config and backend.
+    pub fn new(backend: &B, config: LinearConfig) -> Result<Self> {
+        if !config.bias {
+            return Err(rustral_core::CoreError::InvalidArgument("LinearReLU requires bias".into()));
+        }
+        Ok(Self { linear: Linear::new(backend, config)? })
+    }
+
+    /// Borrow the inner Linear layer.
+    pub fn inner(&self) -> &Linear<B> {
+        &self.linear
+    }
+
+    /// Borrow the weight parameter.
+    pub fn weight(&self) -> &Parameter<B> {
+        self.linear.weight()
+    }
+
+    /// Borrow the bias parameter.
+    pub fn bias(&self) -> &Parameter<B> {
+        self.linear.bias().expect("LinearReLU requires bias")
+    }
+}
+
+impl<B: Backend> Module<B> for LinearReLU<B> {
+    type Input = B::Tensor;
+    type Output = B::Tensor;
+
+    fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
+        // Use unified fusion helper for consistent fusion policy
+        crate::fusion_helper::FusionHelper::try_linear_relu(&input, &self.linear, ctx)
+    }
+}
+
+impl<B: Backend> NamedParameters<B> for LinearReLU<B> {
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+        self.linear.visit_parameters(f);
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+        self.linear.visit_parameters_mut(f);
+    }
+}
+
+impl<B: Backend> Trainable<B> for LinearReLU<B> {
+    fn parameters(&self) -> Vec<ParameterRef> {
+        self.linear.parameters()
+    }
+}
+
+impl<B: Backend> Clone for LinearReLU<B>
+where
+    B::Tensor: Clone,
+{
+    fn clone(&self) -> Self {
+        Self { linear: self.linear.clone() }
+    }
+}
+
+impl<B: Backend> Saveable<B> for LinearReLU<B> {
+    fn state_dict(&self) -> Vec<(String, ParameterRef)> {
+        self.linear.state_dict()
+    }
+
+    fn load_state_dict(&mut self, dict: &HashMap<String, Vec<f32>>, backend: &B) -> Result<()> {
+        self.linear.load_state_dict(dict, backend)
+    }
+}
+
+/// Dense affine projection with GELU activation: `y = gelu(x * W^T + b)`.
+///
+/// This layer attempts to use fused operations (linear + bias + GELU) when
+/// available in the backend, falling back to the unfused sequence otherwise.
+pub struct LinearGELU<B: Backend> {
+    linear: Linear<B>,
+}
+
+impl<B: Backend> LinearGELU<B> {
+    /// Create a new LinearGELU layer from config and backend.
+    pub fn new(backend: &B, config: LinearConfig) -> Result<Self> {
+        if !config.bias {
+            return Err(rustral_core::CoreError::InvalidArgument("LinearGELU requires bias".into()));
+        }
+        Ok(Self { linear: Linear::new(backend, config)? })
+    }
+
+    /// Borrow the inner Linear layer.
+    pub fn inner(&self) -> &Linear<B> {
+        &self.linear
+    }
+
+    /// Borrow the weight parameter.
+    pub fn weight(&self) -> &Parameter<B> {
+        self.linear.weight()
+    }
+
+    /// Borrow the bias parameter.
+    pub fn bias(&self) -> &Parameter<B> {
+        self.linear.bias().expect("LinearGELU requires bias")
+    }
+}
+
+impl<B: Backend> Module<B> for LinearGELU<B> {
+    type Input = B::Tensor;
+    type Output = B::Tensor;
+
+    fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
+        // Use unified fusion helper for consistent fusion policy
+        crate::fusion_helper::FusionHelper::try_linear_gelu(&input, &self.linear, ctx)
+    }
+}
+
+impl<B: Backend> NamedParameters<B> for LinearGELU<B> {
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+        self.linear.visit_parameters(f);
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+        self.linear.visit_parameters_mut(f);
+    }
+}
+
+impl<B: Backend> Trainable<B> for LinearGELU<B> {
+    fn parameters(&self) -> Vec<ParameterRef> {
+        self.linear.parameters()
+    }
+}
+
+impl<B: Backend> Clone for LinearGELU<B>
+where
+    B::Tensor: Clone,
+{
+    fn clone(&self) -> Self {
+        Self { linear: self.linear.clone() }
+    }
+}
+
+impl<B: Backend> Saveable<B> for LinearGELU<B> {
+    fn state_dict(&self) -> Vec<(String, ParameterRef)> {
+        self.linear.state_dict()
+    }
+
+    fn load_state_dict(&mut self, dict: &HashMap<String, Vec<f32>>, backend: &B) -> Result<()> {
+        self.linear.load_state_dict(dict, backend)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,181 +475,5 @@ mod tests {
     fn test_linear_config_with_bias() {
         let config = LinearConfig::new(10, 5).with_bias(true);
         assert!(config.bias);
-    }
-}
-
-/// Dense affine projection with ReLU activation: `y = relu(x * W^T + b)`.
-///
-/// This layer attempts to use fused operations (linear + bias + ReLU) when
-/// available in the backend, falling back to the unfused sequence otherwise.
-pub struct LinearReLU<B: Backend> {
-    linear: Linear<B>,
-}
-
-impl<B: Backend> LinearReLU<B> {
-    /// Create a new LinearReLU layer from config and backend.
-    pub fn new(backend: &B, config: LinearConfig) -> Result<Self> {
-        if !config.bias {
-            return Err(rustral_core::CoreError::InvalidArgument(
-                "LinearReLU requires bias".into()
-            ));
-        }
-        Ok(Self { linear: Linear::new(backend, config)? })
-    }
-
-    /// Borrow the inner Linear layer.
-    pub fn inner(&self) -> &Linear<B> {
-        &self.linear
-    }
-
-    /// Borrow the weight parameter.
-    pub fn weight(&self) -> &Parameter<B> {
-        self.linear.weight()
-    }
-
-    /// Borrow the bias parameter.
-    pub fn bias(&self) -> &Parameter<B> {
-        self.linear.bias().expect("LinearReLU requires bias")
-    }
-}
-
-impl<B: Backend> Module<B> for LinearReLU<B> {
-    type Input = B::Tensor;
-    type Output = B::Tensor;
-
-    fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
-        // Try fused operation first
-        if let (Some(fusion_ops), Some(bias)) = (ctx.backend().fusion_ops(), self.linear.bias()) {
-            if let Ok(output) = fusion_ops.fused_linear_bias_relu(&input, self.linear.weight(), bias) {
-                return Ok(output);
-            }
-        }
-
-        // Fallback to unfused sequence
-        let output = ctx.backend().ops().linear(&input, self.linear.weight(), self.linear.bias())?;
-        ctx.backend().ops().relu(&output)
-    }
-}
-
-impl<B: Backend> NamedParameters<B> for LinearReLU<B> {
-    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
-        self.linear.visit_parameters(f);
-    }
-
-    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
-        self.linear.visit_parameters_mut(f);
-    }
-}
-
-impl<B: Backend> Trainable<B> for LinearReLU<B> {
-    fn parameters(&self) -> Vec<ParameterRef> {
-        self.linear.parameters()
-    }
-}
-
-impl<B: Backend> Clone for LinearReLU<B>
-where
-    B::Tensor: Clone,
-{
-    fn clone(&self) -> Self {
-        Self { linear: self.linear.clone() }
-    }
-}
-
-impl<B: Backend> Saveable<B> for LinearReLU<B> {
-    fn state_dict(&self) -> Vec<(String, ParameterRef)> {
-        self.linear.state_dict()
-    }
-
-    fn load_state_dict(&mut self, dict: &HashMap<String, Vec<f32>>, backend: &B) -> Result<()> {
-        self.linear.load_state_dict(dict, backend)
-    }
-}
-
-/// Dense affine projection with GELU activation: `y = gelu(x * W^T + b)`.
-///
-/// This layer attempts to use fused operations (linear + bias + GELU) when
-/// available in the backend, falling back to the unfused sequence otherwise.
-pub struct LinearGELU<B: Backend> {
-    linear: Linear<B>,
-}
-
-impl<B: Backend> LinearGELU<B> {
-    /// Create a new LinearGELU layer from config and backend.
-    pub fn new(backend: &B, config: LinearConfig) -> Result<Self> {
-        if !config.bias {
-            return Err(rustral_core::CoreError::InvalidArgument(
-                "LinearGELU requires bias".into()
-            ));
-        }
-        Ok(Self { linear: Linear::new(backend, config)? })
-    }
-
-    /// Borrow the inner Linear layer.
-    pub fn inner(&self) -> &Linear<B> {
-        &self.linear
-    }
-
-    /// Borrow the weight parameter.
-    pub fn weight(&self) -> &Parameter<B> {
-        self.linear.weight()
-    }
-
-    /// Borrow the bias parameter.
-    pub fn bias(&self) -> &Parameter<B> {
-        self.linear.bias().expect("LinearGELU requires bias")
-    }
-}
-
-impl<B: Backend> Module<B> for LinearGELU<B> {
-    type Input = B::Tensor;
-    type Output = B::Tensor;
-
-    fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
-        // Try fused operation first
-        if let (Some(fusion_ops), Some(bias)) = (ctx.backend().fusion_ops(), self.linear.bias()) {
-            if let Ok(output) = fusion_ops.fused_linear_bias_gelu(&input, self.linear.weight(), bias) {
-                return Ok(output);
-            }
-        }
-
-        // Fallback to unfused sequence
-        let output = ctx.backend().ops().linear(&input, self.linear.weight(), self.linear.bias())?;
-        ctx.backend().ops().gelu(&output)
-    }
-}
-
-impl<B: Backend> NamedParameters<B> for LinearGELU<B> {
-    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
-        self.linear.visit_parameters(f);
-    }
-
-    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
-        self.linear.visit_parameters_mut(f);
-    }
-}
-
-impl<B: Backend> Trainable<B> for LinearGELU<B> {
-    fn parameters(&self) -> Vec<ParameterRef> {
-        self.linear.parameters()
-    }
-}
-
-impl<B: Backend> Clone for LinearGELU<B>
-where
-    B::Tensor: Clone,
-{
-    fn clone(&self) -> Self {
-        Self { linear: self.linear.clone() }
-    }
-}
-
-impl<B: Backend> Saveable<B> for LinearGELU<B> {
-    fn state_dict(&self) -> Vec<(String, ParameterRef)> {
-        self.linear.state_dict()
-    }
-
-    fn load_state_dict(&mut self, dict: &HashMap<String, Vec<f32>>, backend: &B) -> Result<()> {
-        self.linear.load_state_dict(dict, backend)
     }
 }

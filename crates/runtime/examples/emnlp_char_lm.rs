@@ -75,7 +75,8 @@ mod demo {
 
     impl CharVocab {
         pub fn from_corpus(text: &str) -> Self {
-            let mut chars: Vec<char> = text.chars().collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+            let mut chars: Vec<char> =
+                text.chars().collect::<std::collections::BTreeSet<_>>().into_iter().collect();
             chars.sort();
             let id_of: std::collections::HashMap<char, usize> =
                 chars.iter().enumerate().map(|(i, c)| (*c, i)).collect();
@@ -167,12 +168,14 @@ mod demo {
     where
         B::Tensor: Clone,
     {
-        pub fn new(backend: &B, vocab_size: usize, block_size: usize, embed_dim: usize, seed: u64) -> Result<Self> {
-            let embed = Embedding::new(
-                backend,
-                EmbeddingConfig::new(vocab_size, embed_dim),
-                seed,
-            )?;
+        pub fn new(
+            backend: &B,
+            vocab_size: usize,
+            block_size: usize,
+            embed_dim: usize,
+            seed: u64,
+        ) -> Result<Self> {
+            let embed = Embedding::new(backend, EmbeddingConfig::new(vocab_size, embed_dim), seed)?;
             let head = LinearBuilder::new(block_size * embed_dim, vocab_size)
                 .with_bias(true)
                 .seed(seed.wrapping_add(101))
@@ -185,9 +188,7 @@ mod demo {
         pub fn logits(&self, backend: &B, ids: &[usize]) -> Result<Vec<f32>> {
             let mut ctx = ForwardCtx::new(backend, Mode::Inference);
             let emb = self.embed.forward(ids.to_vec(), &mut ctx)?;
-            let flat = backend
-                .ops()
-                .reshape(&emb, &[1, self.block_size * self.embed_dim])?;
+            let flat = backend.ops().reshape(&emb, &[1, self.block_size * self.embed_dim])?;
             let logits = self.head.forward(flat, &mut ctx)?;
             backend.ops().tensor_to_vec(&logits)
         }
@@ -338,18 +339,14 @@ mod demo {
 
         // Save -> load -> infer roundtrip on a fixed input.
         let bytes = save_model(&model, &backend)?;
-        let mut model2 = CharLm::<CpuBackend>::new(&backend, vocab.size(), BLOCK_SIZE, EMBED_DIM, seed.wrapping_add(999))?;
+        let mut model2 =
+            CharLm::<CpuBackend>::new(&backend, vocab.size(), BLOCK_SIZE, EMBED_DIM, seed.wrapping_add(999))?;
         load_model(&mut model2, &backend, &bytes)?;
 
         let probe: Vec<usize> = CORPUS.chars().take(BLOCK_SIZE).map(|c| vocab.encode(c)).collect();
         let l1 = model.logits(&backend, &probe)?;
         let l2 = model2.logits(&backend, &probe)?;
-        anyhow::ensure!(
-            l1 == l2,
-            "save/load roundtrip changed logits: {:?} vs {:?}",
-            l1,
-            l2
-        );
+        anyhow::ensure!(l1 == l2, "save/load roundtrip changed logits: {:?} vs {:?}", l1, l2);
 
         // Deterministic greedy generation.
         let generated = generate_greedy(&backend, &model, &vocab, PROMPT, GENERATE_LEN)?;
@@ -359,11 +356,7 @@ mod demo {
         }
 
         let final_train_loss = report.epochs.last().map(|e| e.mean_loss).unwrap_or(f32::NAN);
-        let final_train_acc = report
-            .accuracy
-            .as_ref()
-            .and_then(|v| v.last().copied())
-            .unwrap_or(f32::NAN);
+        let final_train_acc = report.accuracy.as_ref().and_then(|v| v.last().copied()).unwrap_or(f32::NAN);
 
         Ok(RunReport {
             seed,

@@ -268,7 +268,11 @@ mod tests {
         let loaded = load_state_dict_typed(&bytes).unwrap();
         assert_eq!(
             loaded.get("w").unwrap(),
-            &StateTensor { shape: vec![2, 2], dtype: safetensors::Dtype::F32, data: vec![1.0, 2.0, 3.0, 4.0] }
+            &StateTensor {
+                shape: vec![2, 2],
+                dtype: safetensors::Dtype::F32,
+                data: vec![1.0, 2.0, 3.0, 4.0]
+            }
         );
     }
 }
