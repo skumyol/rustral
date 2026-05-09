@@ -1067,7 +1067,7 @@ impl TensorOps<CpuBackend> for CpuOps {
                 let mut arr = [0.0f32; 8];
                 arr.copy_from_slice(chunk);
                 let vec = f32x8::new(arr);
-                sum = sum + vec;
+                sum += vec;
             }
             let sum_array = sum.to_array();
             let mut total: f32 = sum_array.iter().sum();
@@ -1108,7 +1108,7 @@ impl TensorOps<CpuBackend> for CpuOps {
                         let offset = b * features + j;
                         let mut arr = [0.0f32; 8];
                         arr.copy_from_slice(&x.values[offset..offset + 8]);
-                        acc = acc + f32x8::new(arr);
+                        acc += f32x8::new(arr);
                     }
                     let arr = acc.to_array();
                     out_chunk.copy_from_slice(&arr);
@@ -1137,9 +1137,7 @@ impl TensorOps<CpuBackend> for CpuOps {
                         ]);
                         let sum = out_vec + vec;
                         let sum_arr = sum.to_array();
-                        for k in 0..8 {
-                            out[j + k] = sum_arr[k];
-                        }
+                        out[j..(j + 8)].copy_from_slice(&sum_arr);
                     }
 
                     for j in features_aligned..features {
@@ -1309,7 +1307,7 @@ impl TensorOps<CpuBackend> for CpuOps {
                             let idx = o * axis * inner + (a + k) * inner + i;
                             arr[k] = x.values[idx];
                         }
-                        sum = sum + f32x8::new(arr);
+                        sum += f32x8::new(arr);
                     }
                     let sum_array = sum.to_array();
                     let mut s: f32 = sum_array.iter().sum();
@@ -1330,7 +1328,7 @@ impl TensorOps<CpuBackend> for CpuOps {
                                 arr[k] = x.values[idx];
                             }
                             let vec = f32x8::new(arr);
-                            sum = sum + vec;
+                        sum += vec;
                         }
                         let sum_array = sum.to_array();
                         let mut s: f32 = sum_array.iter().sum();

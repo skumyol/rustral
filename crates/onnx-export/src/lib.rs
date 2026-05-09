@@ -4,6 +4,7 @@
 //! Validate exports with ONNX Runtime or your deployment stack.
 
 #![allow(clippy::large_enum_variant)]
+#![allow(clippy::doc_overindented_list_items)]
 
 include!(concat!(env!("OUT_DIR"), "/onnx.rs"));
 

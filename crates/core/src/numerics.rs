@@ -90,14 +90,8 @@ impl Tolerance {
         if (a_bits >> 63) != (b_bits >> 63) {
             return u32::MAX; // Infinite distance
         }
-        
-        let diff = if a_bits > b_bits {
-            a_bits - b_bits
-        } else {
-            b_bits - a_bits
-        };
-        
-        diff as u32
+
+        a_bits.abs_diff(b_bits) as u32
     }
 }
 

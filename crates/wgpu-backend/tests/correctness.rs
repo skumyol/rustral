@@ -10,7 +10,7 @@
 //! - RUSTRAL_WGPU_VECTORIZED=1: Enable vectorized kernels (default: disabled)
 //! - RUSTRAL_WGPU_MATMUL_TILE=8|16: Control matmul tile size (default: heuristic)
 
-use rustral_core::Parameter;
+use rustral_core::{Backend, Parameter};
 
 fn get_backend() -> Option<rustral_wgpu_backend::WgpuBackend> {
     match rustral_wgpu_backend::WgpuBackend::new_sync() {
@@ -288,7 +288,7 @@ fn test_wgpu_gather_rows() {
 
     // Expected: row0, row2, row1
     assert_eq!(data, vec![1.0, 2.0, 3.0, 7.0, 8.0, 9.0, 4.0, 5.0, 6.0,]);
-    assert_eq!(gathered.shape, vec![3, 3]);
+    assert_eq!(gathered.shape(), vec![3, 3]);
 }
 
 #[test]
@@ -313,7 +313,7 @@ fn test_wgpu_linear() {
     // row0: [1,2,3] dot [1,0,1]=4, [0,1,1]=5 -> +bias [1,2] = [5,7]
     // row1: [4,5,6] dot [1,0,1]=10, [0,1,1]=11 -> +bias [1,2] = [11,13]
     assert_eq!(data, vec![5.0, 7.0, 11.0, 13.0]);
-    assert_eq!(output.shape, vec![2, 2]);
+    assert_eq!(output.shape(), vec![2, 2]);
 }
 
 #[test]

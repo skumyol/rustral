@@ -111,11 +111,7 @@ impl ToleranceConfig {
         if let Some(ulp) = self.ulp_tolerance {
             let a_bits = a.to_bits();
             let b_bits = b.to_bits();
-            let ulp_diff = if a_bits > b_bits {
-                a_bits - b_bits
-            } else {
-                b_bits - a_bits
-            };
+            let ulp_diff = a_bits.abs_diff(b_bits);
             if (ulp_diff as u32) <= ulp {
                 return true;
             }

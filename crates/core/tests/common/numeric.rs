@@ -1,6 +1,7 @@
 use rustral_core::Tolerance;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum BackendFlavor {
     Cpu,
     Candle,
@@ -8,6 +9,7 @@ pub enum BackendFlavor {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum OpFamily {
     Elementwise,
     Matmul,

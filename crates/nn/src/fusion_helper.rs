@@ -69,9 +69,8 @@ mod tests {
 
     #[test]
     fn test_fusion_helper_compiles() {
-        // This test just verifies the fusion helper module compiles
-        // Actual fusion behavior tests would need real backend implementations
-        assert!(true);
+        // Compile-only smoke test.
+        let _ = std::mem::size_of::<FusionHelper>();
     }
 
     #[test]

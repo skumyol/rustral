@@ -73,7 +73,7 @@ fn main() {
 fn bench_self_attention(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
     for &(seq_len, d_model) in &[(64, 128), (128, 256), (256, 512), (512, 768)] {
         let config = SelfAttentionConfig::new(d_model, 4).with_dropout(0.0);
-        let mut attention = MultiHeadAttention::new(backend, config, 42).unwrap();
+        let attention = MultiHeadAttention::new(backend, config, 42).unwrap();
 
         let x = backend.tensor_from_vec(vec![0.01f32; seq_len * d_model], &[seq_len, d_model]).unwrap();
 
@@ -106,7 +106,7 @@ fn bench_multi_head_attention(backend: &CpuBackend, repeats: usize, warmup: usiz
 
     for &num_heads in &[4, 8, 16] {
         let config = SelfAttentionConfig::new(d_model, num_heads).with_dropout(0.0);
-        let mut attention = MultiHeadAttention::new(backend, config, 42).unwrap();
+        let attention = MultiHeadAttention::new(backend, config, 42).unwrap();
 
         let x = backend.tensor_from_vec(vec![0.01f32; seq_len * d_model], &[seq_len, d_model]).unwrap();
 
@@ -214,7 +214,7 @@ fn bench_feed_forward_relu(backend: &CpuBackend, repeats: usize, warmup: usize, 
 fn bench_layer_norm(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
     for &(batch, seq_len, d_model) in &[(4, 64, 256), (8, 128, 512), (16, 256, 768)] {
         let config = LayerNormConfig::new(vec![d_model]);
-        let mut layer_norm = LayerNorm::new(backend, config, 42).unwrap();
+        let layer_norm = LayerNorm::new(backend, config, 42).unwrap();
 
         let x = backend.tensor_from_vec(vec![0.01f32; batch * seq_len * d_model], &[batch, seq_len, d_model]).unwrap();
 
@@ -248,7 +248,7 @@ fn bench_transformer_encoder_layer(backend: &CpuBackend, repeats: usize, warmup:
         (16, 256, 768, 12, 3072),
     ] {
         let config = TransformerEncoderConfig::new(d_model, num_heads, d_ff, 6).with_dropout(0.1);
-        let mut encoder = TransformerEncoder::new(backend, config, 1000, 42).unwrap();
+        let encoder = TransformerEncoder::new(backend, config, 1000, 42).unwrap();
 
         let input_positions: Vec<usize> = (0..seq_len).collect();
 
@@ -284,7 +284,7 @@ fn bench_residual_connection(backend: &CpuBackend, repeats: usize, warmup: usize
     let d_model = 512;
 
     let config = LayerNormConfig::new(vec![d_model]);
-    let mut layer_norm = LayerNorm::new(backend, config, 42).unwrap();
+    let layer_norm = LayerNorm::new(backend, config, 42).unwrap();
 
     let x = backend.tensor_from_vec(vec![0.01f32; batch * seq_len * d_model], &[batch, seq_len, d_model]).unwrap();
     let residual = backend.tensor_from_vec(vec![0.02f32; batch * seq_len * d_model], &[batch, seq_len, d_model]).unwrap();
