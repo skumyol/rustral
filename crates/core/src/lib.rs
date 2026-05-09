@@ -6,24 +6,39 @@
 mod backend;
 mod context;
 mod error;
+mod fusion_tests;
 mod memory_profiler;
 mod module;
+mod numerics;
 mod operation_profiler;
 mod parameter;
 mod shape;
 mod tensor_pool;
 
-pub use backend::{Backend, BackendCapabilities, FusionOps, TensorInPlaceOps, TensorOps, TensorView};
+pub use backend::{
+    AttentionOps, Backend, BackendCapabilities, ConvLayout, FusionOps, QuantizationOps, TensorInPlaceOps,
+    TensorOps, TensorView, TrainingDtype,
+};
 pub use context::{ForwardCtx, Mode, RunId};
 pub use error::{CoreError, Result};
+pub use fusion_tests::{
+    generate_constant_data, generate_random_data, FusionTestConfig, FusionTestHarness, FusionTestResult,
+    FusionTestSuiteResult,
+};
 pub use memory_profiler::{
     global_profiler, AllocationEvent, AllocationTracker, MemoryProfiler, MemorySnapshot, MemorySummary,
     OomRisk,
 };
 pub use module::{
-    collect_named_parameter_ids, collect_named_parameters, Module, NamedParameters, Saveable, StatefulModule, Trainable,
+    collect_named_parameter_ids, collect_named_parameters, Module, NamedParameters, Saveable, StatefulModule,
+    Trainable,
 };
-pub use operation_profiler::{OperationGuard, OperationProfiler, OperationStats};
+pub use numerics::{
+    DType, NumericsConfig, NumericsError, NumericsValidator, Tolerance, ValidationResult,
+};
+pub use operation_profiler::{
+    DeviceType, MatmulDim, OperationGuard, OperationProfiler, OperationStats, ProfilingHooks, ShapeBucket,
+};
 pub use parameter::{Parameter, ParameterGroup, ParameterId, ParameterRef};
 pub use shape::{Shape, ShapeExt, TensorShape};
 pub use tensor_pool::{PoolStats, PooledTensor, TensorPool};

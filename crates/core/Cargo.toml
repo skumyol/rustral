@@ -19,6 +19,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 lazy_static = "1.4"
+rand.workspace = true
 
 [dev-dependencies]
 rustral-ndarray-backend = { path = "../ndarray-backend", version = "0.1.0" }
