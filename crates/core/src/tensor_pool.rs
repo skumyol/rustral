@@ -302,6 +302,9 @@ mod tests {
             fn ops(&self) -> &dyn crate::TensorOps<Self> {
                 unimplemented!()
             }
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
             fn capabilities(&self) -> crate::BackendCapabilities {
                 Default::default()
             }
@@ -339,6 +342,9 @@ mod tests {
             fn device(&self) -> Self::Device {}
             fn ops(&self) -> &dyn crate::TensorOps<Self> {
                 unimplemented!()
+            }
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
             }
             fn capabilities(&self) -> crate::BackendCapabilities {
                 Default::default()
@@ -380,6 +386,9 @@ mod tests {
             fn ops(&self) -> &dyn crate::TensorOps<Self> {
                 unimplemented!()
             }
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
             fn capabilities(&self) -> crate::BackendCapabilities {
                 Default::default()
             }
@@ -420,6 +429,9 @@ mod tests {
             fn ops(&self) -> &dyn crate::TensorOps<Self> {
                 unimplemented!()
             }
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
             fn capabilities(&self) -> crate::BackendCapabilities {
                 Default::default()
             }
@@ -458,6 +470,9 @@ mod tests {
             fn device(&self) -> Self::Device {}
             fn ops(&self) -> &dyn crate::TensorOps<Self> {
                 unimplemented!()
+            }
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
             }
             fn capabilities(&self) -> crate::BackendCapabilities {
                 Default::default()

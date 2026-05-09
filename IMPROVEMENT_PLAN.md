@@ -56,22 +56,24 @@ Legend: **Done** = merged/implemented with tests; **In progress** = implemented 
     - Mutable visitor adapter for optimizers:
       - `Optimizer::step_named_parameters` method added to `Optimizer` trait
       - Optimized implementations for SGD and Adam using visitor pattern
-      - Avoids parameter cloning during `Optimizer::step` by using `NamedParameters::visit_parameters_mut`
+      - Avoids intermediate parameter collection during `Optimizer::step` by using `NamedParameters::visit_parameters_mut`
       - Default fallback implementation for backward compatibility
       - Tests for visitor-based optimization in `crates/optim/src/lib.rs`
+  - **Note**: In-place tensor mutation optimization was explored but not implemented due to runtime trait checking complexity. The visitor pattern already provides significant optimization by avoiding the intermediate parameter collection step.
 
-- **A3 High-Level Trainer API**: **In progress**
+- **A3 High-Level Trainer API**: **Done**
   - **Implemented**:
     - Minimal model-driven trainer exists:
       - `crates/runtime/src/tape_trainer.rs` (`train_model`)
     - Supervised high-level training API:
       - `crates/runtime/src/tape_trainer.rs` (`SupervisedTapeModel`, `fit`, `fit_classification`, `TrainingReport`)
+    - North-star high-level facade:
+      - `crates/runtime/src/high_level_trainer.rs` (`Trainer::classification(...).fit(...)`, builder methods)
+    - Richer per-epoch metrics:
+      - `TrainingReport.throughput` (`ThroughputStats`: examples/sec, batches/sec, elapsed)
     - Demo:
       - `crates/runtime/examples/tape_train_demo.rs` (MSE regression)
       - `crates/runtime/examples/tape_xor_classification.rs` (classification via `fit_classification`)
-  - **Still needed (per plan)**:
-    - North-star `Trainer::classification(...).fit(...)` style API.
-    - Expand `TrainingReport` (throughput, samples/sec, richer metrics).
 
 ### Track B: Autodiff And Tensor Correctness
 
@@ -104,8 +106,9 @@ Legend: **Done** = merged/implemented with tests; **In progress** = implemented 
       - `crates/io/src/lib.rs` (`save_state_dict_typed`, `load_state_dict_typed`)
     - Strict negative tests:
       - `crates/runtime/tests/model_io_negative.rs` (missing/extra/shape/dtype mismatch)
-  - **Still needed (per plan)**:
-    - Optional path-based `save_model(path, ...)` / `load_model(path, ...)` if that becomes the public API (current API is bytes).
+    - Optional path-based I/O helpers:
+      - `save_model_to_path`, `load_model_from_path` in `crates/runtime/src/model_io.rs`
+      - Test: `crates/runtime/tests/model_io_path_roundtrip.rs`
 
 - **C2 Release Hygiene**: **Done**
   - **Implemented**:

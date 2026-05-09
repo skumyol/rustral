@@ -29,10 +29,22 @@ pub trait SupervisedTapeModel<B: Backend, X, Y>: NamedParameters<B> {
 }
 
 #[derive(Clone, Debug)]
+pub struct ThroughputStats {
+    pub epoch: usize,
+    pub examples: usize,
+    pub batches: usize,
+    pub elapsed: std::time::Duration,
+    pub examples_per_sec: f64,
+    pub batches_per_sec: f64,
+}
+
+#[derive(Clone, Debug)]
 pub struct TrainingReport {
     pub epochs: Vec<EpochStats>,
     /// Accuracy per epoch when classification targets are usable; otherwise None.
     pub accuracy: Option<Vec<f32>>,
+    /// Throughput per epoch (examples/sec, batches/sec).
+    pub throughput: Vec<ThroughputStats>,
 }
 
 /// Basic training configuration for [`TapeTrainer`].
@@ -280,6 +292,7 @@ where
         let mut indices: Vec<usize> = (0..train.len()).collect();
         let mut acc_hist: Vec<f32> = Vec::with_capacity(self.config.epochs);
         let mut epochs: Vec<EpochStats> = Vec::with_capacity(self.config.epochs);
+        let mut throughput: Vec<ThroughputStats> = Vec::with_capacity(self.config.epochs);
 
         for epoch in 0..self.config.epochs {
             let start = Instant::now();
@@ -293,7 +306,9 @@ where
             let mut correct: usize = 0;
             let mut total: usize = 0;
 
+            let mut batch_count: usize = 0;
             for batch_idx in indices.chunks(self.config.batch_size) {
+                batch_count += 1;
                 let mut ctx = ForwardCtx::new(backend, Mode::Train);
                 let mut tape = Tape::<B>::new();
 
@@ -379,7 +394,20 @@ where
 
             let mean_loss =
                 if losses.is_empty() { 0.0 } else { losses.iter().sum::<f32>() / losses.len() as f32 };
-            epochs.push(EpochStats { epoch, examples: train.len(), mean_loss, elapsed: start.elapsed() });
+            let elapsed = start.elapsed();
+            epochs.push(EpochStats { epoch, examples: train.len(), mean_loss, elapsed });
+            let examples_per_sec =
+                if elapsed.as_secs_f64() > 0.0 { train.len() as f64 / elapsed.as_secs_f64() } else { 0.0 };
+            let batches_per_sec =
+                if elapsed.as_secs_f64() > 0.0 { batch_count as f64 / elapsed.as_secs_f64() } else { 0.0 };
+            throughput.push(ThroughputStats {
+                epoch,
+                examples: train.len(),
+                batches: batch_count,
+                elapsed,
+                examples_per_sec,
+                batches_per_sec,
+            });
 
             // Native TUI: push epoch snapshot to the global dashboard.
             #[cfg(feature = "tui")]
@@ -400,6 +428,6 @@ where
             }
         }
 
-        Ok(TrainingReport { epochs, accuracy: if acc_hist.is_empty() { None } else { Some(acc_hist) } })
+        Ok(TrainingReport { epochs, accuracy: if acc_hist.is_empty() { None } else { Some(acc_hist) }, throughput })
     }
 }

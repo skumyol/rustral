@@ -4,6 +4,7 @@
 //! names power training, checkpointing, and debugging.
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use rustral_core::{Backend, NamedParameters, Parameter};
 use rustral_io::{load_state_dict_typed, save_state_dict_typed, StateTensor};
@@ -103,4 +104,31 @@ where
         *p = p.clone().with_tensor(t.clone());
     });
     Ok(())
+}
+
+/// Serialize a model to a safetensors file on disk.
+pub fn save_model_to_path<B: Backend, M: NamedParameters<B>>(
+    path: impl AsRef<Path>,
+    model: &M,
+    backend: &B,
+) -> anyhow::Result<()>
+where
+    B::Tensor: Clone,
+{
+    let bytes = save_model(model, backend)?;
+    std::fs::write(path, bytes)?;
+    Ok(())
+}
+
+/// Load parameters from a safetensors file on disk into an existing model.
+pub fn load_model_from_path<B: Backend, M: NamedParameters<B>>(
+    path: impl AsRef<Path>,
+    model: &mut M,
+    backend: &B,
+) -> anyhow::Result<()>
+where
+    B::Tensor: Clone,
+{
+    let bytes = std::fs::read(path)?;
+    load_model(model, backend, &bytes)
 }

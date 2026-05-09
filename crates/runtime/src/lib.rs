@@ -2,6 +2,8 @@
 
 mod inference;
 #[cfg(feature = "training")]
+mod high_level_trainer;
+#[cfg(feature = "training")]
 pub mod model_io;
 #[cfg(feature = "training")]
 pub mod serious_training;
@@ -13,9 +15,11 @@ pub mod tui_hook;
 
 pub use inference::{InferencePool, InferenceRequest, InferenceResponse};
 #[cfg(feature = "training")]
-pub use model_io::{load_model, save_model};
+pub use high_level_trainer::Trainer;
+#[cfg(feature = "training")]
+pub use model_io::{load_model, load_model_from_path, save_model, save_model_to_path};
 #[cfg(feature = "training")]
 pub use serious_training::{train_synthetic_classification, SeriousTrainingConfig, SeriousTrainingOutcome};
 #[cfg(feature = "training")]
-pub use tape_trainer::{SupervisedTapeModel, TapeTrainer, TapeTrainerConfig, TrainingReport};
+pub use tape_trainer::{SupervisedTapeModel, TapeTrainer, TapeTrainerConfig, ThroughputStats, TrainingReport};
 pub use trainer::{EpochStats, Learner, ParallelTrainer, TrainerConfig};
