@@ -53,7 +53,7 @@ impl BackendCapabilities {
     /// ```
     /// use rustral_core::{BackendCapabilities, TrainingDtype};
     ///
-    /// let caps = backend.capabilities();
+    /// let caps = BackendCapabilities::default();
     /// if caps.recommends_mixed_precision() {
     ///     println!("Using mixed precision training with {:?}", caps.recommended_training_dtype);
     /// }
@@ -181,6 +181,12 @@ pub trait Backend: Clone + Send + Sync + 'static {
     fn capabilities(&self) -> BackendCapabilities {
         BackendCapabilities::default()
     }
+
+    /// Downcast this backend to `Any` for runtime type checking.
+    ///
+    /// This enables backend-specific optimizations that require knowing the concrete
+    /// backend type at runtime. Use with caution - prefer trait-based polymorphism when possible.
+    fn as_any(&self) -> &dyn std::any::Any;
 
     /// Create a parameter with deterministic uniform random initialization.
     ///
@@ -318,6 +324,15 @@ pub trait TensorOps<B: Backend>: Send + Sync {
     /// scaling remaining elements by `1/(1-p)`.
     /// During inference: return input unchanged.
     fn dropout(&self, x: &B::Tensor, p: f32, training: bool) -> Result<B::Tensor>;
+
+    /// Apply dropout to tensor with an explicit seed.
+    ///
+    /// This is an **optional** determinism hook. Backends may ignore the seed by
+    /// falling back to [`Self::dropout`].
+    fn dropout_with_seed(&self, x: &B::Tensor, p: f32, seed: u64, training: bool) -> Result<B::Tensor> {
+        let _ = seed;
+        self.dropout(x, p, training)
+    }
 
     /// Concatenate tensors along a dimension.
     fn concat(&self, tensors: &[&B::Tensor], dim: usize) -> Result<B::Tensor>;
