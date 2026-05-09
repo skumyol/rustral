@@ -300,12 +300,12 @@ Legend: reflects the **architecture checklist** and related code landed **May 20
   - **WGPU kernel knobs + correctness harness**
     - **Implemented**: `RUSTRAL_WGPU_MATMUL_TILE` exists (`crates/wgpu-backend/src/lib.rs`).
     - **Implemented**: WGPU tests honor `RUSTRAL_REQUIRE_GPU=1` (fail fast if init fails) and prefer Vulkan on Linux to avoid flaky EGL/GLES contexts.
-    - **Not started**: `RUSTRAL_WGPU_WORKGROUP`, `RUSTRAL_WGPU_VECTORIZED`, and the proposed harness/tests path:
-      - `crates/wgpu-backend/tests/` (missing)
+    - **Implemented**: `RUSTRAL_WGPU_WORKGROUP`, `RUSTRAL_WGPU_VECTORIZED`, and the proposed harness/tests path:
+      - `crates/wgpu-backend/tests/correctness.rs` created with kernel knob validation tests
   - **Microbenchmarks**
     - **Implemented (different shape)**: microbench + JSON workload system exists (`scripts/bench/run_all.py`, `crates/bench/src/bin/rustral_workloads*.rs`).
     - **Partially implemented (in existing harness)**: added `softmax_dim` and `fused_linear_bias_gelu` workloads in `crates/bench/src/bin/rustral_workloads.rs`.
-    - **Not started (as written)**: `crates/bench/src/bin/transformer_hotpaths.rs` does not exist.
+    - **Implemented (as written)**: `crates/bench/src/bin/transformer_hotpaths.rs` created as standalone binary with transformer-specific hotpath benchmarks.
 
 ## Architecture: principles vs implementation (checklist)
 
