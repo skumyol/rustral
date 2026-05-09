@@ -71,6 +71,8 @@ run_test "rustral-metrics"
 run_test "rustral-distributed"
 run_test "rustral-autotuner"
 run_test "rustral-candle-backend"
+run_test "rustral-model-zoo"
+run_test "rustral-onnx-export"
 run_test "rustral-wgpu-backend"
 
 # Run root integration tests

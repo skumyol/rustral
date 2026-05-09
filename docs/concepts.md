@@ -22,6 +22,7 @@ This document explains every concept you'll encounter when building neural netwo
 10. [Data Loading](#data-loading)
 11. [Distributed Training](#distributed-training)
 12. [Common Patterns](#common-patterns)
+13. [Serving checkpoints and export](#serving-checkpoints-and-export)
 
 ---
 
@@ -677,6 +678,19 @@ let optimizer = MixedPrecisionOptimizer::new(Adam::new(0.001))
 
 ---
 
+## Serving checkpoints and export
+
+After training, Rustral can serialize whole models with **stable parameter names** (`rustral-runtime` `save_model` / `save_model_to_path` under the `training` feature). Common next steps:
+
+- **Same-process inference:** load with `load_model` / `load_model_from_path` and run `ForwardCtx::new(..., Mode::Inference)`.
+- **HTTP service:** the workspace includes `rustral-inference-server` (see the root README quick start §8 and `crates/inference-server/README.md`). It is an MVP for a fixed small architecture; extend or replace for your model shape.
+- **External runtimes:** `rustral-onnx-export` can write a minimal Linear ONNX file; full graphs require ongoing op coverage. TorchScript is not emitted from Rust—use a PyTorch twin or other bridges (`docs/export-onnx-torchscript.md`).
+- **Curated workflows:** `rustral-model-zoo` lists documented paths and Hugging Face naming pitfalls (`crates/model-zoo/README.md`).
+
+For browser and mobile constraints, read `docs/wasm-wgpu-inference.md` and `docs/mobile-deployment.md`.
+
+---
+
 ## Glossary
 
 | Term | Simple Explanation |
@@ -712,5 +726,4 @@ let optimizer = MixedPrecisionOptimizer::new(Adam::new(0.001))
 3. **Modify an example:** Change the learning rate, add a layer, see what happens
 4. **Build your own:** Start with a simple dataset and Linear layers
 5. **Read API docs:** `cargo doc --open` for full function signatures
-
-Happy learning! 🦀🧠
+6. **Deploy or export:** See [Serving checkpoints and export](#serving-checkpoints-and-export) and the root [`README.md`](../README.md) inference section.

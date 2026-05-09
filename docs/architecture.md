@@ -41,7 +41,7 @@ batch examples
   -> apply_update
 ```
 
-Inference uses a bounded worker pool with backpressure:
+Inference uses a bounded worker pool with backpressure in the library (`rustral-runtime::InferencePool`):
 
 ```text
 request
@@ -49,5 +49,9 @@ request
   -> worker threads
   -> reply channel
 ```
+
+For **HTTP** serving, the workspace ships `rustral-inference-server` (Axum): JSON `POST /v1/infer`, health/readiness, Prometheus `/metrics`, and integration notes in `crates/inference-server/DEPLOYMENT.md`. That binary is an **MVP** (single `Linear` today), not a full vLLM-style scheduler.
+
+**Interop:** `rustral-onnx-export` can emit a minimal Linear graph for ONNX runtimes; TorchScript remains a PyTorch-side bridge (see `docs/export-onnx-torchscript.md`).
 
 This keeps parallelism explicit and testable rather than hiding it inside model code.

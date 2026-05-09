@@ -13,6 +13,9 @@ cargo doc --workspace --no-deps
 cargo test --workspace --exclude rustral-wgpu-backend
 cargo test -p rustral-runtime --features training
 cargo test -p rustral-nn --features autodiff tape
+cargo test -p rustral-model-zoo
+cargo test -p rustral-onnx-export
+cargo build -p rustral-inference-server
 cargo build --manifest-path examples/Cargo.toml --workspace
 ```
 

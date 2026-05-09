@@ -58,6 +58,9 @@ members = [
     "crates/autotuner",
     "crates/hf",
     "crates/candle-backend",
+    "crates/model-zoo",
+    "crates/inference-server",
+    "crates/onnx-export",
 ]
 resolver = "2"
 
@@ -102,6 +105,11 @@ tracing = "0.1"
 criterion = "0.5"
 safetensors = "0.4"
 bytemuck = { version = "1", features = ["extern_crate_alloc"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+axum = "0.7"
+tower-http = { version = "0.5", features = ["trace"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+prost = "0.13"
 
 [patch.crates-io]
 candle-kernels = { path = "vendor/candle-kernels-0.10.2" }

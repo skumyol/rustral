@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "local_tiny_linear_regression",
+      "huggingface_model_id": null,
+      "revision": null,
+      "status": "supported_workflow",
+      "notes": "1x1 Linear same as tape_train_demo; write disk artifact with save_linear_artifact. Parameter names match rustral_nn::Linear NamedParameters (lin.weight, lin.bias).",
+      "local_artifact_workflow": "cargo run -p rustral-runtime --features training --example save_linear_artifact -- tiny_linear.safetensors"
+    },
+    {
+      "id": "onnx_linear_export_spike",
+      "huggingface_model_id": null,
+      "revision": null,
+      "status": "supported_workflow",
+      "notes": "rustral_onnx_export::export_linear_f32 emits a single Linear (MatMul+Add) for opset 17. See docs/export-onnx-torchscript.md.",
+      "local_artifact_workflow": "cargo test -p rustral-onnx-export"
+    },
+    {
+      "id": "hf_bert_base_uncased_weights_f32",
+      "huggingface_model_id": "google-bert/bert-base-uncased",
+      "revision": null,
+      "status": "experimental",
+      "notes": "rustral-hf::download_state_dict loads model.safetensors into flat f32 vectors. BERT Module mapping from HF tensor names to Rustral NamedParameters is not automated here; use strict load_model only after keys align.",
+      "local_artifact_workflow": null
+    }
+  ]
+}

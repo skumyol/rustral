@@ -9,7 +9,9 @@ This is a lightweight checklist for tagging a public release.
 - `cargo test --workspace --exclude rustral-wgpu-backend`
 - `cargo test -p rustral-runtime --features training`
 - `cargo test -p rustral-nn --features autodiff,tape`
-- `cargo package --workspace --allow-dirty` (understand any warnings)
+- `cargo test -p rustral-model-zoo` and `cargo test -p rustral-onnx-export` (registry + ONNX encode roundtrip)
+- `cargo build -p rustral-inference-server` (HTTP MVP)
+- `cargo package --workspace --allow-dirty` (understand any warnings; new crates may be `publish = false` until explicitly released)
 
 ## Artifact sanity
 

@@ -34,3 +34,13 @@ cargo run --release -p rustral-runtime --features training --example wikitext2_l
 ```
 
 See [`EVALUATION.md`](../../EVALUATION.md) for the methodology and offline dataset mode.
+
+## Saving an artifact for the HTTP inference server
+
+The `save_linear_artifact` example trains the same tiny 1×1 linear as `tape_train_demo` and writes a typed Safetensors file suitable for `load_model_from_path`:
+
+```bash
+cargo run -p rustral-runtime --features training --example save_linear_artifact -- tiny_linear.safetensors
+```
+
+Then run [`rustral-inference-server`](../inference-server/README.md) against that path (see crate README and [`DEPLOYMENT.md`](../inference-server/DEPLOYMENT.md)).

@@ -15,16 +15,73 @@ pub trait Backend: Clone + Send + Sync + 'static {
 
     fn device(&self) -> Self::Device;
     fn ops(&self) -> &dyn TensorOps<Self>;
-    fn fusion_ops(&self) -> Option<&dyn FusionOps<Self>>; // default: None
-    fn capabilities(&self) -> BackendCapabilities;       // default: Default::default()
-    // attention_ops, quantization_ops: optional extension traits
+
+    fn fusion_ops(&self) -> Option<&dyn FusionOps<Self>> { None }
+    fn attention_ops(&self) -> Option<&dyn AttentionOps<Self>> { None }
+    fn quantization_ops(&self) -> Option<&dyn QuantizationOps<Self>> { None }
+
+    fn capabilities(&self) -> BackendCapabilities { BackendCapabilities::default() }
+
+    fn as_any(&self) -> &dyn std::any::Any;
+
+    fn normal_parameter(&self, name: &str, shape: &[usize], seed: u64, scale: f32) -> Result<Parameter<Self>>
+    where Self: Sized;
+    fn parameter_from_vec(&self, name: &str, values: Vec<f32>, shape: &[usize]) -> Result<Parameter<Self>>
+    where Self: Sized;
 }
 ```
 
 - `device`: returns the device handle where tensors and parameters live.
 - `ops`: returns the backend operation table used by shared modules.
-- `fusion_ops`: optional fused kernels (`LinearReLU` / `LinearGELU` use [`FusionOptimizer::apply_*`](../crates/core/src/fusion.rs) / `FusionHelper`).
-- `capabilities`: reports hardware hints; see root [`ARCHITECTURE.md`](../ARCHITECTURE.md) for what is advisory vs used (e.g. `clamp_batch_size`).
+- `fusion_ops`: optional fused kernels (`LinearReLU` / `LinearGELU` use [`FusionOptimizer::apply_*`](../crates/core/src/fusion.rs) / `FusionHelper`). Default: `None`.
+- `attention_ops`: optional optimized attention (e.g. Flash-style paths). Default: `None`; layers fall back to generic attention.
+- `quantization_ops`: optional INT8 / quantization helpers. Default: `None`.
+- `capabilities`: hardware and layout hints; see **BackendCapabilities** below and [`ARCHITECTURE.md`](../ARCHITECTURE.md) (e.g. `clamp_batch_size` is consumed; many fields are advisory).
+- `as_any`: downcast hook for rare backend-specific code paths; prefer trait polymorphism when possible.
+- `normal_parameter` / `parameter_from_vec`: construct `Parameter` values for layers and checkpoint restore.
+
+### `BackendCapabilities`, `OperationType`, and related enums
+
+```rust
+pub struct BackendCapabilities {
+    pub supports_fp16: bool,
+    pub supports_bf16: bool,
+    pub tensor_cores: bool,
+    pub optimal_batch_size: usize,
+    pub optimal_chunk_size: usize,
+    pub max_allocation_size: usize,
+    pub prefers_contiguous: bool,
+    pub supports_in_place: bool,
+    pub supports_mixed_precision: bool,
+    pub recommended_training_dtype: TrainingDtype,
+    pub supports_fast_fp16_tensor_cores: bool,
+    pub preferred_conv_layout: ConvLayout,
+    pub supports_strided_layouts: bool,
+    pub supports_packed_layouts: bool,
+}
+
+impl BackendCapabilities {
+    pub fn clamp_batch_size(&self, batch: usize) -> usize;
+    pub fn recommends_mixed_precision(&self) -> bool;
+    pub fn recommended_dtype_for_operation(&self, operation: OperationType) -> TrainingDtype;
+}
+
+pub enum OperationType {
+    Matmul,
+    Convolution,
+    Reduction,
+    Elementwise,
+}
+
+pub enum TrainingDtype { F32, F16, Bf16 }
+
+pub enum ConvLayout { NCHW, NHWC }
+```
+
+- `clamp_batch_size`: soft upper bound using `optimal_batch_size` (at least 1).
+- `recommends_mixed_precision`: `true` when mixed precision is supported and `recommended_training_dtype` is not `F32`.
+- `recommended_dtype_for_operation`: capability-driven dtype hint (e.g. FP16 matmul on tensor-core-style flags when set).
+- Fields such as `supports_fast_fp16_tensor_cores`, `preferred_conv_layout`, and layout flags are primarily **hints** for callers and documentation; see `ARCHITECTURE.md` for adoption status.
 
 ```rust
 pub trait TensorOps<B: Backend>: Send + Sync {
@@ -55,6 +112,17 @@ pub trait TensorOps<B: Backend>: Send + Sync {
 - `argmax`: returns the flat index of the maximum value.
 - `gather_rows`: performs embedding-style row lookup.
 - `linear`: applies `input * weight^T + bias`.
+
+The real `TensorOps` trait in [`backend.rs`](../crates/core/src/backend.rs) also includes axis-aware softmax/reductions, conv helpers, dropout, and more. Notable for determinism:
+
+```rust
+fn dropout(&self, x: &B::Tensor, p: f32, training: bool) -> Result<B::Tensor>;
+fn dropout_with_seed(&self, x: &B::Tensor, p: f32, seed: u64, training: bool) -> Result<B::Tensor> {
+    /* default: ignores seed, delegates to dropout */
+}
+```
+
+Backends may override `dropout_with_seed` for reproducible dropout; `ndarray-backend` and `wgpu-backend` implement seeded paths where applicable.
 
 ### Forward context
 

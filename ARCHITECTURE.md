@@ -37,13 +37,17 @@ The design optimizes for *legible* deep-learning systems: backend selection, tra
 | [`rustral-autotuner`](crates/autotuner) | Kernel config search + persistent cache; `enabled` / `ci_mode` presets for CI (see section below). |
 | [`rustral-bench`](crates/bench) | Criterion microbenches (matmul, conv2d, lstm, attention). |
 | [`rustral-hf`](crates/hf) | HuggingFace integration helpers. |
+| [`rustral-model-zoo`](crates/model-zoo) | Curated `registry.json` + docs for checkpoint workflows and HF tensor-name pitfalls. |
+| [`rustral-onnx-export`](crates/onnx-export) | Experimental ONNX writer (single Linear as `MatMul`+`Add`; vendored `onnx.proto` + `protoc-bin-vendored`). |
+| [`rustral-inference-server`](crates/inference-server) | Axum HTTP service for JSON inference (MVP architecture), `/metrics`, Docker. |
 
 ## Where to look next
 
 - **Rustdoc**: `cargo doc --workspace --no-deps --open` (per-crate API docs).
 - **Examples**: see [`examples/README.md`](examples/README.md) (XOR through MoE) and [`crates/runtime/examples/`](crates/runtime/examples).
+- **Serving / export**: [`crates/inference-server/README.md`](crates/inference-server/README.md), [`crates/inference-server/DEPLOYMENT.md`](crates/inference-server/DEPLOYMENT.md), [`docs/export-onnx-torchscript.md`](docs/export-onnx-torchscript.md), [`docs/wasm-wgpu-inference.md`](docs/wasm-wgpu-inference.md), [`docs/mobile-deployment.md`](docs/mobile-deployment.md).
 - **Performance**: see [`BENCHMARKS.md`](BENCHMARKS.md).
-- **Roadmap**: [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md) (living plan-vs-codebase status table).
+- **Roadmap**: [`docs/master-plan.md`](docs/master-plan.md) (public feature and deployment tracks). Maintainer-only detail may live in a local `IMPROVEMENT_PLAN.md` at the repo root (gitignored).
 - **Security**: [`SECURITY.md`](SECURITY.md) (points to `docs/SECURITY.md`).
 
 ## Backend capabilities vs runtime behavior

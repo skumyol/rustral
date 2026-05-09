@@ -11,8 +11,15 @@ crates/runtime/examples/
 ├── emnlp_char_lm.rs       # tiny char-level LM, determinism check, save/load/infer
 ├── sst2_classifier.rs     # SST-2 sentiment classifier, writes a reproducibility manifest
 ├── wikitext2_lm.rs        # WikiText-2 word-level LM, dev perplexity + manifest
-└── tape_train_demo.rs     # smallest end-to-end tape training loop (XOR-style)
+├── tape_train_demo.rs     # smallest end-to-end tape training loop (XOR-style)
+└── save_linear_artifact.rs # train tiny 1×1 linear, write Safetensors for the HTTP inference server
 ```
+
+HTTP inference MVP: build `rustral-inference-server` and follow [`crates/inference-server/README.md`](../crates/inference-server/README.md) (artifact from `save_linear_artifact`, then `POST /v1/infer`).
+
+Curated checkpoint registry (metadata only): [`crates/model-zoo/`](../crates/model-zoo/).
+
+Deployment / export docs: [`crates/inference-server/DEPLOYMENT.md`](../crates/inference-server/DEPLOYMENT.md), [`docs/export-onnx-torchscript.md`](../docs/export-onnx-torchscript.md), [`docs/wasm-wgpu-inference.md`](../docs/wasm-wgpu-inference.md), [`docs/mobile-deployment.md`](../docs/mobile-deployment.md).
 
 Each example writes a `manifest.json` next to its outputs with the git SHA, seed, hyperparameters, and final metric. See [`EVALUATION.md`](../EVALUATION.md) for the methodology and pinned dataset hashes. For optimization hooks (fusion, capabilities, autotuner, profiling), see the root [`README.md`](../README.md) and [`ARCHITECTURE.md`](../ARCHITECTURE.md).
 
@@ -21,6 +28,9 @@ Each example writes a `manifest.json` next to its outputs with the git SHA, seed
 ```bash
 # Smallest end-to-end tape training loop
 cargo run -p rustral-runtime --features training --example tape_train_demo
+
+# Write a Safetensors artifact for rustral-inference-server (optional path arg)
+cargo run -p rustral-runtime --features training --example save_linear_artifact -- tiny_linear.safetensors
 
 # Char-level LM with determinism check
 cargo run -p rustral-runtime --features training --example emnlp_char_lm

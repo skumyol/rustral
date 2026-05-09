@@ -16,6 +16,7 @@ Rustral is a Rust-first neural network workspace with:
 - **Real evaluation artifacts**: SST-2 and WikiText-2 examples write reproducibility manifests and can run in offline CI smoke tests.
 - **Benchmark evidence**: schema-v2 JSON harness, CPU CI artifacts, optional CUDA/Metal suites, bencher.dev upload, and a Pages dashboard for release snapshots.
 - **Distributed APIs**: a `ProcessGroup` abstraction and higher-level DP/TP/ZeRO-style components (correctness-first; performance backend collectives are future work).
+- **Deployment ecosystem (Track H)**: HTTP inference MVP (`rustral-inference-server`), curated registry metadata (`rustral-model-zoo`), experimental ONNX Linear export (`rustral-onnx-export`), plus docs for nginx/Docker, wasm/mobile scope, and TorchScript bridging.
 
 Important caveat: a lot of the “big” distributed and model-parallel APIs exist as **library surfaces** and tests, but they are not yet a production multi-node system.
 
@@ -130,6 +131,10 @@ The next big step is to turn the current forward and simple-train benchmarks int
 - **`docs/backend-roadmap.md`**: backend-specific notes (Burn/Candle/tch/wgpu), not a second roadmap.
 - **`docs/concepts.md`**: tutorial/guide; should avoid repeating roadmap claims.
 - **`docs/WGPU_UPGRADE.md`**: wgpu upgrade procedure (experimental backend).
+- **`docs/export-onnx-torchscript.md`**: ONNX spike + TorchScript / PyTorch bridge stance.
+- **`docs/wasm-wgpu-inference.md`**: browser/WebGPU scope (incl. wasm `getrandom` caveat).
+- **`docs/mobile-deployment.md`**: iOS/Android integration paths and non-goals.
+- **`crates/inference-server/DEPLOYMENT.md`**: reverse proxy, probes, metrics, Docker.
 - **`docs/SECURITY.md`**: security guidelines and disclosure process.
 - **`EVALUATION.md`**: SST-2 and WikiText-2 methodology.
 - **`BENCHMARKS.md`**: benchmark harness, schema v2, backend matrix, snapshots, bencher.dev, and Pages dashboard.

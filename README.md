@@ -122,7 +122,7 @@ These optimizations are designed to benefit all backends equally, maintaining Ru
 
 Rustral is currently best viewed as a research and systems framework: useful for learning, experiments, backend work, and Rust-native ML infrastructure. If you need the largest pretrained model ecosystem today, Python frameworks remain the practical default. If you want a framework whose execution model is explicit and whose internals are approachable, Rustral is designed for that.
 
-The current improvement roadmap is tracked in [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md).
+The public roadmap lives in [`docs/master-plan.md`](docs/master-plan.md). Maintainers may keep a private root-level `IMPROVEMENT_PLAN.md` for detailed checklists (that file is gitignored and not shipped in the repo).
 
 ## Why Rustral Feels Different
 
@@ -255,7 +255,7 @@ cargo build --workspace
 ./run_tests.sh
 ```
 
-This runs formatting checks, clippy lints, the full workspace build, and tests for all **17** workspace crates (`rustral-wgpu-backend` may warn on some GPU/driver stacks).
+This runs formatting checks, clippy lints, the full workspace build, and tests across workspace crates (`rustral-wgpu-backend` may warn on some GPU/driver stacks). Newer crates include `rustral-inference-server`, `rustral-model-zoo`, and `rustral-onnx-export`; see [Inference, checkpoints, and deployment](#inference-checkpoints-and-deployment).
 
 ### 3. Run Your First Example: XOR
 
@@ -325,6 +325,35 @@ python3 scripts/bench/run_all.py --suite rustral --suite candle --suite pytorch
 
 The harness writes `benchmarks/results/<timestamp>.json` and `benchmarks/results/summary.md`. CI validates the JSON schema and uploads CPU benchmark artifacts for every PR. See [`BENCHMARKS.md`](BENCHMARKS.md).
 
+### 8. HTTP inference server (optional)
+
+Train a tiny linear, write a Safetensors artifact, and serve JSON inference:
+
+```bash
+cargo run -p rustral-runtime --features training --example save_linear_artifact -- tiny_linear.safetensors
+cargo run -p rustral-inference-server -- \
+  --artifact tiny_linear.safetensors --bind 127.0.0.1:8080 --in-features 1 --out-features 1 --bias
+# curl http://127.0.0.1:8080/health
+# curl -s -X POST http://127.0.0.1:8080/v1/infer -H 'content-type: application/json' -d '{"input":[[0.25]]}'
+```
+
+Production-oriented notes: [`crates/inference-server/DEPLOYMENT.md`](crates/inference-server/DEPLOYMENT.md) (nginx, Kubernetes probes, Prometheus `/metrics`, Docker). ONNX export (single Linear spike): [`docs/export-onnx-torchscript.md`](docs/export-onnx-torchscript.md). Curated checkpoint metadata: [`crates/model-zoo/README.md`](crates/model-zoo/README.md).
+
+---
+
+## Inference, checkpoints, and deployment
+
+Rustral’s training story already includes **strict** whole-model I/O via `rustral-runtime` (`save_model` / `load_model` / `*_from_path`) keyed by `NamedParameters`. Recent work adds **ecosystem-facing** pieces:
+
+| Piece | Crate / doc | Role |
+|-------|-------------|------|
+| Model zoo registry | [`rustral-model-zoo`](crates/model-zoo) | Machine-readable list of workflows and Hub-related notes (not weight hosting). |
+| HTTP inference MVP | [`rustral-inference-server`](crates/inference-server) | Axum service: `/health`, `/ready`, `/v1/infer`, `/metrics`, graceful shutdown. |
+| ONNX export (spike) | [`rustral-onnx-export`](crates/onnx-export) | Emit a minimal Linear graph (`MatMul` + `Add`) for external runtimes. |
+| Wasm / mobile guidance | [`docs/wasm-wgpu-inference.md`](docs/wasm-wgpu-inference.md), [`docs/mobile-deployment.md`](docs/mobile-deployment.md) | Scope and limitations for browser and native apps. |
+
+Track H status and phases: [`docs/master-plan.md`](docs/master-plan.md) (deployment ecosystem section).
+
 ---
 
 ## Architecture
@@ -350,6 +379,9 @@ flowchart TD
     autotune["rustral-autotuner<br/>backend tuning"]
     symbolic["rustral-symbolic<br/>vocabularies and labels"]
     hf["rustral-hf<br/>Hugging Face helpers"]
+    zoo["rustral-model-zoo<br/>checkpoint registry metadata"]
+    onnx["rustral-onnx-export<br/>ONNX Linear spike"]
+    infer["rustral-inference-server<br/>HTTP JSON infer"]
     ndarray["rustral-ndarray-backend<br/>reference CPU"]
     candle["rustral-candle-backend<br/>CPU/CUDA via Candle"]
     wgpu["rustral-wgpu-backend<br/>experimental Vulkan/Metal/DX12"]
@@ -367,6 +399,10 @@ flowchart TD
     nn --> data
     nn --> symbolic
     hf --> io
+    zoo -.-> hf
+    onnx -.-> io
+    infer --> runtime
+    infer --> io
     autotune --> wgpu
 
     core --> ndarray
@@ -393,7 +429,7 @@ examples and applications
 | Training stack | `rustral-autodiff`, `rustral-optim`, `rustral-runtime` | Gradients, optimizers, mixed precision hooks, trainer and inference orchestration |
 | Scaling stack | `rustral-distributed` | Data, tensor, pipeline, sequence, context, ZeRO, and FSDP-style parallelism APIs |
 | Execution backends | `rustral-ndarray-backend`, `rustral-candle-backend`, `rustral-wgpu-backend` | Reference CPU, optimized CPU/CUDA, and experimental cross-platform GPU execution |
-| Supporting crates | `rustral-data`, `rustral-io`, `rustral-metrics`, `rustral-autotuner`, `rustral-symbolic`, `rustral-hf`, `rustral-tui` | Data loading, checkpoints, metrics, backend tuning, vocabularies, Hugging Face helpers, and live terminal dashboard |
+| Supporting crates | `rustral-data`, `rustral-io`, `rustral-metrics`, `rustral-autotuner`, `rustral-symbolic`, `rustral-hf`, `rustral-tui`, `rustral-model-zoo`, `rustral-onnx-export`, `rustral-inference-server` | Data loading, checkpoints, metrics, tuning, vocabularies, Hub helpers, TUI dashboard, curated model registry metadata, experimental ONNX export, HTTP inference service |
 
 ### Crate-by-Crate Breakdown
 
@@ -416,6 +452,9 @@ examples and applications
 | `rustral_runtime` | **Training/inference orchestration** (trainers, pools) |
 | `rustral_tui` | **Live terminal dashboard** for training — auto-spawns progress bars, metrics, memory monitoring, and leak detection |
 | `rustral_hf` | **Optional Hugging Face Hub** helpers for weights |
+| `rustral_model_zoo` | **Registry metadata** for documented checkpoints and workflows (`registry.json` + HF name-mapping notes) |
+| `rustral_onnx_export` | **Experimental ONNX** export for a single Linear layer (external runtime interop) |
+| `rustral_inference_server` | **HTTP JSON inference** binary (MVP: one `Linear`; metrics and Docker in crate docs) |
 
 ### Backends
 
@@ -749,11 +788,10 @@ cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warni
 |----------|---------------|
 | [`docs/architecture.md`](docs/architecture.md) | System design and crate relationships |
 | [`docs/api-signatures.md`](docs/api-signatures.md) | Public function signatures |
-| [`docs/master-plan.md`](docs/master-plan.md) | Feature roadmap |
+| [`docs/master-plan.md`](docs/master-plan.md) | Feature roadmap and Track H deployment status |
 | [`EVALUATION.md`](EVALUATION.md) | SST-2 and WikiText-2 methodology, metrics, manifests, and offline runs |
 | [`BENCHMARKS.md`](BENCHMARKS.md) | Benchmark harness, schema v2, backend matrix, release snapshots, bencher.dev, and Pages dashboard |
 | [`benchmarks/runs/INDEX.md`](benchmarks/runs/INDEX.md) | Index of curated per-release benchmark snapshots |
-| [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md) | Concrete engineering plan for closing current abstraction and usability gaps |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Security guidelines |
 | API Docs (rustdoc) | `cargo doc --open` |
 

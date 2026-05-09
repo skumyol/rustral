@@ -13,9 +13,10 @@
 # Environment:
 #   BENCH_REPEATS   default 5
 #   BENCH_WARMUP    default 1
-#   RUN_NLP_PAPER   set to 1 to append scripts/eval/run_nlp_real.py --paper --clean
-#   RUN_PYTORCH     default 1; set 0 to skip pytorch suite in run_all
-#   RUN_CUDA_BENCH  set 1 to append cuda suite to same JSON (requires GPU toolchain)
+#   RUN_NLP_PAPER    set to 1 to append scripts/eval/run_nlp_real.py --paper --clean
+#   RUN_NLP_PYTORCH  default 1 with NLP paper: adds --pytorch (needs torch); set 0 to skip
+#   RUN_PYTORCH      default 1; set 0 to skip pytorch suite in run_all
+#   RUN_CUDA_BENCH   set 1 to append cuda suite to same JSON (requires GPU toolchain)
 
 set -euo pipefail
 
@@ -97,7 +98,12 @@ if [[ "${1:-}" == "--worker" ]]; then
 
   if [[ "${RUN_NLP_PAPER:-0}" == "1" ]]; then
     log "=== [7] NLP paper (run_nlp_real.py --paper) — long-running ==="
-    if python3 scripts/eval/run_nlp_real.py --paper --clean; then
+    NLP_CMD=(python3 scripts/eval/run_nlp_real.py --paper --clean)
+    if [[ "${RUN_NLP_PYTORCH:-1}" == "1" ]]; then
+      NLP_CMD+=(--pytorch)
+      log "(including --pytorch parity baselines)"
+    fi
+    if "${NLP_CMD[@]}"; then
       log "[7] ok"
     else
       log "[7] FAILED"
@@ -105,6 +111,17 @@ if [[ "${1:-}" == "--worker" ]]; then
     fi
   else
     log "=== [7] NLP paper SKIPPED (RUN_NLP_PAPER=1 to queue) ==="
+  fi
+
+  log "=== [8] comparative_report.py (Markdown for paper draft) ==="
+  mkdir -p "${ROOT}/benchmarks/reports"
+  if python3 scripts/bench/comparative_report.py \
+    --harness "${OUT_JSON}" \
+    --out "${ROOT}/benchmarks/reports/comparative_queue_${STAMP}.md"; then
+    log "[8] ok → benchmarks/reports/comparative_queue_${STAMP}.md"
+  else
+    log "[8] FAILED"
+    failures=$((failures + 1))
   fi
 
   if [[ "$failures" -eq 0 ]]; then
@@ -135,15 +152,18 @@ export OUT_JSON_CUDA="${ROOT}/benchmarks/results/queue-${STAMP}-cuda.json"
 export RUN_PYTORCH="${RUN_PYTORCH:-1}"
 export RUN_CUDA_BENCH="${RUN_CUDA_BENCH:-0}"
 export RUN_NLP_PAPER="${RUN_NLP_PAPER:-0}"
+export RUN_NLP_PYTORCH="${RUN_NLP_PYTORCH:-1}"
 
 mkdir -p "${ROOT}/benchmarks/results"
+mkdir -p "${ROOT}/benchmarks/reports"
 
 nohup env \
   ROOT="$ROOT" STAMP="$STAMP" LOGDIR="$LOGDIR" \
   BENCH_REPEATS="$BENCH_REPEATS" BENCH_WARMUP="$BENCH_WARMUP" \
   BENCH_REPEATS_PYTORCH="$BENCH_REPEATS_PYTORCH" BENCH_REPEATS_CUDA="$BENCH_REPEATS_CUDA" \
   OUT_JSON="$OUT_JSON" OUT_JSON_PYTORCH="$OUT_JSON_PYTORCH" OUT_JSON_CUDA="$OUT_JSON_CUDA" \
-  RUN_PYTORCH="$RUN_PYTORCH" RUN_CUDA_BENCH="$RUN_CUDA_BENCH" RUN_NLP_PAPER="$RUN_NLP_PAPER" \
+  RUN_PYTORCH="$RUN_PYTORCH" RUN_CUDA_BENCH="$RUN_CUDA_BENCH" \
+  RUN_NLP_PAPER="$RUN_NLP_PAPER" RUN_NLP_PYTORCH="$RUN_NLP_PYTORCH" \
   "$0" --worker > "${LOGDIR}/run.log" 2>&1 &
 
 echo $! > "${LOGDIR}/queue.pid"
@@ -159,3 +179,6 @@ echo "  test -f ${ROOT}/benchmarks/queue_logs/latest/done && cat ${ROOT}/benchma
 echo ""
 echo "Process still running?"
 echo "  ps -p \$(cat ${ROOT}/benchmarks/queue_logs/latest/queue.pid) -o pid,etime,cmd || echo 'not running'"
+echo ""
+echo "Full paper-oriented queue (micro + NLP paper + PyTorch NLP + comparative MD):"
+echo "  RUN_NLP_PAPER=1 ./scripts/bench/queue_all_benchmarks.sh"

@@ -1,0 +1,23 @@
+# Example: build from repo root with:
+#   docker compose -f crates/inference-server/docker-compose.yml build
+# Produce ./tiny_linear.safetensors first (save_linear_artifact), then:
+#   MODEL_ARTIFACT=$PWD/tiny_linear.safetensors docker compose -f crates/inference-server/docker-compose.yml up
+services:
+  inference:
+    build:
+      context: ../..
+      dockerfile: crates/inference-server/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ${MODEL_ARTIFACT:-./tiny_linear.safetensors}:/model/model.safetensors:ro
+    command:
+      - "--artifact"
+      - "/model/model.safetensors"
+      - "--bind"
+      - "0.0.0.0:8080"
+      - "--in-features"
+      - "1"
+      - "--out-features"
+      - "1"
+      - "--bias"
