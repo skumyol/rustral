@@ -54,6 +54,16 @@ fn gelu_backward_chain<B: Backend>(
     Ok(vec![grad_x])
 }
 
+fn relu_backward_chain<B: Backend>(
+    ops: &dyn rustral_core::TensorOps<B>,
+    pre_activation: &B::Tensor,
+    grad_out: &B::Tensor,
+) -> Result<Vec<B::Tensor>> {
+    let mask = ops.gt_scalar(pre_activation, 0.0)?;
+    let grad = ops.mul(grad_out, &mask)?;
+    Ok(vec![grad])
+}
+
 /// A recorded operation in the computation graph.
 struct Op<B: Backend> {
     /// Input tensor ids.
@@ -385,6 +395,116 @@ impl<B: Backend> Tape<B> {
             // dL/d_input = grad_out @ weight
             let grad_input = ops.matmul(grad_out, &weight_for_grad)?;
             Ok(vec![grad_input])
+        }))
+    }
+
+    /// Fused linear + bias + ReLU recorded as one tape op.
+    ///
+    /// Forward computes `relu(input @ weight^T + bias)`. If the backend exposes `FusionOps`,
+    /// the fused entry point is used for the forward value; otherwise we fall back to the
+    /// unfused sequence. Backward always uses `TensorOps` to compute gradients.
+    pub fn fused_linear_bias_relu_tape(
+        &mut self,
+        input: TensorId,
+        weight: &Parameter<B>,
+        bias: &Parameter<B>,
+        ctx: &mut ForwardCtx<B>,
+    ) -> Result<TensorId>
+    where
+        B::Tensor: Clone,
+    {
+        let x_val = self.get_value(input)?.clone();
+        let ops = ctx.backend().ops();
+
+        // Pre-activation (needed for backward).
+        let w_val = weight.tensor().clone();
+        let w_t = ops.transpose(&w_val)?;
+        let pre = ops.matmul(&x_val, &w_t)?;
+        let b_val = bias.tensor().clone();
+        let pre = ops.add_row_vector(&pre, &b_val)?;
+
+        // Forward output: prefer backend fusion if available.
+        let out = if let Some(fusion) = ctx.backend().fusion_ops() {
+            match fusion.fused_linear_bias_relu(&x_val, weight, bias) {
+                Ok(t) => Ok(t),
+                Err(_) => ops.relu(&pre),
+            }
+        } else {
+            ops.relu(&pre)
+        }?;
+
+        let w_id = self.watch_parameter(weight);
+        let b_id = self.watch_parameter(bias);
+
+        Ok(self.record(&[input, w_id, b_id], out, move |grad_out, _store, ops| {
+            let grad_pre = relu_backward_chain::<B>(ops, &pre, grad_out)?.pop().expect("relu grad");
+
+            // dL/dX = grad_pre @ W
+            let grad_x = ops.matmul(&grad_pre, &w_val)?;
+
+            // dL/dW = grad_pre^T @ X  (W is [out, in])
+            let grad_pre_t = ops.transpose(&grad_pre)?;
+            let grad_w = ops.matmul(&grad_pre_t, &x_val)?;
+
+            // dL/db = sum over batch dimension.
+            let grad_b = ops.sum_dim0(&grad_pre)?;
+
+            Ok(vec![grad_x, grad_w, grad_b])
+        }))
+    }
+
+    /// Fused linear + bias + GELU recorded as one tape op.
+    ///
+    /// Forward computes `gelu(input @ weight^T + bias)` (tanh approximation). Uses backend
+    /// `FusionOps` for forward value when available; backward uses the same derivative as
+    /// [`Tape::gelu`].
+    pub fn fused_linear_bias_gelu_tape(
+        &mut self,
+        input: TensorId,
+        weight: &Parameter<B>,
+        bias: &Parameter<B>,
+        ctx: &mut ForwardCtx<B>,
+    ) -> Result<TensorId>
+    where
+        B::Tensor: Clone,
+    {
+        let x_val = self.get_value(input)?.clone();
+        let ops = ctx.backend().ops();
+
+        // Pre-activation (needed for backward).
+        let w_val = weight.tensor().clone();
+        let w_t = ops.transpose(&w_val)?;
+        let pre = ops.matmul(&x_val, &w_t)?;
+        let b_val = bias.tensor().clone();
+        let pre = ops.add_row_vector(&pre, &b_val)?;
+
+        // Forward output: prefer backend fusion if available.
+        let out = if let Some(fusion) = ctx.backend().fusion_ops() {
+            match fusion.fused_linear_bias_gelu(&x_val, weight, bias) {
+                Ok(t) => Ok(t),
+                Err(_) => ops.gelu(&pre),
+            }
+        } else {
+            ops.gelu(&pre)
+        }?;
+
+        let w_id = self.watch_parameter(weight);
+        let b_id = self.watch_parameter(bias);
+
+        Ok(self.record(&[input, w_id, b_id], out, move |grad_out, _store, ops| {
+            let grad_pre = gelu_backward_chain::<B>(ops, &pre, grad_out)?.pop().expect("gelu grad");
+
+            // dL/dX = grad_pre @ W
+            let grad_x = ops.matmul(&grad_pre, &w_val)?;
+
+            // dL/dW = grad_pre^T @ X  (W is [out, in])
+            let grad_pre_t = ops.transpose(&grad_pre)?;
+            let grad_w = ops.matmul(&grad_pre_t, &x_val)?;
+
+            // dL/db = sum over batch dimension.
+            let grad_b = ops.sum_dim0(&grad_pre)?;
+
+            Ok(vec![grad_x, grad_w, grad_b])
         }))
     }
 

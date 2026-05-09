@@ -9,6 +9,11 @@ use rustral_core::{
 };
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "autodiff")]
+use crate::tape::TapeModule;
+#[cfg(feature = "autodiff")]
+use rustral_autodiff::{Tape, TensorId};
+
 /// Configuration for self-attention.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SelfAttentionConfig {
@@ -300,6 +305,76 @@ impl<B: Backend> NamedParameters<B> for MultiHeadAttention<B> {
             let full = format!("attention.{name}");
             f(&full, p);
         });
+    }
+}
+
+#[cfg(feature = "autodiff")]
+impl<B: Backend> TapeModule<B> for SelfAttention<B>
+where
+    B::Tensor: Clone,
+{
+    fn forward_tape(&self, input: TensorId, tape: &mut Tape<B>, ctx: &mut ForwardCtx<B>) -> Result<TensorId> {
+        let ops = ctx.backend().ops();
+        let input_val = tape
+            .value(input)
+            .ok_or_else(|| rustral_core::CoreError::InvalidArgument("tape: missing input value".into()))?;
+        let shape = ops.shape(input_val);
+        if shape.len() != 3 {
+            return Err(rustral_core::CoreError::InvalidShape {
+                shape,
+                reason: "SelfAttention TapeModule expects 3D [batch, seq, d_model] input".into(),
+            });
+        }
+        let batch = shape[0];
+        let seq_len = shape[1];
+        let d_model = shape[2];
+        if d_model != self.config.d_model {
+            return Err(rustral_core::CoreError::ShapeMismatch {
+                expected: vec![self.config.d_model],
+                actual: vec![d_model],
+            });
+        }
+        let d_k = self.config.head_dim;
+
+        // Flatten input for 2D matmul tape ops.
+        let flat_input = tape.reshape_tape(input, &[batch * seq_len, d_model], ctx)?;
+
+        // Watch parameters as tape leaves.
+        let q_w = tape.watch_parameter(&self.q_proj);
+        let k_w = tape.watch_parameter(&self.k_proj);
+        let v_w = tape.watch_parameter(&self.v_proj);
+        let out_w = tape.watch_parameter(&self.out_proj);
+
+        // Q/K/V projections: [B*S, d_model] @ [d_model, d_k] -> [B*S, d_k]
+        let q = tape.matmul(flat_input, q_w, ctx)?;
+        let k = tape.matmul(flat_input, k_w, ctx)?;
+        let v = tape.matmul(flat_input, v_w, ctx)?;
+
+        // scores = q @ k^T -> [B*S, B*S]
+        let k_t = tape.transpose_tape(k, ctx)?;
+        let scores = tape.matmul(q, k_t, ctx)?;
+        let scores = tape.mul_scalar(scores, self.scale, ctx)?;
+        let weights = tape.softmax(scores, ctx)?;
+
+        // output = weights @ v -> [B*S, d_k]
+        let out = tape.matmul(weights, v, ctx)?;
+        let out = tape.reshape_tape(out, &[batch, seq_len, d_k], ctx)?;
+
+        // Output projection: flatten -> matmul -> reshape back.
+        let flat_out = tape.reshape_tape(out, &[batch * seq_len, d_k], ctx)?;
+        let proj = tape.matmul(flat_out, out_w, ctx)?;
+        tape.reshape_tape(proj, &[batch, seq_len, d_model], ctx)
+    }
+}
+
+#[cfg(feature = "autodiff")]
+impl<B: Backend> TapeModule<B> for MultiHeadAttention<B>
+where
+    B::Tensor: Clone,
+{
+    fn forward_tape(&self, input: TensorId, tape: &mut Tape<B>, ctx: &mut ForwardCtx<B>) -> Result<TensorId> {
+        // Mirror the eager implementation: delegate to the simplified SelfAttention.
+        self.attention.forward_tape(input, tape, ctx)
     }
 }
 

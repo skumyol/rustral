@@ -231,7 +231,7 @@ Legend: **Done** = merged/implemented with tests; **In progress** = implemented 
     - GitHub Pages dashboard: `scripts/bench/render_site.py` + `.github/workflows/pages.yml` rendering per-version snapshots from `benchmarks/runs/`.
   - **Still needed (tracked, deferred)**:
     - LSTM `lstm_lm_train_step` JSON-harness coverage (gated on tape-integrated LSTM). `lstm_forward` is now implemented following weight layout fix.
-    - Tape-integrated `MultiHeadAttention` so the transformer encoder train step folds in fwd+bwd+optimizer.step.
+    - Tape-integrated full encoder train step bench (fwd + bwd + optimizer.step) once a canonical tape-trained encoder stack is selected for the harness.
     - First full unified-harness per-release snapshot under `benchmarks/runs/<version>/` (e.g. `rustral.json` / `candle.json` from schema v2). Current snapshots are NLP-only (`suites: ["nlp"]`).
 
 ### Track O: Device-agnostic optimizations & observability
@@ -252,7 +252,12 @@ Legend: reflects the **architecture checklist** and related code landed **May 20
   - `clamp_batch_size` in `crates/core/src/backend.rs` (other capability fields remain mostly advisory; see `ARCHITECTURE.md`)
 - **O6 Autotuner CI / opt-out behavior**: **Done**
   - `TunerConfig::enabled`, `ci_mode`, cache re-benchmark on hit: `crates/autotuner/src/tuner.rs` (+ crate / `ARCHITECTURE.md` docs)
-- **O7 Fused ops on `Tape`**: **Not started** (optional; eager fusion path remains separate from tape node sequence)
+- **O7 Fused ops on `Tape`**: **Done**
+  - Tape-level fused linear+activation ops: `crates/autodiff/src/lib.rs` (`fused_linear_bias_{relu,gelu}_tape`)
+  - `TapeModule` for `LinearReLU` / `LinearGELU`: `crates/nn/src/tape.rs`
+  - Grad tests: `crates/nn/tests/tape_linear_activation.rs`
+- **O8 TapeModule for attention**: **Done**
+  - `TapeModule` for `SelfAttention` / `MultiHeadAttention`: `crates/nn/src/attention.rs` (feature-gated behind `autodiff`)
 
 ## Architecture: principles vs implementation (checklist)
 
@@ -262,7 +267,7 @@ Actionable items to keep README and `ARCHITECTURE.md` claims aligned with the co
 
 - [x] **Single fusion entry surface** — `FusionOptimizer::apply_*` + `FusionHelper` delegating (`crates/core/src/fusion.rs`, `crates/nn/src/fusion_helper.rs`).
 - [x] **Tape FFN matches eager semantics** — `TapeFeedForward` is `Linear -> GELU -> Linear` (`crates/nn/src/tape_transformer.rs`).
-- [ ] **Fused linear+activation on tape (optional)** — Deferred until `Tape` records fused ops.
+- [x] **Fused linear+activation on tape (optional)** — `Tape::{fused_linear_bias_relu_tape,fused_linear_bias_gelu_tape}` + `TapeModule` for `LinearReLU` / `LinearGELU`.
 
 ### Transformer blocks
 

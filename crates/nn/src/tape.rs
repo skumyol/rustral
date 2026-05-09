@@ -6,7 +6,7 @@
 use rustral_autodiff::{Tape, TensorId};
 use rustral_core::{Backend, ForwardCtx, Result};
 
-use crate::{Embedding, LayerNorm, Linear};
+use crate::{Embedding, LayerNorm, Linear, LinearGELU, LinearReLU};
 
 /// A module that can execute its forward pass while recording into an autodiff [`Tape`].
 ///
@@ -30,6 +30,26 @@ where
         } else {
             Ok(out)
         }
+    }
+}
+
+impl<B: Backend> TapeModule<B> for LinearReLU<B>
+where
+    B::Tensor: Clone,
+{
+    fn forward_tape(&self, input: TensorId, tape: &mut Tape<B>, ctx: &mut ForwardCtx<B>) -> Result<TensorId> {
+        let bias = self.bias();
+        tape.fused_linear_bias_relu_tape(input, self.weight(), bias, ctx)
+    }
+}
+
+impl<B: Backend> TapeModule<B> for LinearGELU<B>
+where
+    B::Tensor: Clone,
+{
+    fn forward_tape(&self, input: TensorId, tape: &mut Tape<B>, ctx: &mut ForwardCtx<B>) -> Result<TensorId> {
+        let bias = self.bias();
+        tape.fused_linear_bias_gelu_tape(input, self.weight(), bias, ctx)
     }
 }
 
