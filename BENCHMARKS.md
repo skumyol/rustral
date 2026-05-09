@@ -134,20 +134,20 @@ Every Rust binary tags each sample with `device` (e.g. `cpu`, `cuda:0`, `metal:0
 | `matmul` | yes | yes | yes |
 | `attention.{small,medium}` | yes | yes | yes |
 | `conv2d.{small,medium,large}` | yes | yes | yes |
-| `lstm_forward.{small,medium,large}` | blocked by `LstmCell` weight-layout fix | skipped (would need `candle-nn`) | skipped (kept to operator parity for now) |
+| `lstm_forward.{small,medium,large}` | yes (weight layout fixed) | skipped (would need `candle-nn`) | skipped (kept to operator parity for now) |
 | `mlp_train_step` | yes (Adam, no host probes in hot loop) | skipped (training APIs) | skipped (kept to operator parity for now) |
 | `optimizer_step.{sgd,adam}` | yes (10M params default; `--profile heavy` for 100M) | n/a | n/a |
 | `transformer_encoder.forward` | yes (forward only, see note below) | n/a | n/a |
 | `decoder.{prefill,decode_step.no_cache}` | yes (no KV cache; baseline for K3) | n/a | n/a |
 | `kv_cache.{prefill,decode_step}` | yes (`KVCache::append` micro) | n/a | n/a |
 | `model_io.{save,load}` | yes (~50M f32 params, ~200 MB) | n/a | n/a |
-| `lstm_lm_train_step` | tracked but skipped (gated on `LstmCell` weight-layout fix, same as `lstm_forward`) | n/a | n/a |
+| `lstm_lm_train_step` | tracked but skipped (gated on tape-integrated LSTM) | n/a | n/a |
 
 For GPU workloads, the timed path stays on-device. Any loss or accuracy probe belongs outside the hot loop.
 
 > Note on `transformer_encoder.forward`: this is forward-only for now. A full encoder train step needs tape support for `MultiHeadAttention` and `TransformerEncoderLayer`. Today only `Linear`, `Embedding`, and `LayerNorm` implement `TapeModule`. The forward benchmark still gives us a useful trend line for encoder cost. The `mlp_train_step` workload already covers forward, backward, and optimizer cost on a simple model.
 
-> Note on `lstm_forward` / `lstm_lm_train_step`: the existing Criterion bench panics with a shape mismatch. `LstmCell` stores `wx` as `[input_dim, 4*hidden_dim]`, but the CPU `linear` op expects `[out, in]`. That weight-layout fix is separate work. Once it lands, the LSTM workloads can move into the JSON harness.
+> Note on `lstm_forward` / `lstm_lm_train_step`: `lstm_forward` is now implemented in the JSON harness following the `LstmCell` weight layout fix (weights now use `[4*hidden_dim, input_dim]` to match the `linear` operation). `lstm_lm_train_step` remains gated on tape-integrated LSTM support.
 
 > Note on `decoder.decode_step.no_cache`: this is the no-cache baseline. It runs a full-context forward pass for a decoded token. `kv_cache.decode_step` measures the cache append path separately. Wiring that cache into decoder forward is future work.
 

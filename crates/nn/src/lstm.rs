@@ -54,8 +54,8 @@ impl<B: Backend> LstmCell<B> {
     /// Create an LSTM cell with randomly initialized parameters.
     pub fn new(backend: &B, config: LstmConfig) -> Result<Self> {
         let four_h = config.hidden_dim * 4;
-        let wx = backend.normal_parameter("wx", &[config.input_dim, four_h], 42, 0.1)?;
-        let wh = backend.normal_parameter("wh", &[config.hidden_dim, four_h], 43, 0.1)?;
+        let wx = backend.normal_parameter("wx", &[four_h, config.input_dim], 42, 0.1)?;
+        let wh = backend.normal_parameter("wh", &[four_h, config.hidden_dim], 43, 0.1)?;
         let b = backend.normal_parameter("b", &[four_h], 44, 0.1)?;
         Ok(Self { config, wx, wh, b })
     }
@@ -116,7 +116,7 @@ impl<B: Backend> Module<B> for LstmCell<B> {
         // xh = concat([x, h], dim=0) -> [input_dim + hidden_dim]
         let _xh = ops.concat(&[&x, h], 0)?;
 
-        // Compute all gates at once: Wx has shape [4*hidden_dim, input_dim]
+        // Compute all gates at once: Wx has shape [4*hidden_dim, input_dim], Wh has shape [4*hidden_dim, hidden_dim]
         // We need to do this in two parts: Wx @ x and Wh @ h
         let gates_x = ops.linear(&x, &self.wx, None::<&Parameter<B>>)?;
         let gates_h = ops.linear(h, &self.wh, None::<&Parameter<B>>)?;
@@ -243,6 +243,15 @@ pub struct GruCell<B: Backend> {
 }
 
 impl<B: Backend> GruCell<B> {
+    /// Create a GRU cell with randomly initialized parameters.
+    pub fn new(backend: &B, config: GruConfig) -> Result<Self> {
+        let three_h = config.hidden_dim * 3;
+        let wx = backend.normal_parameter("wx", &[three_h, config.input_dim], 42, 0.1)?;
+        let wh = backend.normal_parameter("wh", &[three_h, config.hidden_dim], 43, 0.1)?;
+        let b = backend.normal_parameter("b", &[three_h], 44, 0.1)?;
+        Ok(Self { config, wx, wh, b })
+    }
+
     /// Create a GRU cell from explicit parameters.
     pub fn from_parameters(config: GruConfig, wx: Parameter<B>, wh: Parameter<B>, b: Parameter<B>) -> Self {
         Self { config, wx, wh, b }
@@ -288,7 +297,7 @@ impl<B: Backend> Module<B> for GruCell<B> {
         let h = &prev_state.hidden;
         let _hidden_dim = self.config.hidden_dim;
 
-        // Compute gates: Wx has shape [3*hidden_dim, input_dim]
+        // Compute gates: Wx has shape [3*hidden_dim, input_dim], Wh has shape [3*hidden_dim, hidden_dim]
         let gates_x = ops.linear(&x, &self.wx, None::<&Parameter<B>>)?;
         let gates_h = ops.linear(h, &self.wh, None::<&Parameter<B>>)?;
         let b_tensor = self.b.tensor();
@@ -521,12 +530,12 @@ mod tests {
         // Wx: [4*hidden_dim, input_dim]
         let wx_values: Vec<f32> = (0..4 * hidden_dim * input_dim).map(|i| (i as f32) * 0.001).collect();
         let wx =
-            Parameter::new("Wx", backend.tensor_from_vec(wx_values, &[4 * hidden_dim, input_dim]).unwrap());
+            Parameter::new("wx", backend.tensor_from_vec(wx_values, &[4 * hidden_dim, input_dim]).unwrap());
 
         // Wh: [4*hidden_dim, hidden_dim]
         let wh_values: Vec<f32> = (0..4 * hidden_dim * hidden_dim).map(|i| (i as f32) * 0.001).collect();
         let wh =
-            Parameter::new("Wh", backend.tensor_from_vec(wh_values, &[4 * hidden_dim, hidden_dim]).unwrap());
+            Parameter::new("wh", backend.tensor_from_vec(wh_values, &[4 * hidden_dim, hidden_dim]).unwrap());
 
         // b: [4*hidden_dim]
         let b_values: Vec<f32> = (0..4 * hidden_dim).map(|_i| 0.0).collect();
@@ -542,12 +551,12 @@ mod tests {
         // Wx: [3*hidden_dim, input_dim]
         let wx_values: Vec<f32> = (0..3 * hidden_dim * input_dim).map(|i| (i as f32) * 0.001).collect();
         let wx =
-            Parameter::new("Wx", backend.tensor_from_vec(wx_values, &[3 * hidden_dim, input_dim]).unwrap());
+            Parameter::new("wx", backend.tensor_from_vec(wx_values, &[3 * hidden_dim, input_dim]).unwrap());
 
         // Wh: [3*hidden_dim, hidden_dim]
         let wh_values: Vec<f32> = (0..3 * hidden_dim * hidden_dim).map(|i| (i as f32) * 0.001).collect();
         let wh =
-            Parameter::new("Wh", backend.tensor_from_vec(wh_values, &[3 * hidden_dim, hidden_dim]).unwrap());
+            Parameter::new("wh", backend.tensor_from_vec(wh_values, &[3 * hidden_dim, hidden_dim]).unwrap());
 
         // b: [3*hidden_dim]
         let b_values: Vec<f32> = (0..3 * hidden_dim).map(|_i| 0.0).collect();

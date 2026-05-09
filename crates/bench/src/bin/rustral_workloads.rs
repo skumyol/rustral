@@ -1,6 +1,6 @@
 //! Rustral workload runner.
 //!
-//! Runs a fixed set of workloads (matmul, attention, conv2d, mlp_train_step,
+//! Runs a fixed set of workloads (matmul, attention, conv2d, lstm_forward, mlp_train_step,
 //! optimizer_step, transformer encoder forward, decoder prefill+decode, kv-cache
 //! prefill+decode, model save/load throughput) with a controlled number of repeats,
 //! then prints a single JSON document to stdout in the unified benchmark schema
@@ -19,8 +19,8 @@ use rustral_bench::{samples_to_json, time_runs, time_train_step, Sample};
 use rustral_core::{Backend, ForwardCtx, Mode, Module, NamedParameters, Parameter};
 use rustral_ndarray_backend::CpuBackend;
 use rustral_nn::{
-    CacheConfig, Conv2d, Conv2dConfig, KVCache, MultiHeadAttention, SelfAttentionConfig, TransformerDecoder,
-    TransformerDecoderConfig, TransformerEncoder, TransformerEncoderConfig,
+    CacheConfig, Conv2d, Conv2dConfig, KVCache, LstmCell, LstmConfig, MultiHeadAttention, SelfAttentionConfig,
+    TransformerDecoder, TransformerDecoderConfig, TransformerEncoder, TransformerEncoderConfig,
 };
 use rustral_optim::{Adam, Gradient, Optimizer, Sgd};
 use rustral_runtime::{load_model, save_model};
@@ -64,13 +64,7 @@ fn main() {
     bench_matmul(&backend, repeats, warmup, &mut samples);
     bench_attention(&backend, repeats, warmup, &mut samples);
     bench_conv2d(&backend, repeats, warmup, &mut samples);
-    // NOTE: lstm_forward and a tape-integrated lstm_lm_train_step (Track K, K4) are
-    // intentionally still skipped in this binary. The existing criterion bench
-    // (`crates/bench/benches/lstm_forward.rs`) panics with a ShapeMismatch because
-    // `LstmCell` creates `wx` as `[input_dim, 4*hidden_dim]` while the CPU `linear` op
-    // expects weight shape `[out, in]`. Fixing the LstmCell weight convention is tracked
-    // separately; both `lstm_forward` and `lstm_lm_train_step` will be promoted once the
-    // weight layout is reconciled. See BENCHMARKS.md "Workload coverage" for the gap.
+    bench_lstm_forward(&backend, repeats, warmup, &mut samples);
     bench_mlp_train_step(&backend, repeats, warmup, &mut samples);
     bench_optimizer_step(&backend, repeats, warmup, heavy, &mut samples);
     bench_transformer_encoder_forward(&backend, repeats, warmup, &mut samples);
@@ -165,6 +159,53 @@ fn bench_conv2d(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut V
             ],
             runs,
         ));
+    }
+}
+
+/// LSTM forward pass micro-benchmark.
+///
+/// Times a single LSTM cell processing a sequence of inputs.
+/// Matches the criterion bench configuration (small/medium/large).
+fn bench_lstm_forward(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
+    let configs = vec![
+        ("small", 128usize, 10usize),  // 128 hidden, 10 steps
+        ("medium", 256, 50),            // 256 hidden, 50 steps
+        ("large", 512, 100),            // 512 hidden, 100 steps
+    ];
+
+    for &(name, hidden_size, seq_len) in &configs {
+        let config = LstmConfig::new(hidden_size);
+        let lstm = LstmCell::new(backend, config).unwrap();
+        let total_params = count_lstm_params(&lstm, backend);
+
+        let runs = time_runs(
+            || {
+                let mut ctx = ForwardCtx::new(backend, Mode::Inference);
+                let mut state = lstm.default_state(backend).unwrap();
+
+                for _ in 0..seq_len {
+                    let input = backend.tensor_from_vec(vec![1.0f32; hidden_size], &[hidden_size]).unwrap();
+                    let result = lstm.forward((state, input), &mut ctx).unwrap();
+                    state = result;
+                }
+            },
+            warmup,
+            repeats,
+        );
+
+        out.push(
+            Sample::cpu_f32(
+                "lstm_forward",
+                BACKEND,
+                vec![
+                    ("hidden_size".into(), hidden_size.to_string()),
+                    ("seq_len".into(), seq_len.to_string()),
+                    ("config".into(), name.into()),
+                ],
+                runs,
+            )
+            .with_model_params(total_params),
+        );
     }
 }
 
@@ -642,4 +683,15 @@ fn count_named_params<M: NamedParameters<CpuBackend>>(model: &M, backend: &CpuBa
         total = total.saturating_add(n as u64);
     });
     total
+}
+
+/// Count parameters in an LSTM cell (wx, wh, bias).
+fn count_lstm_params(lstm: &LstmCell<CpuBackend>, _backend: &CpuBackend) -> u64 {
+    let config = lstm.config();
+    let four_h = config.hidden_dim * 4;
+    let wx_params = four_h * config.input_dim;
+    let wh_params = four_h * config.hidden_dim;
+    let b_params = four_h;
+
+    (wx_params + wh_params + b_params) as u64
 }
