@@ -12,4 +12,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
-exec python3 scripts/eval/run_nlp_real.py --paper "$@"
+# shellcheck source=../bench/lib_rustral_python.sh
+source "${ROOT}/scripts/bench/lib_rustral_python.sh"
+_rustral_bench_resolve_python "$ROOT"
+export RUSTRAL_PYTHON
+exec "${RUSTRAL_PYTHON}" scripts/eval/run_nlp_real.py --paper "$@"

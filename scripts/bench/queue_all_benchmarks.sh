@@ -17,11 +17,16 @@
 #   RUN_NLP_PYTORCH  default 1 with NLP paper: adds --pytorch (needs torch); set 0 to skip
 #   RUN_PYTORCH      default 1; set 0 to skip pytorch suite in run_all
 #   RUN_CUDA_BENCH   set 1 to append cuda suite to same JSON (requires GPU toolchain)
+#   RUSTRAL_PYTHON   optional; default is repo .venv/bin/python or venv/bin/python, else python3
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
+# shellcheck source=lib_rustral_python.sh
+source "${ROOT}/scripts/bench/lib_rustral_python.sh"
+_rustral_bench_resolve_python "$ROOT"
+export RUSTRAL_PYTHON
 
 if [[ "${1:-}" == "--worker" ]]; then
   set +e
@@ -30,10 +35,10 @@ if [[ "${1:-}" == "--worker" ]]; then
   log() { echo "[$(date -Is)] $*"; }
 
   cd "$ROOT"
-  log "=== queue worker start STAMP=${STAMP} ROOT=${ROOT} ==="
+  log "=== queue worker start STAMP=${STAMP} ROOT=${ROOT} PYTHON=${RUSTRAL_PYTHON} ==="
 
   log "=== [1] run_all.py: rustral + candle -> ${OUT_JSON} ==="
-  if python3 scripts/bench/run_all.py \
+  if "${RUSTRAL_PYTHON}" scripts/bench/run_all.py \
     --repeats "${BENCH_REPEATS}" --warmup "${BENCH_WARMUP}" \
     --suite rustral --suite candle --out "${OUT_JSON}"; then
     log "[1] ok"
@@ -44,7 +49,7 @@ if [[ "${1:-}" == "--worker" ]]; then
 
   if [[ "${RUN_PYTORCH:-1}" == "1" ]]; then
     log "=== [2] run_all.py: pytorch -> ${OUT_JSON_PYTORCH} ==="
-    if python3 scripts/bench/run_all.py \
+    if "${RUSTRAL_PYTHON}" scripts/bench/run_all.py \
       --repeats "${BENCH_REPEATS_PYTORCH}" --warmup "${BENCH_WARMUP}" \
       --suite pytorch --out "${OUT_JSON_PYTORCH}"; then
       log "[2] ok"
@@ -58,7 +63,7 @@ if [[ "${1:-}" == "--worker" ]]; then
 
   if [[ "${RUN_CUDA_BENCH:-0}" == "1" ]]; then
     log "=== [3] run_all.py: rustral-cuda -> ${OUT_JSON_CUDA} ==="
-    if python3 scripts/bench/run_all.py \
+    if "${RUSTRAL_PYTHON}" scripts/bench/run_all.py \
       --repeats "${BENCH_REPEATS_CUDA}" --warmup "${BENCH_WARMUP}" \
       --suite rustral-cuda --out "${OUT_JSON_CUDA}"; then
       log "[3] ok"
@@ -72,7 +77,7 @@ if [[ "${1:-}" == "--worker" ]]; then
 
   if [[ -f "${OUT_JSON}" ]]; then
     log "=== [4] validate_schema.py (${OUT_JSON}) ==="
-    if python3 scripts/bench/validate_schema.py "${OUT_JSON}"; then
+    if "${RUSTRAL_PYTHON}" scripts/bench/validate_schema.py "${OUT_JSON}"; then
       log "[4] ok"
     else
       log "[4] FAILED"
@@ -81,7 +86,7 @@ if [[ "${1:-}" == "--worker" ]]; then
   fi
 
   log "=== [5] validate_manifest.py ==="
-  if python3 scripts/bench/validate_manifest.py; then
+  if "${RUSTRAL_PYTHON}" scripts/bench/validate_manifest.py; then
     log "[5] ok"
   else
     log "[5] FAILED"
@@ -89,16 +94,16 @@ if [[ "${1:-}" == "--worker" ]]; then
   fi
 
   log "=== [6] regen_index.py --check ==="
-  if python3 scripts/bench/regen_index.py --check; then
+  if "${RUSTRAL_PYTHON}" scripts/bench/regen_index.py --check; then
     log "[6] ok"
   else
-    log "[6] FAILED (run python3 scripts/bench/regen_index.py and commit if intentional)"
+    log "[6] FAILED (run ${RUSTRAL_PYTHON} scripts/bench/regen_index.py and commit if intentional)"
     failures=$((failures + 1))
   fi
 
   if [[ "${RUN_NLP_PAPER:-0}" == "1" ]]; then
     log "=== [7] NLP paper (run_nlp_real.py --paper) — long-running ==="
-    NLP_CMD=(python3 scripts/eval/run_nlp_real.py --paper --clean)
+    NLP_CMD=("${RUSTRAL_PYTHON}" scripts/eval/run_nlp_real.py --paper --clean)
     if [[ "${RUN_NLP_PYTORCH:-1}" == "1" ]]; then
       NLP_CMD+=(--pytorch)
       log "(including --pytorch parity baselines)"
@@ -115,7 +120,7 @@ if [[ "${1:-}" == "--worker" ]]; then
 
   log "=== [8] comparative_report.py (Markdown for paper draft) ==="
   mkdir -p "${ROOT}/benchmarks/reports"
-  if python3 scripts/bench/comparative_report.py \
+  if "${RUSTRAL_PYTHON}" scripts/bench/comparative_report.py \
     --harness "${OUT_JSON}" \
     --out "${ROOT}/benchmarks/reports/comparative_queue_${STAMP}.md"; then
     log "[8] ok → benchmarks/reports/comparative_queue_${STAMP}.md"
@@ -159,6 +164,7 @@ mkdir -p "${ROOT}/benchmarks/reports"
 
 nohup env \
   ROOT="$ROOT" STAMP="$STAMP" LOGDIR="$LOGDIR" \
+  RUSTRAL_PYTHON="$RUSTRAL_PYTHON" \
   BENCH_REPEATS="$BENCH_REPEATS" BENCH_WARMUP="$BENCH_WARMUP" \
   BENCH_REPEATS_PYTORCH="$BENCH_REPEATS_PYTORCH" BENCH_REPEATS_CUDA="$BENCH_REPEATS_CUDA" \
   OUT_JSON="$OUT_JSON" OUT_JSON_PYTORCH="$OUT_JSON_PYTORCH" OUT_JSON_CUDA="$OUT_JSON_CUDA" \
@@ -168,6 +174,7 @@ nohup env \
 
 echo $! > "${LOGDIR}/queue.pid"
 echo "Queued background benchmark queue (PID $(cat "${LOGDIR}/queue.pid"))."
+echo "  Python:      ${RUSTRAL_PYTHON}"
 echo "  Log file:    ${LOGDIR}/run.log"
 echo "  Symlink:     ${ROOT}/benchmarks/queue_logs/latest/run.log"
 echo ""
