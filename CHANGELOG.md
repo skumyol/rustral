@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `rustral-core`: `ShapePolicy`, `ForwardCtx` optional profiler attachment, `BackendCapabilities::clamp_batch_size`, `TensorPool` `PoolStrategy` and `begin_step` for arena-style training clears, `FusionOptimizer::apply_*` entry points, `BackendCapabilities::recommends_mixed_precision`, `BackendCapabilities::recommended_dtype_for_operation`, `OperationType` enum for operation classification.
+- `rustral-autodiff`: `Tape::gelu` with backward matching the tanh GELU approximation on `TensorOps`.
+- `rustral-nn`: `FusionHelper` delegates to `FusionOptimizer`; tape transformer FFN uses GELU; eager `TransformerDecoderLayer` FFN uses GELU; eager `TransformerEncoderLayer` and `TransformerEncoderBlock` FFN use GELU; MoE `Expert` FFN uses GELU; `tape_feedforward_matches_eager_linears_and_gelu` integration test.
+- `rustral-runtime`: `TapeTrainer` optional `tensor_pool` field with `with_tensor_pool` builder method; `clamp_batch_size` helper in SST-2 example.
+- `rustral-autotuner`: `AutoTuner::tune` early return when `!config.enabled`; `TuningSession::run` CI mode iteration limit enforcement; `benchmark_cached_config` and `cached_result` methods for realistic cache hit metrics; enhanced `TunerConfig` documentation with detailed `ci_mode` behavior.
+- Docs: `ARCHITECTURE.md` capabilities/autotuner tables; root README optimization section expanded; `EVALUATION.md` topology lines updated for GELU FFN; `docs/concepts.md` / `docs/api-signatures.md` synced with `ForwardCtx` and backend surface.
+
 ### Changed
 
 - NLP real-data orchestrator (`scripts/eval/run_nlp_real.py`): added `--benchmark` (tiny model + small data) and reduced default WikiText-2 caps for faster local runs; SST-2 / WikiText-2 examples accept CLI overrides for `--seq-len`, `--d-model`, `--num-heads`, `--ffn-dim`, and (WikiText-2) `--block-size` / `--num-layers`.

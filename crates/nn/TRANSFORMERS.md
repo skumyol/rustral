@@ -5,6 +5,8 @@ following the architectures from BERT, GPT, T5, and BART.
 
 ## Overview
 
+Position-wise FFNs in the **tape** training path (`TapeFeedForward`) use **GELU**. Eager `TransformerDecoderLayer` FFNs also use GELU, consistent with common transformer stacks. Fused linear+activation for inference-style modules goes through `FusionHelper` / `FusionOptimizer` when the backend implements `FusionOps`.
+
 | Architecture | Model | Best For |
 |--------------|-------|----------|
 | **Encoder** | BERT, RoBERTa | Classification, embeddings, masked LM |

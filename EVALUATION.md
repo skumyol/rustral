@@ -17,13 +17,15 @@ Tokenization is deliberately word-level. WikiText-2 is commonly reported that wa
 
 Both examples default to tiny architectures so they finish on CPU. Width, depth, and context length can be overridden on the CLI (`--seq-len`, `--d-model`, `--num-heads`, `--ffn-dim`, `--num-layers`, and for WikiText-2 `--block-size`) so you can trade accuracy for runtime. These are honest baselines, not leaderboard attempts.
 
+The tape-trained transformer stacks use a **GELU** position-wise FFN (`TapeFeedForward`); topology diagrams below reflect that (older writeups may have said ReLU).
+
 ### SST-2 classifier (`crates/runtime/examples/sst2_classifier.rs`)
 
 **Default topology:**
 
 ```
 Embedding(V, 64) + PositionalEmbedding(32, 64)
-  ↓ 2 × TransformerEncoderLayer (pre-LN, 4 heads, FFN=128, ReLU)
+  ↓ 2 × TransformerEncoderLayer (pre-LN, 4 heads, FFN=128, GELU in tape FFN)
   ↓ mean-pool over sequence
 Linear(64 → 2)
 ```
@@ -37,7 +39,7 @@ Linear(64 → 2)
 
 ```
 Embedding(V, 64) + PositionalEmbedding(32, 64)
-  ↓ 2 × TransformerEncoderLayer (pre-LN, 4 heads, FFN=128, ReLU) + causal mask
+  ↓ 2 × TransformerEncoderLayer (pre-LN, 4 heads, FFN=128, GELU in tape FFN) + causal mask
   ↓ take last position hidden state
 Linear(64 → V)
 ```

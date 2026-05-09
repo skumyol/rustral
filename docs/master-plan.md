@@ -10,7 +10,7 @@ This is the **single source of truth** for Rustral’s architecture direction, c
 
 Rustral is a Rust-first neural network workspace with:
 
-- **Explicit execution**: `ForwardCtx` + `Mode`, no hidden global state.
+- **Explicit execution**: `ForwardCtx` + `Mode` (+ run id, optional `ShapePolicy` and `OperationProfiler`), no hidden global state.
 - **Backend abstraction**: `Backend` + `TensorOps` (CPU reference backend; Candle CPU/CUDA/Metal; wgpu experimental).
 - **Training utilities**: tape-based autodiff, optimizers, and a runtime trainer that exercises end-to-end training + checkpoint I/O.
 - **Real evaluation artifacts**: SST-2 and WikiText-2 examples write reproducibility manifests and can run in offline CI smoke tests.
@@ -28,7 +28,7 @@ The core layering stays:
 ```text
 rustral-core
   Backend + TensorOps (portable surface)
-  ForwardCtx (explicit mode/run-id)
+  ForwardCtx (explicit mode/run-id; optional shape hints + profiler)
   Parameter (owned by modules)
   Module / Trainable (composition + param exposure)
 

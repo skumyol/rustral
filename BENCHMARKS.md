@@ -14,6 +14,8 @@ There are three ways to measure performance:
 
 Each one has a job. For publishable numbers, use the **unified harness** below. It gives you raw timings, summary tables, machine metadata, and schema validation in one place.
 
+Kernel autotuning (optional, `rustral-autotuner`) is documented in [`ARCHITECTURE.md`](ARCHITECTURE.md) (`enabled`, `ci_mode`, cache behavior).
+
 ## Unified harness
 
 Run the harness from the repo root:

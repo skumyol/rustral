@@ -15,7 +15,7 @@
 
 Rustral is not trying to be a Python framework with Rust syntax. It is built around a different set of engineering bets:
 
-- **Explicit execution state.** A `ForwardCtx` carries backend, mode, and run state through the call graph. Model code does not depend on hidden global tensor registries or implicit training modes.
+- **Explicit execution state.** A `ForwardCtx` carries backend, mode, run id, optional shape hints ([`ShapePolicy`](crates/core/src/shape_policy.rs)), and an optional [`OperationProfiler`](crates/core/src/operation_profiler.rs) through the call graph. Model code does not depend on hidden global tensor registries or implicit training modes.
 - **Backend-independent model definitions.** Layers are written against small backend traits, so the same model can run on the reference CPU backend, Candle, or experimental `wgpu` without rewriting the layer stack.
 - **Typed model boundaries.** The `Module` trait makes input and output contracts visible in Rust types. This is useful when experiments grow from one-off notebooks into reusable systems.
 - **Inspectable internals.** Autodiff, optimizers, layers, distributed training hooks, and runtime orchestration live in focused crates. The framework is meant to be read, modified, and audited.
@@ -99,6 +99,7 @@ Rustral includes cross-backend optimization infrastructure that works uniformly 
 
 **Memory Management**
 - `TensorPool` reduces allocation overhead through shape-based pooling
+- [`PoolStrategy`](crates/core/src/tensor_pool.rs) (including `TrainingArena` with `begin_step` clears) for training vs inference reuse hints
 - Automatic size filtering to avoid pooling very large or very small tensors
 - Configurable limits to prevent memory bloat
 
@@ -109,9 +110,13 @@ Rustral includes cross-backend optimization infrastructure that works uniformly 
 
 **Operation Fusion**
 - `FusionOps` trait enables backend-specific fused kernel implementations
-- `LinearReLU` and `LinearGELU` layers attempt fused operations with automatic fallback
+- [`FusionOptimizer::apply_*`](crates/core/src/fusion.rs) and [`FusionHelper`](crates/nn/src/fusion_helper.rs) share one try-fused-then-fallback policy for linear + bias (+ activation)
+- `LinearReLU` and `LinearGELU` delegate to that path; tape training uses separate per-op `Tape` nodes (including `Tape::gelu` for transformer FFNs)
 - Reduces memory traffic and kernel launch overhead on capable backends
-- Currently implemented in candle-backend with sequence fusion (true CUDA kernels planned)
+- Currently implemented in candle-backend with sequence-level fusion (true single-kernel fusion remains roadmap work)
+
+**Numerics**
+- [`NumericsConfig`](crates/core/src/numerics.rs) / [`FusionTestHarness`](crates/core/src/fusion_tests.rs) support comparing fused vs unfused paths within dtype tolerances
 
 These optimizations are designed to benefit all backends equally, maintaining Rustral's commitment to device-agnostic performance improvements.
 
@@ -124,7 +129,7 @@ The current improvement roadmap is tracked in [`IMPROVEMENT_PLAN.md`](IMPROVEMEN
 Rustral's edge is **modular ML systems code with light syntax around the common path**:
 
 - Model code is written once against `Backend`, then run on ndarray, Candle, or experimental `wgpu` backends.
-- Execution state is explicit through `ForwardCtx`, so training/inference mode does not hide in globals.
+- Execution state is explicit through `ForwardCtx` (mode, run id, optional `ShapePolicy` and profiler), so training/inference mode does not hide in globals.
 - Layers are normal Rust structs, but builders remove most parameter-initialization boilerplate.
 - Internals are split into crates, so researchers can inspect or replace autodiff, optimizers, IO, runtime, or backends independently.
 
@@ -580,7 +585,7 @@ In Rustral, there is no hidden global `train()` / `eval()` flag. The execution c
 flowchart TD
   subgraph CallSite["Call site (service / trainer / eval loop)"]
     X["Input tensor(s)"]
-    CTX["ForwardCtx { backend, mode, run_state }"]
+    CTX["ForwardCtx { backend, mode, run_id, shape_policy, optional profiler }"]
   end
 
   subgraph Model["Transformer block (example)"]

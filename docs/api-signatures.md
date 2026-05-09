@@ -15,11 +15,16 @@ pub trait Backend: Clone + Send + Sync + 'static {
 
     fn device(&self) -> Self::Device;
     fn ops(&self) -> &dyn TensorOps<Self>;
+    fn fusion_ops(&self) -> Option<&dyn FusionOps<Self>>; // default: None
+    fn capabilities(&self) -> BackendCapabilities;       // default: Default::default()
+    // attention_ops, quantization_ops: optional extension traits
 }
 ```
 
 - `device`: returns the device handle where tensors and parameters live.
 - `ops`: returns the backend operation table used by shared modules.
+- `fusion_ops`: optional fused kernels (`LinearReLU` / `LinearGELU` use [`FusionOptimizer::apply_*`](../crates/core/src/fusion.rs) / `FusionHelper`).
+- `capabilities`: reports hardware hints; see root [`ARCHITECTURE.md`](../ARCHITECTURE.md) for what is advisory vs used (e.g. `clamp_batch_size`).
 
 ```rust
 pub trait TensorOps<B: Backend>: Send + Sync {
@@ -30,6 +35,7 @@ pub trait TensorOps<B: Backend>: Send + Sync {
     fn add(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor>;
     fn add_row_vector(&self, a: &B::Tensor, row: &B::Tensor) -> Result<B::Tensor>;
     fn relu(&self, x: &B::Tensor) -> Result<B::Tensor>;
+    fn gelu(&self, x: &B::Tensor) -> Result<B::Tensor>;
     fn softmax(&self, x: &B::Tensor) -> Result<B::Tensor>;
     fn argmax(&self, x: &B::Tensor) -> Result<usize>;
     fn gather_rows(&self, table: &Parameter<B>, ids: &[usize]) -> Result<B::Tensor>;
@@ -44,6 +50,7 @@ pub trait TensorOps<B: Backend>: Send + Sync {
 - `add`: performs element-wise addition.
 - `add_row_vector`: broadcasts a row vector across matrix rows.
 - `relu`: applies ReLU element-wise.
+- `gelu`: GELU activation (tanh approximation); used in transformer FFNs (eager and `Tape::gelu`).
 - `softmax`: normalizes tensor values.
 - `argmax`: returns the flat index of the maximum value.
 - `gather_rows`: performs embedding-style row lookup.
@@ -64,6 +71,11 @@ impl RunId {
 ```rust
 impl<'a, B: Backend> ForwardCtx<'a, B> {
     pub fn new(backend: &'a B, mode: Mode) -> Self;
+    pub fn with_profiler(self, profiler: Arc<Mutex<OperationProfiler>>) -> Self;
+    pub fn set_profiler(&mut self, profiler: Option<Arc<Mutex<OperationProfiler>>>);
+    pub fn profiler(&self) -> Option<&Arc<Mutex<OperationProfiler>>>;
+    pub fn set_shape_policy(&mut self, policy: ShapePolicy);
+    pub fn shape_policy(&self) -> ShapePolicy;
     pub fn backend(&self) -> &'a B;
     pub fn mode(&self) -> Mode;
     pub fn run_id(&self) -> RunId;
@@ -72,6 +84,8 @@ impl<'a, B: Backend> ForwardCtx<'a, B> {
 ```
 
 - `new`: creates an explicit forward context.
+- `with_profiler` / `set_profiler` / `profiler`: optional per-run operation timing.
+- `set_shape_policy` / `shape_policy`: static vs dynamic shape hints for optimizers and tooling.
 - `backend`: borrows the backend for module execution.
 - `mode`: returns train or inference mode.
 - `run_id`: returns the id of the current forward run.

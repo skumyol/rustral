@@ -14,7 +14,7 @@ crates/runtime/examples/
 └── tape_train_demo.rs     # smallest end-to-end tape training loop (XOR-style)
 ```
 
-Each example writes a `manifest.json` next to its outputs with the git SHA, seed, hyperparameters, and final metric. See [`EVALUATION.md`](../EVALUATION.md) for the methodology and pinned dataset hashes.
+Each example writes a `manifest.json` next to its outputs with the git SHA, seed, hyperparameters, and final metric. See [`EVALUATION.md`](../EVALUATION.md) for the methodology and pinned dataset hashes. For optimization hooks (fusion, capabilities, autotuner, profiling), see the root [`README.md`](../README.md) and [`ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## Running an example
 

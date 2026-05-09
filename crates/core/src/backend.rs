@@ -41,6 +41,53 @@ impl BackendCapabilities {
     pub fn clamp_batch_size(&self, batch: usize) -> usize {
         batch.clamp(1, self.optimal_batch_size.max(1))
     }
+
+    /// Determine if mixed precision training is recommended based on capabilities and current dtype.
+    ///
+    /// Returns true if the backend supports mixed precision and the recommended dtype
+    /// is not FP32 (i.e., the backend has tensor cores and recommends FP16/BF16 training).
+    /// This provides a concrete BackendCapabilities-driven decision for dtype selection.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rustral_core::{BackendCapabilities, TrainingDtype};
+    ///
+    /// let caps = backend.capabilities();
+    /// if caps.recommends_mixed_precision() {
+    ///     println!("Using mixed precision training with {:?}", caps.recommended_training_dtype);
+    /// }
+    /// ```
+    pub fn recommends_mixed_precision(&self) -> bool {
+        self.supports_mixed_precision && !matches!(self.recommended_training_dtype, TrainingDtype::F32)
+    }
+
+    /// Get the recommended dtype for a given operation based on backend capabilities.
+    ///
+    /// This is a BackendCapabilities-driven decision helper that returns the recommended
+    /// dtype for different operations. For example, on tensor-core hardware, FP16 might be
+    /// recommended for matrix multiplication while FP32 is used for reduction operations.
+    pub fn recommended_dtype_for_operation(&self, operation: OperationType) -> TrainingDtype {
+        match operation {
+            OperationType::Matmul if self.tensor_cores && self.supports_fp16 => TrainingDtype::F16,
+            OperationType::Matmul if self.tensor_cores && self.supports_bf16 => TrainingDtype::Bf16,
+            OperationType::Convolution if self.supports_fast_fp16_tensor_cores => TrainingDtype::F16,
+            _ => self.recommended_training_dtype,
+        }
+    }
+}
+
+/// Types of operations for dtype selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperationType {
+    /// Matrix multiplication operations.
+    Matmul,
+    /// Convolution operations.
+    Convolution,
+    /// Reduction operations.
+    Reduction,
+    /// Element-wise operations.
+    Elementwise,
 }
 
 impl Default for BackendCapabilities {
@@ -610,4 +657,150 @@ pub trait QuantizationOps<B: Backend>: TensorOps<B> {
     ///
     /// Dequantized FP32 result of matmul
     fn int8_matmul(&self, a: &B::Tensor, b: &B::Tensor, scale_a: f32, scale_b: f32) -> Result<B::Tensor>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backend_capabilities_mixed_precision_recommendation() {
+        // Test with FP32 only
+        let caps_fp32 = BackendCapabilities {
+            supports_fp16: false,
+            supports_bf16: false,
+            tensor_cores: false,
+            optimal_batch_size: 32,
+            optimal_chunk_size: 1024,
+            max_allocation_size: 1024 * 1024 * 1024,
+            prefers_contiguous: true,
+            supports_in_place: true,
+            supports_mixed_precision: false,
+            recommended_training_dtype: TrainingDtype::F32,
+            supports_fast_fp16_tensor_cores: false,
+            preferred_conv_layout: ConvLayout::NCHW,
+            supports_strided_layouts: true,
+            supports_packed_layouts: false,
+        };
+        assert!(!caps_fp32.recommends_mixed_precision());
+
+        // Test with FP16 and tensor cores
+        let caps_fp16 = BackendCapabilities {
+            supports_fp16: true,
+            supports_bf16: false,
+            tensor_cores: true,
+            optimal_batch_size: 32,
+            optimal_chunk_size: 1024,
+            max_allocation_size: 1024 * 1024 * 1024,
+            prefers_contiguous: true,
+            supports_in_place: true,
+            supports_mixed_precision: true,
+            recommended_training_dtype: TrainingDtype::F16,
+            supports_fast_fp16_tensor_cores: true,
+            preferred_conv_layout: ConvLayout::NCHW,
+            supports_strided_layouts: true,
+            supports_packed_layouts: true,
+        };
+        assert!(caps_fp16.recommends_mixed_precision());
+
+        // Test with BF16 and tensor cores
+        let caps_bf16 = BackendCapabilities {
+            supports_fp16: false,
+            supports_bf16: true,
+            tensor_cores: true,
+            optimal_batch_size: 32,
+            optimal_chunk_size: 1024,
+            max_allocation_size: 1024 * 1024 * 1024,
+            prefers_contiguous: true,
+            supports_in_place: true,
+            supports_mixed_precision: true,
+            recommended_training_dtype: TrainingDtype::Bf16,
+            supports_fast_fp16_tensor_cores: false,
+            preferred_conv_layout: ConvLayout::NCHW,
+            supports_strided_layouts: true,
+            supports_packed_layouts: true,
+        };
+        assert!(caps_bf16.recommends_mixed_precision());
+    }
+
+    #[test]
+    fn test_backend_capabilities_recommended_dtype() {
+        // Test with FP32 only
+        let caps_fp32 = BackendCapabilities {
+            supports_fp16: false,
+            supports_bf16: false,
+            tensor_cores: false,
+            optimal_batch_size: 32,
+            optimal_chunk_size: 1024,
+            max_allocation_size: 1024 * 1024 * 1024,
+            prefers_contiguous: true,
+            supports_in_place: true,
+            supports_mixed_precision: false,
+            recommended_training_dtype: TrainingDtype::F32,
+            supports_fast_fp16_tensor_cores: false,
+            preferred_conv_layout: ConvLayout::NCHW,
+            supports_strided_layouts: true,
+            supports_packed_layouts: false,
+        };
+        assert_eq!(
+            caps_fp32.recommended_dtype_for_operation(OperationType::Matmul),
+            TrainingDtype::F32
+        );
+        assert_eq!(
+            caps_fp32.recommended_dtype_for_operation(OperationType::Convolution),
+            TrainingDtype::F32
+        );
+
+        // Test with BF16 and tensor cores
+        let caps_bf16 = BackendCapabilities {
+            supports_fp16: false,
+            supports_bf16: true,
+            tensor_cores: true,
+            optimal_batch_size: 32,
+            optimal_chunk_size: 1024,
+            max_allocation_size: 1024 * 1024 * 1024,
+            prefers_contiguous: true,
+            supports_in_place: true,
+            supports_mixed_precision: true,
+            recommended_training_dtype: TrainingDtype::Bf16,
+            supports_fast_fp16_tensor_cores: false,
+            preferred_conv_layout: ConvLayout::NCHW,
+            supports_strided_layouts: true,
+            supports_packed_layouts: true,
+        };
+        assert_eq!(
+            caps_bf16.recommended_dtype_for_operation(OperationType::Matmul),
+            TrainingDtype::Bf16
+        );
+        assert_eq!(
+            caps_bf16.recommended_dtype_for_operation(OperationType::Convolution),
+            TrainingDtype::Bf16
+        );
+
+        // Test with FP16 and tensor cores
+        let caps_fp16 = BackendCapabilities {
+            supports_fp16: true,
+            supports_bf16: false,
+            tensor_cores: true,
+            optimal_batch_size: 32,
+            optimal_chunk_size: 1024,
+            max_allocation_size: 1024 * 1024 * 1024,
+            prefers_contiguous: true,
+            supports_in_place: true,
+            supports_mixed_precision: true,
+            recommended_training_dtype: TrainingDtype::F16,
+            supports_fast_fp16_tensor_cores: true,
+            preferred_conv_layout: ConvLayout::NCHW,
+            supports_strided_layouts: true,
+            supports_packed_layouts: true,
+        };
+        assert_eq!(
+            caps_fp16.recommended_dtype_for_operation(OperationType::Matmul),
+            TrainingDtype::F16
+        );
+        assert_eq!(
+            caps_fp16.recommended_dtype_for_operation(OperationType::Convolution),
+            TrainingDtype::F16
+        );
+    }
 }

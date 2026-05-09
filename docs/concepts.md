@@ -247,6 +247,10 @@ let mut eval_ctx = ForwardCtx::new(&backend, Mode::Inference);
 | `backend` | Where computation happens |
 | `mode` | Train or inference |
 | `run_id` | Unique identifier for this forward pass |
+| `shape_policy` | [`ShapePolicy`](../crates/core/src/shape_policy.rs): hint for static vs dynamic shapes (graph capture, pooling) |
+| `profiler` (optional) | Shared [`OperationProfiler`](../crates/core/src/operation_profiler.rs) for per-run timing |
+
+Optimization-related types in `rustral-core` also include [`BackendCapabilities`](../crates/core/src/backend.rs) (hardware hints; some fields advisory), [`TensorPool`](../crates/core/src/tensor_pool.rs) with [`PoolStrategy`](../crates/core/src/tensor_pool.rs), and fusion helpers ([`FusionOptimizer`](../crates/core/src/fusion.rs) plus `rustral_nn::FusionHelper`).
 
 ---
 

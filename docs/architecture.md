@@ -7,7 +7,7 @@ Backend
   owns tensor/device operations
 
 ForwardCtx
-  carries backend, mode, and run id explicitly
+  carries backend, mode, run id, ShapePolicy, and optional OperationProfiler
 
 Parameter
   owned by modules, never by a global registry

@@ -6,7 +6,7 @@ Rustral is a Rust deep-learning toolkit organized as a workspace of focused crat
 
 ```text
 Backend          -> tensor + device operations (small trait)
-ForwardCtx       -> carries backend, mode, run state explicitly
+ForwardCtx       -> backend, mode, run id, ShapePolicy, optional OperationProfiler
 Parameter        -> owned by modules, never by a global registry
 Module           -> typed input/output contract for layers/models
 NamedParameters  -> stable, hierarchical parameter names
@@ -21,7 +21,7 @@ The design optimizes for *legible* deep-learning systems: backend selection, tra
 
 | Crate | Role |
 |-------|------|
-| [`rustral-core`](crates/core) | `Backend`, `TensorOps`, `Module`, `Parameter`, `NamedParameters`, `ForwardCtx`. |
+| [`rustral-core`](crates/core) | `Backend`, `TensorOps`, `FusionOps`, `Module`, `Parameter`, `NamedParameters`, `ForwardCtx`, `ShapePolicy`, `BackendCapabilities`, fusion/numerics/profiling helpers (`FusionOptimizer`, `TensorPool` / `PoolStrategy`, …). |
 | [`rustral-ndarray-backend`](crates/ndarray-backend) | Reference CPU backend (correctness-first). |
 | [`rustral-candle-backend`](crates/candle-backend) | Optimized CPU/GPU backend via [Candle](https://github.com/huggingface/candle). |
 | [`rustral-wgpu-backend`](crates/wgpu-backend) | Experimental cross-platform GPU backend. |
@@ -34,7 +34,7 @@ The design optimizes for *legible* deep-learning systems: backend selection, tra
 | [`rustral-symbolic`](crates/symbolic) | Vocabulary helpers used by embedding/LM examples. |
 | [`rustral-distributed`](crates/distributed) | Single-process simulation surface for distributed training. |
 | [`rustral-metrics`](crates/metrics) | Lightweight metrics writers (JSONL/TensorBoard-style). |
-| [`rustral-autotuner`](crates/autotuner) | Persistent kernel-config cache (per-machine). |
+| [`rustral-autotuner`](crates/autotuner) | Kernel config search + persistent cache; `enabled` / `ci_mode` presets for CI (see section below). |
 | [`rustral-bench`](crates/bench) | Criterion microbenches (matmul, conv2d, lstm, attention). |
 | [`rustral-hf`](crates/hf) | HuggingFace integration helpers. |
 
@@ -48,12 +48,12 @@ The design optimizes for *legible* deep-learning systems: backend selection, tra
 
 ## Backend capabilities vs runtime behavior
 
-[`BackendCapabilities`](crates/core/src/backend.rs) reports hardware and layout hints (FP16/BF16, tensor cores, `optimal_batch_size`, conv layout preference, etc.). **Backends fill these fields; only some are consumed today.**
+[`BackendCapabilities`](crates/core/src/backend.rs) reports hardware and layout hints (FP16/BF16, tensor cores, `optimal_batch_size`, conv layout preference, etc.). **Backends fill these fields; some are consumed today with incremental adoption.**
 
 | Field / area | Typical use now | Notes |
 |--------------|-----------------|--------|
 | `optimal_batch_size` | [`BackendCapabilities::clamp_batch_size`](crates/core/src/backend.rs) | Soft upper hint for dataloaders or examples; not enforced globally. |
-| `recommended_training_dtype`, mixed precision flags | Mostly informational | Optimizer/mixed-precision paths may read these in future; check `rustral-optim` before assuming behavior. |
+| `recommended_training_dtype`, mixed precision flags | [`BackendCapabilities::recommends_mixed_precision`](crates/core/src/backend.rs), [`BackendCapabilities::recommended_dtype_for_operation`](crates/core/src/backend.rs) | Provides concrete BackendCapabilities-driven decisions for dtype selection; incremental adoption pattern. |
 | `preferred_conv_layout`, packed layouts | Mostly informational | Conv layers do not yet auto-transpose from these hints alone. |
 | `ForwardCtx::shape_policy` | [`ShapePolicy`](crates/core/src/shape_policy.rs) | Documents static vs dynamic shape expectations for future graph capture / pooling. Default is `DynamicUnbounded`. |
 | `ForwardCtx::profiler` | Optional [`OperationProfiler`](crates/core/src/operation_profiler.rs) | Attach with `with_profiler` or `set_profiler` for per-run timing. |

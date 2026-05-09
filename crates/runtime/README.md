@@ -24,7 +24,7 @@ The `training` feature powers:
 - Model-level `save_model` / `load_model` helpers through stable parameter names.
 - `emnlp_char_lm`, a tiny char-level LM with determinism checks.
 - `sst2_classifier`, a real-corpus SST-2 classifier that writes `manifest.json`.
-- `wikitext2_lm`, a real-corpus WikiText-2 word LM that writes `manifest.json`.
+- `wikitext2_lm`, a real-corpus WikiText-2 word LM that writes `manifest.json` (tape transformer with GELU FFN; see [`EVALUATION.md`](../../EVALUATION.md)).
 
 Quick smoke runs:
 

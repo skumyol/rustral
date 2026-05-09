@@ -18,8 +18,8 @@ mod shape_policy;
 mod tensor_pool;
 
 pub use backend::{
-    AttentionOps, Backend, BackendCapabilities, ConvLayout, FusionOps, QuantizationOps, TensorInPlaceOps,
-    TensorOps, TensorView, TrainingDtype,
+    AttentionOps, Backend, BackendCapabilities, ConvLayout, FusionOps, OperationType, QuantizationOps,
+    TensorInPlaceOps, TensorOps, TensorView, TrainingDtype,
 };
 pub use context::{ForwardCtx, Mode, RunId};
 pub use shape_policy::ShapePolicy;

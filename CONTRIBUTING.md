@@ -49,7 +49,7 @@ GPU determinism is best-effort and depends on the underlying kernels; document a
 
 ## Design principles
 
-- No hidden mutable model state; pass `ForwardCtx` and backends explicitly.
+- No hidden mutable model state; pass `ForwardCtx` and backends explicitly (see [`ARCHITECTURE.md`](ARCHITECTURE.md) for optional profiler, `ShapePolicy`, and capability hints).
 - Prefer small traits; keep backend-specific code inside backend crates.
 - Parallelism should be visible at API boundaries (runtime / data loaders).
 - Add tests for shape errors and boundary cases when touching ops or layers.
