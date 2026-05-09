@@ -273,7 +273,7 @@ where
             // Flatten: [batch, seq, d_model] -> [batch*seq, d_model]
             let flat = ops.reshape(&normed, &[batch * seq_len, d_model])?;
             let hidden = self.ff_linear1.forward(flat, ctx)?;
-            let activated = ops.relu(&hidden)?;
+            let activated = ops.gelu(&hidden)?; // Standard transformer activation
             let ff_out = self.ff_linear2.forward(activated, ctx)?;
             // Reshape back: [batch*seq, d_model] -> [batch, seq, d_model]
             let ff_3d = ops.reshape(&ff_out, &[batch, seq_len, d_model])?;
@@ -282,7 +282,7 @@ where
             // Flatten: [batch, seq, d_model] -> [batch*seq, d_model]
             let flat = ops.reshape(&attn_output, &[batch * seq_len, d_model])?;
             let hidden = self.ff_linear1.forward(flat, ctx)?;
-            let activated = ops.relu(&hidden)?;
+            let activated = ops.gelu(&hidden)?; // Standard transformer activation
             let ff_out = self.ff_linear2.forward(activated, ctx)?;
             // Reshape back: [batch*seq, d_model] -> [batch, seq, d_model]
             let ff_3d = ops.reshape(&ff_out, &[batch, seq_len, d_model])?;
@@ -669,7 +669,7 @@ where
         // Flatten for 2D linear layers
         let normed2_flat = ops.reshape(&normed2, &[batch * seq_len, d_model])?;
         let ff_hidden = self.ff_linear1.forward(normed2_flat, ctx)?;
-        let activated = ops.relu(&ff_hidden)?; // Should be GELU
+        let activated = ops.gelu(&ff_hidden)?;
         let ff_out = self.ff_linear2.forward(activated, ctx)?;
         let ff_out = ops.reshape(&ff_out, &[batch, seq_len, d_model])?;
 

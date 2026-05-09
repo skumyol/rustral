@@ -268,3 +268,30 @@ fn finite_difference_cross_entropy_logits_match_tape() {
 
     assert_allclose(&gl, &gnl, 2e-2, 2e-2, "cross_entropy dLogits");
 }
+
+#[test]
+fn finite_difference_gelu_matches_tape() {
+    let backend = CpuBackend::default();
+    let ops = backend.ops();
+    let eps = 1e-3;
+
+    let x0 = vec![-0.7f32, 0.2, 1.1];
+
+    let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+    let mut tape = Tape::<CpuBackend>::new();
+    let x = tape.watch(ops.tensor_from_vec(x0.clone(), &[3]).unwrap());
+    let y = tape.gelu(x, &mut ctx).unwrap();
+    let loss = tape.sum_all_tape(y, &mut ctx).unwrap();
+    let grads = tape.backward(loss, |data, shape| ops.tensor_from_vec(data, shape), ops).unwrap();
+    let gx = ops.tensor_to_vec(grads.get(&x).unwrap()).unwrap();
+
+    let gnx = finite_diff(&x0, eps, |xvec| {
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+        let x = tape.watch(ops.tensor_from_vec(xvec.to_vec(), &[3]).unwrap());
+        let y = tape.gelu(x, &mut ctx).unwrap();
+        let loss = tape.sum_all_tape(y, &mut ctx).unwrap();
+        scalar_from(loss, &tape, &backend)
+    });
+    assert_allclose(&gx, &gnx, 2e-2, 2e-2, "gelu dX");
+}

@@ -26,8 +26,19 @@ pub struct TunerConfig {
     /// Verbose output.
     pub verbose: bool,
     /// CI-safe mode: deterministic, cache-only, bounded budget.
+    ///
+    /// When enabled, enforces strict iteration limits (max 5 iterations) and
+    /// uses deterministic random seeds. This is designed for CI environments
+    /// where reproducibility and bounded execution time are critical.
+    ///
+    /// Note: This is not truly "cache-only" - it still performs a limited search
+    /// but with strict bounds. For pure cache-only behavior, use `TunerConfig::disabled()`.
     pub ci_mode: bool,
     /// Enable/disable autotuning (opt-out mechanism).
+    ///
+    /// When disabled, `AutoTuner::tune()` returns default configuration without
+    /// performing any search. This provides a clear opt-out mechanism for
+    /// production environments where autotuning overhead is undesirable.
     pub enabled: bool,
     /// Device identifier for cache keying.
     pub device_id: String,
@@ -54,7 +65,17 @@ impl TunerConfig {
         }
     }
 
-    /// CI-safe tuning configuration (deterministic, cache-only, bounded budget).
+    /// CI-safe tuning configuration (deterministic, bounded budget).
+    ///
+    /// This configuration provides:
+    /// - Bounded search: maximum 5 iterations
+    /// - Bounded time budget: 10 second timeout
+    /// - Deterministic behavior: fixed random seeds
+    /// - Cache-first: prioritizes cached configurations
+    ///
+    /// Use this for CI environments where reproducibility and bounded
+    /// execution time are critical. For pure cache-only behavior (no search),
+    /// use `TunerConfig::disabled()`.
     pub fn ci_safe() -> Self {
         Self {
             strategy: TunerStrategy::Random { iterations: 5, seed: 42 }, // Bounded search
@@ -73,6 +94,14 @@ impl TunerConfig {
     }
 
     /// Disabled configuration (opt-out mechanism).
+    ///
+    /// When this configuration is used, `AutoTuner::tune()` will return
+    /// default configuration without performing any search. This provides
+    /// a clear opt-out mechanism for production environments where autotuning
+    /// overhead is undesirable.
+    ///
+    /// This is the only configuration that provides true "cache-only" behavior
+    /// when combined with `use_cache: true`.
     pub fn disabled() -> Self {
         Self {
             strategy: TunerStrategy::Random { iterations: 0, seed: 42 },

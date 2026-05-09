@@ -26,6 +26,34 @@ impl TensorId {
 
 static NEXT_TENSOR_ID: AtomicU64 = AtomicU64::new(1);
 
+/// Backward for GELU tanh approximation: `0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))`.
+fn gelu_backward_chain<B: Backend>(
+    ops: &dyn rustral_core::TensorOps<B>,
+    x: &B::Tensor,
+    grad_out: &B::Tensor,
+) -> Result<Vec<B::Tensor>> {
+    const C: f32 = 0.044715;
+    let sqrt_2_pi = (2.0_f32 / std::f32::consts::PI).sqrt();
+
+    let x2 = ops.mul(x, x)?;
+    let x3 = ops.mul(&x2, x)?;
+    let u_part = ops.mul_scalar(&x3, C)?;
+    let u = ops.add(x, &u_part)?;
+    let ta = ops.mul_scalar(&u, sqrt_2_pi)?;
+    let t = ops.tanh(&ta)?;
+    let t_sq = ops.mul(&t, &t)?;
+    let one_minus_t2 = ops.add_scalar(&ops.neg(&t_sq)?, 1.0)?;
+    let du_dx = ops.add_scalar(&ops.mul_scalar(&x2, 3.0 * C)?, 1.0)?;
+    let term_a = ops.mul_scalar(&ops.add_scalar(&t, 1.0)?, 0.5)?;
+    let half_x = ops.mul_scalar(x, 0.5)?;
+    let chain = ops.mul(&half_x, &one_minus_t2)?;
+    let chain = ops.mul(&chain, &du_dx)?;
+    let chain = ops.mul_scalar(&chain, sqrt_2_pi)?;
+    let gelu_prime = ops.add(&term_a, &chain)?;
+    let grad_x = ops.mul(grad_out, &gelu_prime)?;
+    Ok(vec![grad_x])
+}
+
 /// A recorded operation in the computation graph.
 struct Op<B: Backend> {
     /// Input tensor ids.
@@ -205,6 +233,19 @@ impl<B: Backend> Tape<B> {
             let mask = ops.gt_scalar(&out, 0.0)?;
             let grad = ops.mul(grad_out, &mask)?;
             Ok(vec![grad])
+        }))
+    }
+
+    /// GELU activation (tanh approximation; matches [`rustral_core::TensorOps::gelu`]).
+    pub fn gelu(&mut self, a: TensorId, ctx: &mut ForwardCtx<B>) -> Result<TensorId>
+    where
+        B::Tensor: Clone,
+    {
+        let a_val = self.get_value(a)?.clone();
+        let out = ctx.backend().ops().gelu(&a_val)?;
+
+        Ok(self.record(&[a], out, move |grad_out, _store, ops| {
+            gelu_backward_chain(ops, &a_val, grad_out)
         }))
     }
 
@@ -1225,6 +1266,28 @@ mod tests {
 
         let grads =
             tape.backward(b, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
+        assert!(grads.contains_key(&a));
+    }
+
+    #[test]
+    fn test_gelu_and_backward() {
+        let backend = CpuBackend::default();
+        let ops = backend.ops();
+        let mut ctx = ForwardCtx::new(&backend, Mode::Train);
+        let mut tape = Tape::<CpuBackend>::new();
+
+        let a = tape.watch(backend.tensor_from_vec(vec![-0.5, 1.0], &[2]).unwrap());
+        let b = tape.gelu(a, &mut ctx).unwrap();
+
+        let expected0 = ops.gelu(&backend.tensor_from_vec(vec![-0.5], &[1]).unwrap()).unwrap();
+        let expected1 = ops.gelu(&backend.tensor_from_vec(vec![1.0], &[1]).unwrap()).unwrap();
+        let b_vals: Vec<f32> = tape.value(b).unwrap().values().to_vec();
+        assert!((b_vals[0] - expected0.values()[0]).abs() < 1e-5);
+        assert!((b_vals[1] - expected1.values()[0]).abs() < 1e-5);
+
+        let loss = tape.sum_all_tape(b, &mut ctx).unwrap();
+        let grads =
+            tape.backward(loss, |data, shape| backend.tensor_from_vec(data, shape), backend.ops()).unwrap();
         assert!(grads.contains_key(&a));
     }
 

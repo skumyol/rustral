@@ -207,8 +207,8 @@ where
     /// Forward pass through expert.
     pub fn forward(&self, x: B::Tensor, ctx: &mut ForwardCtx<B>) -> Result<B::Tensor> {
         let hidden = self.fc1.forward(x, ctx)?;
-        // GELU activation (simplified - use ReLU for now)
-        let activated = ctx.backend().ops().relu(&hidden)?;
+        // GELU activation (standard transformer activation)
+        let activated = ctx.backend().ops().gelu(&hidden)?;
         self.fc2.forward(activated, ctx)
     }
 }

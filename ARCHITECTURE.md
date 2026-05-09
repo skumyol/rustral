@@ -46,6 +46,26 @@ The design optimizes for *legible* deep-learning systems: backend selection, tra
 - **Roadmap**: [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md) (living plan-vs-codebase status table).
 - **Security**: [`SECURITY.md`](SECURITY.md) (points to `docs/SECURITY.md`).
 
+## Backend capabilities vs runtime behavior
+
+[`BackendCapabilities`](crates/core/src/backend.rs) reports hardware and layout hints (FP16/BF16, tensor cores, `optimal_batch_size`, conv layout preference, etc.). **Backends fill these fields; only some are consumed today.**
+
+| Field / area | Typical use now | Notes |
+|--------------|-----------------|--------|
+| `optimal_batch_size` | [`BackendCapabilities::clamp_batch_size`](crates/core/src/backend.rs) | Soft upper hint for dataloaders or examples; not enforced globally. |
+| `recommended_training_dtype`, mixed precision flags | Mostly informational | Optimizer/mixed-precision paths may read these in future; check `rustral-optim` before assuming behavior. |
+| `preferred_conv_layout`, packed layouts | Mostly informational | Conv layers do not yet auto-transpose from these hints alone. |
+| `ForwardCtx::shape_policy` | [`ShapePolicy`](crates/core/src/shape_policy.rs) | Documents static vs dynamic shape expectations for future graph capture / pooling. Default is `DynamicUnbounded`. |
+| `ForwardCtx::profiler` | Optional [`OperationProfiler`](crates/core/src/operation_profiler.rs) | Attach with `with_profiler` or `set_profiler` for per-run timing. |
+
+## Autotuner presets (`rustral-autotuner`)
+
+- **`TunerConfig::default()`** — Full search within `max_tuning_time` (development).
+- **`TunerConfig::fast()`** — Shorter random search; still writes cache when `cache_results` is true.
+- **`TunerConfig::ci_safe()`** — Sets `ci_mode`: bounded iterations and time; pair with `enabled` as needed.
+- **`TunerConfig::disabled()`** — Sets `enabled = false`: `AutoTuner::tune` returns a default kernel config without searching (CI-friendly).
+- **Cache hits** — When `use_cache` is true, a hit re-benchmarks the cached config so `TuningResult` times are populated (not placeholder zeros).
+
 ## Key invariants
 
 - No hidden mutable model state; pass `ForwardCtx` and backends explicitly.

@@ -88,7 +88,8 @@ Rustral includes cross-backend optimization infrastructure that works uniformly 
 
 **Capability Detection**
 - Each backend reports its hardware capabilities (FP16/BF16 support, tensor cores, optimal batch sizes)
-- Runtime adaptation based on available hardware features
+- Callers can use helpers such as [`BackendCapabilities::clamp_batch_size`](crates/core/src/backend.rs) as a soft batch-size hint
+- Many capability fields are still **advisory** (documented in [`ARCHITECTURE.md`](ARCHITECTURE.md)); not every flag drives behavior yet
 - Automatic fallback to conservative defaults for unknown devices
 
 **Performance Profiling**

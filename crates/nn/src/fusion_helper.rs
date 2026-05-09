@@ -4,7 +4,7 @@
 //! eliminating duplicate fusion policy across modules and maintaining consistency.
 
 use crate::linear::Linear;
-use rustral_core::{Backend, ForwardCtx, Result};
+use rustral_core::{Backend, ForwardCtx, FusionOptimizer, Result};
 
 /// Unified fusion helper for linear + activation patterns.
 ///
@@ -23,16 +23,11 @@ impl FusionHelper {
         linear: &Linear<B>,
         ctx: &mut ForwardCtx<B>,
     ) -> Result<B::Tensor> {
-        // Try fused operation first
-        if let (Some(fusion_ops), Some(bias)) = (ctx.backend().fusion_ops(), linear.bias()) {
-            if let Ok(output) = fusion_ops.fused_linear_bias_relu(input, linear.weight(), bias) {
-                return Ok(output);
-            }
-        }
-
-        // Fallback to unfused sequence
-        let output = ctx.backend().ops().linear(input, linear.weight(), linear.bias())?;
-        ctx.backend().ops().relu(&output)
+        let Some(bias) = linear.bias() else {
+            let output = ctx.backend().ops().linear(input, linear.weight(), None)?;
+            return ctx.backend().ops().relu(&output);
+        };
+        FusionOptimizer::apply_matmul_bias_relu(ctx.backend(), input, linear.weight(), bias)
     }
 
     /// Try fused linear + GELU, fall back to unfused sequence.
@@ -45,16 +40,11 @@ impl FusionHelper {
         linear: &Linear<B>,
         ctx: &mut ForwardCtx<B>,
     ) -> Result<B::Tensor> {
-        // Try fused operation first
-        if let (Some(fusion_ops), Some(bias)) = (ctx.backend().fusion_ops(), linear.bias()) {
-            if let Ok(output) = fusion_ops.fused_linear_bias_gelu(input, linear.weight(), bias) {
-                return Ok(output);
-            }
-        }
-
-        // Fallback to unfused sequence
-        let output = ctx.backend().ops().linear(input, linear.weight(), linear.bias())?;
-        ctx.backend().ops().gelu(&output)
+        let Some(bias) = linear.bias() else {
+            let output = ctx.backend().ops().linear(input, linear.weight(), None)?;
+            return ctx.backend().ops().gelu(&output);
+        };
+        FusionOptimizer::apply_matmul_bias_gelu(ctx.backend(), input, linear.weight(), bias)
     }
 
     /// Try fused linear + bias (no activation), fall back to unfused sequence.
@@ -66,15 +56,10 @@ impl FusionHelper {
         linear: &Linear<B>,
         ctx: &mut ForwardCtx<B>,
     ) -> Result<B::Tensor> {
-        // Try fused operation first
-        if let (Some(fusion_ops), Some(bias)) = (ctx.backend().fusion_ops(), linear.bias()) {
-            if let Ok(output) = fusion_ops.fused_linear_bias(input, linear.weight(), bias) {
-                return Ok(output);
-            }
-        }
-
-        // Fallback to unfused sequence
-        ctx.backend().ops().linear(input, linear.weight(), linear.bias())
+        let Some(bias) = linear.bias() else {
+            return ctx.backend().ops().linear(input, linear.weight(), None);
+        };
+        FusionOptimizer::apply_matmul_bias(ctx.backend(), input, linear.weight(), bias)
     }
 }
 

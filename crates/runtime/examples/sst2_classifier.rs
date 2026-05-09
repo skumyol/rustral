@@ -68,6 +68,14 @@ mod runner {
     const DEFAULT_NUM_LAYERS: usize = 2;
     const NUM_CLASSES: usize = 2;
 
+    /// Clamp batch size to reasonable limits based on available data.
+    ///
+    /// Ensures batch size is at least 1 and doesn't exceed available data.
+    /// This prevents panics from empty batches and provides clear error handling.
+    fn clamp_batch_size(requested: usize, available: usize) -> usize {
+        requested.max(1).min(available)
+    }
+
     #[derive(Clone, Copy)]
     pub struct Sst2Dims {
         seq_len: usize,
@@ -964,7 +972,8 @@ mod runner {
     ) -> anyhow::Result<()> {
         use rustral_autodiff::GradExtFromStore;
 
-        let bsz = args.batch_size.max(1).min(train_encoded.len());
+        // Clamp batch size to available data and reasonable limits
+        let bsz = clamp_batch_size(args.batch_size, train_encoded.len());
         let batch_x: Vec<Vec<usize>> = train_encoded.iter().take(bsz).map(|(x, _)| x.clone()).collect();
         let batch_y: Vec<u8> = train_encoded.iter().take(bsz).map(|(_, y)| *y).collect();
 

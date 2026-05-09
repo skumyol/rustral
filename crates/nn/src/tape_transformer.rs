@@ -157,7 +157,7 @@ impl<B: Backend> NamedParameters<B> for TapeMultiHeadAttention<B> {
     }
 }
 
-/// Position-wise feed-forward block: `Linear -> ReLU -> Linear`.
+/// Position-wise feed-forward block: `Linear -> GELU -> Linear`.
 pub struct TapeFeedForward<B: Backend> {
     pub fc1: Linear<B>,
     pub fc2: Linear<B>,
@@ -187,7 +187,7 @@ where
 {
     fn forward_tape(&self, x: TensorId, tape: &mut Tape<B>, ctx: &mut ForwardCtx<B>) -> Result<TensorId> {
         let h = self.fc1.forward_tape(x, tape, ctx)?;
-        let a = tape.relu(h, ctx)?;
+        let a = tape.gelu(h, ctx)?;
         self.fc2.forward_tape(a, tape, ctx)
     }
 }

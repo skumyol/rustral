@@ -347,8 +347,8 @@ impl<B: Backend> Module<B> for TransformerEncoderBlock<B> {
         // x + ff(norm2(x))
         let normed = self.norm2.forward(x.clone(), ctx)?;
         let ff_out = self.ff1.forward(normed, ctx)?;
-        // Apply ReLU activation
-        let ff_out = ops.relu(&ff_out)?;
+        // Apply GELU activation (standard transformer activation)
+        let ff_out = ops.gelu(&ff_out)?;
         let ff_out = self.ff2.forward(ff_out, ctx)?;
 
         ops.add(&x, &ff_out)

@@ -5,6 +5,16 @@
 //! and algorithm selection for GPU operations. Results are cached for
 //! reuse across runs.
 //!
+//! # CI, determinism, and opt-out
+//!
+//! - **`TunerConfig::enabled`** — If `false`, [`AutoTuner::tune`](crate::AutoTuner::tune) skips the
+//!   search loop and returns a default configuration (`TunerConfig::disabled()`).
+//! - **`TunerConfig::ci_mode`** — When `true`, tuning sessions cap how many candidate configs run
+//!   (bounded budget). Combine with `enabled: false` in CI when you must not run any search.
+//! - **`TunerConfig::ci_safe()`** — Preset with `ci_mode` and tighter time/iteration limits.
+//! - **Cache** — With `use_cache`, a cache hit re-benchmarks the stored config so reported timings
+//!   are real, not placeholders.
+//!
 //! # Example
 //!
 //! ```rust,ignore

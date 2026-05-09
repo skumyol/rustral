@@ -33,6 +33,16 @@ pub struct BackendCapabilities {
     pub supports_packed_layouts: bool,
 }
 
+impl BackendCapabilities {
+    /// Clamp a requested batch size to a conservative range implied by this backend.
+    ///
+    /// Uses [`Self::optimal_batch_size`] as an upper hint (workloads may still use smaller
+    /// batches for memory). This is a **soft** cap: backends report hints; callers decide policy.
+    pub fn clamp_batch_size(&self, batch: usize) -> usize {
+        batch.clamp(1, self.optimal_batch_size.max(1))
+    }
+}
+
 impl Default for BackendCapabilities {
     fn default() -> Self {
         Self {

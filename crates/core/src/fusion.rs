@@ -215,6 +215,45 @@ impl<B: Backend> FusionOptimizer<B> {
         }
     }
 
+    /// [`Self::matmul_bias_relu`] using a borrowed backend (clones the handle for the call).
+    pub fn apply_matmul_bias_relu(
+        backend: &B,
+        input: &B::Tensor,
+        weight: &crate::Parameter<B>,
+        bias: &crate::Parameter<B>,
+    ) -> Result<B::Tensor>
+    where
+        B: Clone,
+    {
+        Self::new(backend.clone()).matmul_bias_relu(input, weight, bias)
+    }
+
+    /// [`Self::matmul_bias_gelu`] using a borrowed backend (clones the handle for the call).
+    pub fn apply_matmul_bias_gelu(
+        backend: &B,
+        input: &B::Tensor,
+        weight: &crate::Parameter<B>,
+        bias: &crate::Parameter<B>,
+    ) -> Result<B::Tensor>
+    where
+        B: Clone,
+    {
+        Self::new(backend.clone()).matmul_bias_gelu(input, weight, bias)
+    }
+
+    /// [`Self::matmul_bias`] using a borrowed backend (clones the handle for the call).
+    pub fn apply_matmul_bias(
+        backend: &B,
+        input: &B::Tensor,
+        weight: &crate::Parameter<B>,
+        bias: &crate::Parameter<B>,
+    ) -> Result<B::Tensor>
+    where
+        B: Clone,
+    {
+        Self::new(backend.clone()).matmul_bias(input, weight, bias)
+    }
+
     /// Enable or disable fusion optimization.
     pub fn set_enable_fusion(&mut self, enable: bool) {
         self.enable_fusion = enable;

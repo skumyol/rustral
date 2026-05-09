@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use rustral_autodiff::{GradExtFromStore, Tape, TensorId};
-use rustral_core::{Backend, ForwardCtx, Mode, NamedParameters, Parameter, ParameterId, Result};
+use rustral_core::{Backend, ForwardCtx, Mode, NamedParameters, Parameter, ParameterId, Result, TensorPool};
 use rustral_optim::{Gradient, Optimizer};
 
 use crate::EpochStats;
@@ -55,6 +55,7 @@ impl Default for TapeTrainerConfig {
 pub struct TapeTrainer<B: Backend, O: Optimizer<B>> {
     pub config: TapeTrainerConfig,
     pub optimizer: O,
+    pub tensor_pool: Option<TensorPool<B>>,
     _phantom: std::marker::PhantomData<B>,
 }
 
@@ -63,7 +64,13 @@ where
     B::Tensor: Clone,
 {
     pub fn new(config: TapeTrainerConfig, optimizer: O) -> Self {
-        Self { config, optimizer, _phantom: std::marker::PhantomData }
+        Self { config, optimizer, tensor_pool: None, _phantom: std::marker::PhantomData }
+    }
+
+    /// Set an optional tensor pool for memory management during training.
+    pub fn with_tensor_pool(mut self, pool: TensorPool<B>) -> Self {
+        self.tensor_pool = Some(pool);
+        self
     }
 
     /// Train a single-parameter model where the model forward is provided as a closure that writes into the tape.
@@ -185,6 +192,11 @@ where
                 self.optimizer
                     .step(&mut params_vec, &grads, &mut ctx)
                     .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+
+                // Call tensor pool begin_step after optimizer step for memory management
+                if let Some(ref mut pool) = self.tensor_pool {
+                    pool.begin_step();
+                }
 
                 // Write back updated tensors by id.
                 let mut updated: HashMap<ParameterId, B::Tensor> = HashMap::with_capacity(params_vec.len());
@@ -348,6 +360,11 @@ where
                 self.optimizer
                     .step(&mut params_vec, &grads, &mut ctx)
                     .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+
+                // Call tensor pool begin_step after optimizer step for memory management
+                if let Some(ref mut pool) = self.tensor_pool {
+                    pool.begin_step();
+                }
 
                 let mut updated: HashMap<ParameterId, B::Tensor> = HashMap::with_capacity(params_vec.len());
                 for p in params_vec {

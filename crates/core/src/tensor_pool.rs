@@ -29,8 +29,24 @@ use crate::{Backend, Result};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+/// How the pool should behave across training or inference runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PoolStrategy {
+    /// Shape-keyed reuse with existing heuristics (default).
+    #[default]
+    Standard,
+    /// Clear pooled buffers at step boundaries to bound peak memory during training.
+    TrainingArena,
+    /// Hint that shapes repeat (typical static inference); limits may be tuned tighter later.
+    InferenceReuse {
+        /// When true, callers promise fixed shapes for the run.
+        static_shapes: bool,
+    },
+}
+
 /// Generic tensor pool for reducing allocation overhead.
 pub struct TensorPool<B: Backend> {
+    strategy: PoolStrategy,
     pool: HashMap<Vec<usize>, Vec<B::Tensor>>,
     max_size_per_shape: usize,
     max_total_tensors: usize,
@@ -39,12 +55,59 @@ pub struct TensorPool<B: Backend> {
 impl<B: Backend> TensorPool<B> {
     /// Create a new tensor pool with default limits.
     pub fn new() -> Self {
-        Self { pool: HashMap::new(), max_size_per_shape: 10, max_total_tensors: 100 }
+        Self {
+            strategy: PoolStrategy::default(),
+            pool: HashMap::new(),
+            max_size_per_shape: 10,
+            max_total_tensors: 100,
+        }
+    }
+
+    /// Create a pool with an explicit pooling strategy.
+    pub fn with_strategy(strategy: PoolStrategy) -> Self {
+        Self { strategy, pool: HashMap::new(), max_size_per_shape: 10, max_total_tensors: 100 }
     }
 
     /// Create a new tensor pool with custom limits.
     pub fn with_limits(max_size_per_shape: usize, max_total_tensors: usize) -> Self {
-        Self { pool: HashMap::new(), max_size_per_shape, max_total_tensors }
+        Self {
+            strategy: PoolStrategy::default(),
+            pool: HashMap::new(),
+            max_size_per_shape,
+            max_total_tensors,
+        }
+    }
+
+    /// Limits plus strategy.
+    pub fn with_limits_and_strategy(
+        max_size_per_shape: usize,
+        max_total_tensors: usize,
+        strategy: PoolStrategy,
+    ) -> Self {
+        Self {
+            strategy,
+            pool: HashMap::new(),
+            max_size_per_shape,
+            max_total_tensors,
+        }
+    }
+
+    pub fn strategy(&self) -> PoolStrategy {
+        self.strategy
+    }
+
+    pub fn set_strategy(&mut self, strategy: PoolStrategy) {
+        self.strategy = strategy;
+    }
+
+    /// Call between training steps (or when reusing temporaries across a bounded region).
+    ///
+    /// For [`PoolStrategy::TrainingArena`], this clears pooled tensors so the next step does not
+    /// retain allocations from the previous one.
+    pub fn begin_step(&mut self) {
+        if matches!(self.strategy, PoolStrategy::TrainingArena) {
+            self.clear();
+        }
     }
 
     /// Get a tensor from the pool or create a new one.
@@ -161,7 +224,12 @@ impl<B: Backend> TensorPool<B> {
 
 impl<B: Backend> Default for TensorPool<B> {
     fn default() -> Self {
-        Self::new()
+        Self {
+            strategy: PoolStrategy::default(),
+            pool: HashMap::new(),
+            max_size_per_shape: 10,
+            max_total_tensors: 100,
+        }
     }
 }
 
@@ -297,6 +365,47 @@ mod tests {
         let pool: TensorPool<MockBackend> = TensorPool::with_limits(5, 10);
         assert_eq!(pool.max_size_per_shape, 5);
         assert_eq!(pool.max_total_tensors, 10);
+        assert_eq!(pool.strategy(), PoolStrategy::Standard);
+    }
+
+    #[test]
+    fn training_arena_begin_step_clears() {
+        #[derive(Clone)]
+        struct MockBackend;
+        impl Backend for MockBackend {
+            type Tensor = ();
+            type Device = ();
+
+            fn device(&self) -> Self::Device {}
+            fn ops(&self) -> &dyn crate::TensorOps<Self> {
+                unimplemented!()
+            }
+            fn capabilities(&self) -> crate::BackendCapabilities {
+                Default::default()
+            }
+            fn normal_parameter(
+                &self,
+                _name: &str,
+                _shape: &[usize],
+                _seed: u64,
+                _scale: f32,
+            ) -> Result<crate::Parameter<Self>> {
+                unimplemented!()
+            }
+            fn parameter_from_vec(
+                &self,
+                _name: &str,
+                _values: Vec<f32>,
+                _shape: &[usize],
+            ) -> Result<crate::Parameter<Self>> {
+                unimplemented!()
+            }
+        }
+
+        let mut pool: TensorPool<MockBackend> = TensorPool::with_strategy(PoolStrategy::TrainingArena);
+        pool.pool.insert(vec![2, 2], vec![()]);
+        pool.begin_step();
+        assert!(pool.pool.is_empty());
     }
 
     #[test]

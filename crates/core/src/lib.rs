@@ -14,6 +14,7 @@ mod numerics;
 mod operation_profiler;
 mod parameter;
 mod shape;
+mod shape_policy;
 mod tensor_pool;
 
 pub use backend::{
@@ -21,6 +22,7 @@ pub use backend::{
     TensorOps, TensorView, TrainingDtype,
 };
 pub use context::{ForwardCtx, Mode, RunId};
+pub use shape_policy::ShapePolicy;
 pub use error::{CoreError, Result};
 pub use fusion::{FusionOptimizer, FusionPattern, Op, OpType, PatternMatcher};
 pub use fusion_tests::{
@@ -43,4 +45,4 @@ pub use operation_profiler::{
 };
 pub use parameter::{Parameter, ParameterGroup, ParameterId, ParameterRef};
 pub use shape::{Shape, ShapeExt, TensorShape};
-pub use tensor_pool::{PoolStats, PooledTensor, TensorPool};
+pub use tensor_pool::{PoolStats, PoolStrategy, PooledTensor, TensorPool};
