@@ -1,6 +1,6 @@
 //! Cache for kernel tuning results.
 
-use crate::kernel_config::KernelConfig;
+use crate::kernel_config::{KernelConfig, MatmulShapeBucket};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -16,6 +16,10 @@ pub struct CacheEntry {
     pub time_us: f64,
     /// Hardware/GPU identifier.
     pub device_id: String,
+    /// Data type (e.g., "f32", "f16").
+    pub dtype: String,
+    /// Shape bucket for cache keying.
+    pub shape_bucket: Option<MatmulShapeBucket>,
     /// Timestamp when tuned.
     pub timestamp: u64,
     /// Rustral version when tuned.
@@ -26,11 +30,19 @@ pub struct CacheEntry {
 
 impl CacheEntry {
     /// Create a new cache entry.
-    pub fn new(config: KernelConfig, time_us: f64, device_id: String) -> Self {
+    pub fn new(
+        config: KernelConfig,
+        time_us: f64,
+        device_id: String,
+        dtype: String,
+        shape_bucket: Option<MatmulShapeBucket>,
+    ) -> Self {
         Self {
             config,
             time_us,
             device_id,
+            dtype,
+            shape_bucket,
             timestamp: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             num_samples: 1,
@@ -68,9 +80,12 @@ pub struct ConfigCache {
     device_id: String,
 }
 
-/// Create a cache key from kernel key and input signature.
-fn make_cache_key(kernel_key: &str, input_sig: &[usize]) -> String {
-    format!("{}:{:?}", kernel_key, input_sig)
+/// Create a cache key from kernel key, device, dtype, and shape bucket.
+fn make_cache_key(kernel_key: &str, device_id: &str, dtype: &str, shape_bucket: Option<&MatmulShapeBucket>) -> String {
+    match shape_bucket {
+        Some(bucket) => format!("{}:{}:{}:{}", kernel_key, device_id, dtype, bucket.cache_key()),
+        None => format!("{}:{}:{}:generic", kernel_key, device_id, dtype),
+    }
 }
 
 impl ConfigCache {
@@ -115,15 +130,28 @@ impl ConfigCache {
     }
 
     /// Get the best cached configuration for a kernel.
-    pub fn get(&self, kernel_key: &str, input_sig: &[usize]) -> Option<&CacheEntry> {
-        let key = make_cache_key(kernel_key, input_sig);
+    pub fn get(
+        &self,
+        kernel_key: &str,
+        device_id: &str,
+        dtype: &str,
+        shape_bucket: Option<&MatmulShapeBucket>,
+    ) -> Option<&CacheEntry> {
+        let key = make_cache_key(kernel_key, device_id, dtype, shape_bucket);
 
-        self.entries.get(&key).filter(|e| e.is_fresh(self.max_age_days) && e.device_id == self.device_id)
+        self.entries.get(&key).filter(|e| e.is_fresh(self.max_age_days) && e.device_id == device_id && e.dtype == dtype)
     }
 
     /// Insert or update a cache entry.
-    pub fn insert(&mut self, kernel_key: &str, input_sig: &[usize], entry: CacheEntry) {
-        let key = make_cache_key(kernel_key, input_sig);
+    pub fn insert(
+        &mut self,
+        kernel_key: &str,
+        device_id: &str,
+        dtype: &str,
+        shape_bucket: Option<&MatmulShapeBucket>,
+        entry: CacheEntry,
+    ) {
+        let key = make_cache_key(kernel_key, device_id, dtype, shape_bucket);
 
         if let Some(existing) = self.entries.get_mut(&key) {
             existing.merge(&entry);
@@ -256,14 +284,28 @@ impl TuningCache {
     }
 
     /// Get a configuration if cached.
-    pub fn get_config(&self, kernel: &str, shapes: &[usize]) -> Option<KernelConfig> {
-        self.cache.get(kernel, shapes).map(|e| e.config.clone())
+    pub fn get_config(
+        &self,
+        kernel: &str,
+        device_id: &str,
+        dtype: &str,
+        shape_bucket: Option<&MatmulShapeBucket>,
+    ) -> Option<KernelConfig> {
+        self.cache.get(kernel, device_id, dtype, shape_bucket).map(|e| e.config.clone())
     }
 
     /// Store a configuration.
-    pub fn store_config(&mut self, kernel: &str, shapes: &[usize], config: KernelConfig, time_us: f64) {
-        let entry = CacheEntry::new(config, time_us, self.cache.device_id.clone());
-        self.cache.insert(kernel, shapes, entry);
+    pub fn store_config(
+        &mut self,
+        kernel: &str,
+        device_id: &str,
+        dtype: &str,
+        shape_bucket: Option<&MatmulShapeBucket>,
+        config: KernelConfig,
+        time_us: f64,
+    ) {
+        let entry = CacheEntry::new(config, time_us, device_id.to_string(), dtype.to_string(), shape_bucket.cloned());
+        self.cache.insert(kernel, device_id, dtype, shape_bucket, entry);
     }
 
     /// Get cache hit rate stats.
@@ -291,20 +333,21 @@ mod tests {
     #[test]
     fn test_cache_entry() {
         let config = KernelConfig::default_matmul();
-        let entry = CacheEntry::new(config.clone(), 100.0, "test-gpu".to_string());
+        let entry = CacheEntry::new(config.clone(), 100.0, "test-gpu".to_string(), "f32".to_string(), None);
 
         assert!(entry.is_fresh(30));
         assert_eq!(entry.time_us, 100.0);
         assert_eq!(entry.device_id, "test-gpu");
+        assert_eq!(entry.dtype, "f32");
     }
 
     #[test]
     fn test_cache_entry_merge() {
         let config = KernelConfig::default_matmul();
-        let mut entry1 = CacheEntry::new(config.clone(), 100.0, "test".to_string());
+        let mut entry1 = CacheEntry::new(config.clone(), 100.0, "test".to_string(), "f32".to_string(), None);
         entry1.num_samples = 2;
 
-        let entry2 = CacheEntry::new(config.clone(), 200.0, "test".to_string());
+        let entry2 = CacheEntry::new(config.clone(), 200.0, "test".to_string(), "f32".to_string(), None);
 
         entry1.merge(&entry2);
 
@@ -322,9 +365,10 @@ mod tests {
         cache.clear();
 
         let config = KernelConfig::default_matmul();
-        let entry = CacheEntry::new(config, 50.0, cache.device_id.clone());
+        let device = cache.device_id.clone();
+        let entry = CacheEntry::new(config.clone(), 50.0, device.clone(), "f32".to_string(), None);
 
-        cache.insert("matmul", &[1024, 1024, 1024], entry);
+        cache.insert("matmul", &device, "f32", None, entry);
         assert_eq!(cache.len(), 1);
 
         // Save and reload
@@ -343,16 +387,16 @@ mod tests {
         let mut cache = TuningCache::new();
 
         let config = KernelConfig::default_matmul();
-        cache.store_config("matmul", &[1024, 1024, 1024], config.clone(), 100.0);
+        cache.store_config("matmul", "cpu", "f32", None, config.clone(), 100.0);
 
-        let retrieved = cache.get_config("matmul", &[1024, 1024, 1024]);
+        let retrieved = cache.get_config("matmul", "cpu", "f32", None);
         assert!(retrieved.is_some());
     }
 
     #[test]
     fn test_cache_entry_fresh_and_stale() {
         let config = KernelConfig::default_matmul();
-        let entry = CacheEntry::new(config, 100.0, "test-device".to_string());
+        let entry = CacheEntry::new(config, 100.0, "test-device".to_string(), "f32".to_string(), None);
         assert!(entry.is_fresh(30));
 
         // Very old entry should not be fresh
@@ -375,20 +419,21 @@ mod tests {
         cache.clear();
 
         // Missing entry
-        assert!(cache.get("missing", &[1, 2, 3]).is_none());
+        assert!(cache.get("missing", "cpu", "f32", None).is_none());
 
         // Insert and retrieve
         let config = KernelConfig::default_matmul();
-        let entry = CacheEntry::new(config, 100.0, cache.device_id.clone());
-        cache.insert("matmul", &[64, 64, 64], entry.clone());
-        assert!(cache.get("matmul", &[64, 64, 64]).is_some());
+        let device = cache.device_id.clone();
+        let entry = CacheEntry::new(config, 100.0, device.clone(), "f32".to_string(), None);
+        cache.insert("matmul", &device, "f32", None, entry.clone());
+        assert!(cache.get("matmul", &device, "f32", None).is_some());
 
         // Stale entry with different device
         let mut stale_entry = entry.clone();
         stale_entry.device_id = "other-device".to_string();
         stale_entry.timestamp = 0;
-        cache.insert("old", &[1], stale_entry);
-        assert!(cache.get("old", &[1]).is_none());
+        cache.insert("old", "other-device", "f32", None, stale_entry);
+        assert!(cache.get("old", "other-device", "f32", None).is_none());
     }
 
     #[test]
@@ -399,13 +444,13 @@ mod tests {
 
         let config = KernelConfig::default_matmul();
         let device = cache.device_id.clone();
-        let entry1 = CacheEntry::new(config.clone(), 100.0, device.clone());
-        let entry2 = CacheEntry::new(config.clone(), 200.0, device.clone());
+        let entry1 = CacheEntry::new(config.clone(), 100.0, device.clone(), "f32".to_string(), None);
+        let entry2 = CacheEntry::new(config.clone(), 200.0, device.clone(), "f32".to_string(), None);
 
-        cache.insert("matmul", &[128, 128], entry1);
-        cache.insert("matmul", &[128, 128], entry2);
+        cache.insert("matmul", &device, "f32", None, entry1);
+        cache.insert("matmul", &device, "f32", None, entry2);
 
-        let merged = cache.get("matmul", &[128, 128]).unwrap();
+        let merged = cache.get("matmul", &device, "f32", None).unwrap();
         assert_eq!(merged.num_samples, 2);
     }
 
@@ -418,8 +463,8 @@ mod tests {
         assert_eq!(cache.len(), 0);
 
         let config = KernelConfig::default_matmul();
-        let entry = CacheEntry::new(config, 50.0, "test".to_string());
-        cache.insert("matmul", &[256], entry);
+        let entry = CacheEntry::new(config, 50.0, "test".to_string(), "f32".to_string(), None);
+        cache.insert("matmul", "test", "f32", None, entry);
         assert!(!cache.is_empty());
         assert_eq!(cache.len(), 1);
 
@@ -434,8 +479,9 @@ mod tests {
         cache.clear();
 
         let config = KernelConfig::default_matmul();
-        let entry = CacheEntry::new(config, 50.0, cache.device_id.clone());
-        cache.insert("matmul", &[256], entry);
+        let device = cache.device_id.clone();
+        let entry = CacheEntry::new(config, 50.0, device, "f32".to_string(), None);
+        cache.insert("matmul", "test", "f32", None, entry);
 
         let stats = cache.stats();
         assert_eq!(stats.total_entries, 1);
@@ -456,7 +502,7 @@ mod tests {
         let mut cache = TuningCache::new();
         // Store a config so cache is non-empty
         let config = KernelConfig::default_matmul();
-        cache.store_config("matmul", &[1024], config, 100.0);
+        cache.store_config("matmul", "cpu", "f32", None, config, 100.0);
         // hit_rate returns 1.0 when cache is non-empty
         assert_eq!(cache.hit_rate(), 1.0);
     }

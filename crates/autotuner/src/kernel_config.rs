@@ -2,6 +2,81 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
+
+/// Matmul dimension bucket for cache keying.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MatmulDimBucket {
+    /// Tiny dimensions (< 256)
+    Tiny,
+    /// Small dimensions (256-512)
+    Small,
+    /// Medium dimensions (512-2048)
+    Medium,
+    /// Large dimensions (2048-8192)
+    Large,
+    /// Extra large dimensions (> 8192)
+    XLarge,
+}
+
+impl MatmulDimBucket {
+    /// Create bucket from dimension size.
+    pub fn from_size(size: usize) -> Self {
+        if size < 256 {
+            MatmulDimBucket::Tiny
+        } else if size <= 512 {
+            MatmulDimBucket::Small
+        } else if size < 2048 {
+            MatmulDimBucket::Medium
+        } else if size < 8192 {
+            MatmulDimBucket::Large
+        } else {
+            MatmulDimBucket::XLarge
+        }
+    }
+}
+
+impl fmt::Display for MatmulDimBucket {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MatmulDimBucket::Tiny => write!(f, "Tiny"),
+            MatmulDimBucket::Small => write!(f, "Small"),
+            MatmulDimBucket::Medium => write!(f, "Medium"),
+            MatmulDimBucket::Large => write!(f, "Large"),
+            MatmulDimBucket::XLarge => write!(f, "XLarge"),
+        }
+    }
+}
+
+/// Matmul shape bucket for cache keying (M, N, K).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct MatmulShapeBucket {
+    pub m: MatmulDimBucket,
+    pub n: MatmulDimBucket,
+    pub k: MatmulDimBucket,
+}
+
+impl MatmulShapeBucket {
+    /// Create shape bucket from matrix dimensions.
+    pub fn from_dims(m: usize, n: usize, k: usize) -> Self {
+        Self {
+            m: MatmulDimBucket::from_size(m),
+            n: MatmulDimBucket::from_size(n),
+            k: MatmulDimBucket::from_size(k),
+        }
+    }
+
+    /// Create cache key string from shape bucket.
+    pub fn cache_key(&self) -> String {
+        format!("matmul_{}_{}_{}", self.m, self.n, self.k)
+    }
+}
+
+impl fmt::Display for MatmulShapeBucket {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "M:{} N:{} K:{}", self.m, self.n, self.k)
+    }
+}
 
 /// Complete kernel configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

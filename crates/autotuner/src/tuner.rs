@@ -25,6 +25,14 @@ pub struct TunerConfig {
     pub min_improvement_pct: f64,
     /// Verbose output.
     pub verbose: bool,
+    /// CI-safe mode: deterministic, cache-only, bounded budget.
+    pub ci_mode: bool,
+    /// Enable/disable autotuning (opt-out mechanism).
+    pub enabled: bool,
+    /// Device identifier for cache keying.
+    pub device_id: String,
+    /// Data type for cache keying.
+    pub dtype: String,
 }
 
 impl TunerConfig {
@@ -39,21 +47,78 @@ impl TunerConfig {
             cache_results: true,
             min_improvement_pct: 5.0,
             verbose: false,
+            ci_mode: false,
+            enabled: true,
+            device_id: "default".to_string(),
+            dtype: "f32".to_string(),
         }
     }
 
-    /// Exhaustive tuning configuration.
-    pub fn exhaustive() -> Self {
+    /// CI-safe tuning configuration (deterministic, cache-only, bounded budget).
+    pub fn ci_safe() -> Self {
         Self {
-            strategy: TunerStrategy::Grid,
-            warmup_iterations: 5,
-            timing_iterations: 10,
-            max_tuning_time: Duration::from_secs(300),
+            strategy: TunerStrategy::Random { iterations: 5, seed: 42 }, // Bounded search
+            warmup_iterations: 1,
+            timing_iterations: 3,
+            max_tuning_time: Duration::from_secs(10), // Bounded budget
             use_cache: true,
             cache_results: true,
-            min_improvement_pct: 1.0,
-            verbose: true,
+            min_improvement_pct: 10.0,
+            verbose: false,
+            ci_mode: true, // Deterministic mode
+            enabled: true,
+            device_id: "default".to_string(),
+            dtype: "f32".to_string(),
         }
+    }
+
+    /// Disabled configuration (opt-out mechanism).
+    pub fn disabled() -> Self {
+        Self {
+            strategy: TunerStrategy::Random { iterations: 0, seed: 42 },
+            warmup_iterations: 0,
+            timing_iterations: 0,
+            max_tuning_time: Duration::from_secs(0),
+            use_cache: true,
+            cache_results: false,
+            min_improvement_pct: 0.0,
+            verbose: false,
+            ci_mode: true,
+            enabled: false, // Explicit opt-out
+            device_id: "default".to_string(),
+            dtype: "f32".to_string(),
+        }
+    }
+
+    /// Set CI mode (deterministic, bounded budget).
+    pub fn with_ci_mode(mut self, ci_mode: bool) -> Self {
+        self.ci_mode = ci_mode;
+        if ci_mode {
+            // Apply CI-safe constraints
+            self.strategy = TunerStrategy::Random { iterations: 5, seed: 42 };
+            self.max_tuning_time = Duration::from_secs(10);
+            self.timing_iterations = 3;
+            self.warmup_iterations = 1;
+        }
+        self
+    }
+
+    /// Enable or disable autotuning (opt-out mechanism).
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Set device identifier for cache keying.
+    pub fn with_device_id(mut self, device_id: String) -> Self {
+        self.device_id = device_id;
+        self
+    }
+
+    /// Set data type for cache keying.
+    pub fn with_dtype(mut self, dtype: String) -> Self {
+        self.dtype = dtype;
+        self
     }
 }
 
@@ -68,6 +133,10 @@ impl Default for TunerConfig {
             cache_results: true,
             min_improvement_pct: 3.0,
             verbose: false,
+            ci_mode: false,
+            enabled: true,
+            device_id: "default".to_string(),
+            dtype: "f32".to_string(),
         }
     }
 }
@@ -223,9 +292,24 @@ impl<'a> TuningSession<'a> {
         // Cache the result
         if self.tuner.config.cache_results {
             if let Some(ref best) = self.best_config {
+                let device_id = &self.tuner.config.device_id;
+                let dtype = &self.tuner.config.dtype;
+                // Try to create shape bucket from input signature for matmul
+                let shape_bucket = if self.kernel_id.contains("matmul") && self.input_signature.len() >= 3 {
+                    Some(crate::kernel_config::MatmulShapeBucket::from_dims(
+                        self.input_signature[0],
+                        self.input_signature[1],
+                        self.input_signature[2],
+                    ))
+                } else {
+                    None
+                };
+
                 self.tuner.cache.store_config(
                     &self.kernel_id,
-                    &self.input_signature,
+                    device_id,
+                    dtype,
+                    shape_bucket.as_ref(),
                     best.clone(),
                     self.best_time,
                 );
@@ -319,7 +403,21 @@ impl AutoTuner {
 
         // Check cache first
         if self.config.use_cache {
-            if let Some(config) = self.cache.get_config(kernel.kernel_id(), &kernel.input_signature()) {
+            let device_id = &self.config.device_id;
+            let dtype = &self.config.dtype;
+            // Try to create shape bucket from input signature for matmul
+            let input_sig = kernel.input_signature();
+            let shape_bucket = if kernel.kernel_id().contains("matmul") && input_sig.len() >= 3 {
+                Some(crate::kernel_config::MatmulShapeBucket::from_dims(
+                    input_sig[0],
+                    input_sig[1],
+                    input_sig[2],
+                ))
+            } else {
+                None
+            };
+
+            if let Some(config) = self.cache.get_config(kernel.kernel_id(), device_id, dtype, shape_bucket.as_ref()) {
                 if self.config.verbose {
                     println!("Using cached configuration for {}", key);
                 }
@@ -359,9 +457,17 @@ impl AutoTuner {
         let parts: Vec<_> = key.split(':').collect();
         if parts.len() >= 2 {
             let kernel = parts[0];
+            let device_id = &self.config.device_id;
+            let dtype = &self.config.dtype;
             // Try to parse shapes
             if let Ok(shapes) = serde_json::from_str::<Vec<usize>>(parts[1]) {
-                return self.cache.get_config(kernel, &shapes).map(|kc| OpConfig::Elementwise {
+                // Try to create shape bucket for matmul
+                let shape_bucket = if kernel.contains("matmul") && shapes.len() >= 3 {
+                    Some(crate::kernel_config::MatmulShapeBucket::from_dims(shapes[0], shapes[1], shapes[2]))
+                } else {
+                    None
+                };
+                return self.cache.get_config(kernel, device_id, dtype, shape_bucket.as_ref()).map(|kc| OpConfig::Elementwise {
                     block_size: kc.workgroup.x as usize,
                     items_per_thread: 4,
                     vector_width: kc.memory.vector_width,
@@ -480,8 +586,38 @@ mod tests {
         assert_eq!(fast.warmup_iterations, 2);
         assert!(fast.use_cache);
 
-        let exhaustive = TunerConfig::exhaustive();
-        assert_eq!(exhaustive.timing_iterations, 10);
+        let ci_safe = TunerConfig::ci_safe();
+        assert_eq!(ci_safe.timing_iterations, 3);
+        assert!(ci_safe.ci_mode);
+
+        let disabled = TunerConfig::disabled();
+        assert!(!disabled.enabled);
+    }
+
+    #[test]
+    fn test_tuner_config_ci_mode() {
+        let config = TunerConfig::default().with_ci_mode(true);
+        assert!(config.ci_mode);
+        assert_eq!(config.max_tuning_time, Duration::from_secs(10));
+        assert_eq!(config.timing_iterations, 3);
+    }
+
+    #[test]
+    fn test_tuner_config_enabled() {
+        let enabled = TunerConfig::default().with_enabled(true);
+        assert!(enabled.enabled);
+
+        let disabled = TunerConfig::default().with_enabled(false);
+        assert!(!disabled.enabled);
+    }
+
+    #[test]
+    fn test_tuner_config_device_dtype() {
+        let config = TunerConfig::default()
+            .with_device_id("cuda:0".to_string())
+            .with_dtype("f16".to_string());
+        assert_eq!(config.device_id, "cuda:0");
+        assert_eq!(config.dtype, "f16");
     }
 
     #[test]
@@ -621,6 +757,10 @@ mod tests {
             cache_results: false,
             min_improvement_pct: 1.0,
             verbose: false,
+            ci_mode: false,
+            enabled: true,
+            device_id: "test".to_string(),
+            dtype: "f32".to_string(),
         });
 
         let kernel = TestKernel { id: "matmul", sig: vec![128, 128, 128] };
