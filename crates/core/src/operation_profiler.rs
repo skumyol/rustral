@@ -64,6 +64,18 @@ impl Default for ProfilingHooks {
     }
 }
 
+impl ProfilingHooks {
+    /// Hooks tuned for CI: per-op timing only, no extra breakdowns or shape recording.
+    pub fn ci_safe() -> Self {
+        Self {
+            cpu_gpu_breakdown: false,
+            per_op_timing: true,
+            memory_tracking: false,
+            shape_bucket_recording: false,
+        }
+    }
+}
+
 /// Device type for CPU/GPU breakdown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DeviceType {
@@ -355,6 +367,11 @@ impl OperationProfiler {
         }
     }
 
+    /// Profiler preset for CI / automation: [`ProfilingHooks::ci_safe`].
+    pub fn new_ci_safe() -> Self {
+        Self::with_hooks(ProfilingHooks::ci_safe())
+    }
+
     /// Enable profiling.
     pub fn enable(&mut self) {
         self.enabled = true;
@@ -590,6 +607,19 @@ impl OperationProfiler {
             Err(e) => eprintln!("failed to serialize profiler snapshot: {e}"),
         }
     }
+
+    /// Write [`ProfilerSnapshot`] as pretty JSON for regression baselines (stable schema).
+    pub fn export_regression_report(
+        &self,
+        path: impl AsRef<std::path::Path>,
+        limit: usize,
+    ) -> std::io::Result<()> {
+        let snap = self.snapshot(limit);
+        let json = serde_json::to_string_pretty(&snap).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("serde_json: {e}"))
+        })?;
+        std::fs::write(path.as_ref(), json)
+    }
 }
 
 impl Default for OperationProfiler {
@@ -748,6 +778,28 @@ mod tests {
         let profiler = OperationProfiler::with_hooks(hooks);
         assert!(profiler.hooks().cpu_gpu_breakdown);
         assert!(profiler.hooks().shape_bucket_recording);
+    }
+
+    #[test]
+    fn new_ci_safe_disables_extra_hooks() {
+        let p = OperationProfiler::new_ci_safe();
+        let h = p.hooks();
+        assert!(h.per_op_timing);
+        assert!(!h.cpu_gpu_breakdown);
+        assert!(!h.memory_tracking);
+        assert!(!h.shape_bucket_recording);
+    }
+
+    #[test]
+    fn export_regression_report_writes_profiler_snapshot_json() {
+        let mut p = OperationProfiler::new_ci_safe();
+        p.record_operation_internal("add", Duration::from_micros(100), None, None, DeviceType::Cpu, None);
+        let tmp = std::env::temp_dir().join("rustral_profiler_regression.json");
+        p.export_regression_report(&tmp, 10).unwrap();
+        let s = std::fs::read_to_string(&tmp).unwrap();
+        assert!(s.contains("\"add\""));
+        assert!(s.contains("total_calls"));
+        std::fs::remove_file(&tmp).ok();
     }
 
     #[test]
