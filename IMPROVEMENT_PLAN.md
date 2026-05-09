@@ -282,26 +282,35 @@ Legend: reflects the **architecture checklist** and related code landed **May 20
   - All SIMD implementations include scalar fallback for remainder elements
   - (Benchmark numbers are hardware-dependent; prefer running `rustral-bench` and/or `wikitext2_lm` locally for current throughput.)
 
-- **O10 `ADVANCEMENT.md` plan alignment (audit)**: **In progress**
+- **O9b Parallel reductions knob (CPU, opt-in)**: **Done**
+  - **Env**: `RUSTRAL_PAR_REDUCE=1` or `RUSTRAL_PARALLEL_REDUCTIONS=1` (either enables the same paths).
+  - **Where**: `crates/ndarray-backend/src/lib.rs` — `sum_all`, `sum_dim0`, `sum_dim` use Rayon only when the knob is set and the tensor is large enough; inner summation order stays fixed per output element / chunk so results stay reproducible for a given setting (parallel vs serial can still differ slightly in float rounding vs a fully serial reduction).
+  - **Core surface**: `PARALLEL_REDUCTIONS_ENV`, `PAR_REDUCE_ENV`, and `parallel_reductions_enabled()` in `crates/core/src/lib.rs` (helper is true if either env is `"1"`); `ndarray-backend` calls `parallel_reductions_enabled()` for `sum_*` paths.
+
+- **O10 `ADVANCEMENT.md` plan alignment (audit)**: **Done** (repo never contained `ADVANCEMENT.md`; items below map to that audit list)
   - **Numerics / tolerances**
     - **Implemented**: numerics policy exists (not at the `ADVANCEMENT.md` proposed path):
       - `crates/core/src/numerics.rs`
       - `crates/core/tests/common/numeric.rs`, `crates/core/tests/numeric_policy_smoke.rs`
-    - **Not started**: the proposed golden micro-block structure does not exist yet:
-      - `crates/core/tests/golden/` (missing)
-    - **Not started**: `RUSTRAL_PARALLEL_REDUCTIONS` knob is not implemented (only documented in `ADVANCEMENT.md` currently).
+    - **Implemented**: golden micro-block tests + shared f64 reference helpers:
+      - `crates/core/tests/golden/mod.rs` (reference softmax / sum_dim0)
+      - `crates/core/tests/golden_microblock_ops.rs` (vs `CpuBackend`)
+    - **Implemented**: CPU parallel reductions knob — see **O9b** (`RUSTRAL_PAR_REDUCE` / `RUSTRAL_PARALLEL_REDUCTIONS`).
   - **Profiling**
     - **Implemented**: `OperationProfiler` exists with a stable, machine-readable snapshot:
       - `crates/core/src/operation_profiler.rs` (`snapshot`, `print_snapshot_json`, `ProfilerSnapshot`)
     - **Implemented (current opt-in)**: training wiring uses `RUSTRAL_PROFILE=1` in `crates/runtime/src/tape_trainer.rs`
-    - **Not started**: `new_ci_safe()` / `export_regression_report()` APIs and explicit CI-mode integration as described in `ADVANCEMENT.md`.
+    - **Implemented**: CI-oriented APIs and wiring:
+      - `ProfilingHooks::ci_safe`, `OperationProfiler::new_ci_safe`, `OperationProfiler::export_regression_report` (`crates/core/src/operation_profiler.rs`)
+      - When `CI` is set or `RUSTRAL_PROFILE_CI=1`, training uses `new_ci_safe()` under `RUSTRAL_PROFILE=1`
+      - Optional `RUSTRAL_PROFILE_EXPORT_JSON=<path>` with `RUSTRAL_PROFILE_SNAPSHOT_LIMIT` (default 64) writes pretty JSON snapshot after training
   - **Pooling / shape policy**
     - **Implemented**: pooling + shape-policy surfaces are already tracked above (O3/O4); `wikitext2_lm` enables pooling via `RUSTRAL_POOL=1`.
   - **WGPU kernel knobs + correctness harness**
     - **Implemented**: `RUSTRAL_WGPU_MATMUL_TILE` exists (`crates/wgpu-backend/src/lib.rs`).
     - **Implemented**: WGPU tests honor `RUSTRAL_REQUIRE_GPU=1` (fail fast if init fails) and prefer Vulkan on Linux to avoid flaky EGL/GLES contexts.
-    - **Implemented**: `RUSTRAL_WGPU_WORKGROUP`, `RUSTRAL_WGPU_VECTORIZED`, and the proposed harness/tests path:
-      - `crates/wgpu-backend/tests/correctness.rs` created with kernel knob validation tests
+    - **Implemented**: `RUSTRAL_WGPU_WORKGROUP` (`128` \| `256`, default `256`) and `RUSTRAL_WGPU_VECTORIZED=1` select WGSL entry points (`*_wg128`, `*_vec4`) for elementwise binary/unary/scalar kernels; dispatch counts are adjusted for vectorized mode (`crates/wgpu-backend/src/shaders.wgsl`, `crates/wgpu-backend/src/lib.rs`). `gather_rows` respects `RUSTRAL_WGPU_WORKGROUP`.
+    - **Implemented**: harness / knob tests: `crates/wgpu-backend/tests/correctness.rs` (documents and exercises the env vars).
   - **Microbenchmarks**
     - **Implemented (different shape)**: microbench + JSON workload system exists (`scripts/bench/run_all.py`, `crates/bench/src/bin/rustral_workloads*.rs`).
     - **Partially implemented (in existing harness)**: added `softmax_dim` and `fused_linear_bias_gelu` workloads in `crates/bench/src/bin/rustral_workloads.rs`.
@@ -309,7 +318,7 @@ Legend: reflects the **architecture checklist** and related code landed **May 20
 
 ## Architecture: principles vs implementation (checklist)
 
-Actionable items to keep README and `ARCHITECTURE.md` claims aligned with the code (fusion, tape, autotuner, capabilities). Check boxes as work lands; optional note in parentheses for PR or commit. **Verified against repo: May 9, 2026.**
+Actionable items to keep README and `ARCHITECTURE.md` claims aligned with the code (fusion, tape, autotuner, capabilities). Check boxes as work lands; optional note in parentheses for PR or commit. **Verified against repo: May 9, 2026** (living doc: O9b parallel reductions + WGPU workgroup/vectorized knobs synced same day).
 
 ### Fusion and hot paths
 
@@ -331,14 +340,22 @@ Actionable items to keep README and `ARCHITECTURE.md` claims aligned with the co
 
 - [x] **Shape policy** — `ShapePolicy` on `ForwardCtx` (`crates/core/src/shape_policy.rs`, `context.rs`).
 - [x] **Training vs inference pooling** — `PoolStrategy` + `TensorPool::begin_step` (`crates/core/src/tensor_pool.rs`); **`TapeTrainer` invokes `begin_step` after each optimizer step** when `with_tensor_pool` is used (`crates/runtime/src/tape_trainer.rs`).
+- [x] **CPU parallel reductions (opt-in)** — `RUSTRAL_PAR_REDUCE=1` or `RUSTRAL_PARALLEL_REDUCTIONS=1` for `sum_all` / `sum_dim0` / `sum_dim` in `crates/ndarray-backend/src/lib.rs` (see **O9b**).
+- [x] **Golden micro-block tests** — `crates/core/tests/golden/mod.rs`, `golden_microblock_ops.rs` (see **O10**).
 
 ### Observability
 
 - [x] **`ForwardCtx` and profiling** — `with_profiler` / `set_profiler` / `profiler()` on `ForwardCtx`.
+- [x] **Profiler CI preset + regression export** — `new_ci_safe`, `export_regression_report`, `RUSTRAL_PROFILE_CI`, `RUSTRAL_PROFILE_EXPORT_JSON` (see **O10**).
 
 ### Autotuner
 
 - [x] **Document CI and opt-out presets** — `rustral-autotuner` crate rustdoc + `ARCHITECTURE.md`.
+
+### WGPU backend (when enabled)
+
+- [x] **Matmul tile selection** — `RUSTRAL_WGPU_MATMUL_TILE` (`crates/wgpu-backend/src/lib.rs`).
+- [x] **Elementwise workgroup + vectorized kernels** — `RUSTRAL_WGPU_WORKGROUP` (`128` \| `256`), `RUSTRAL_WGPU_VECTORIZED=1` (`crates/wgpu-backend/src/shaders.wgsl`, `crates/wgpu-backend/src/lib.rs`).
 
 ## Track A: Core Usability
 
