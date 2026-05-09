@@ -122,7 +122,7 @@ These optimizations are designed to benefit all backends equally, maintaining Ru
 
 Rustral is currently best viewed as a research and systems framework: useful for learning, experiments, backend work, and Rust-native ML infrastructure. If you need the largest pretrained model ecosystem today, Python frameworks remain the practical default. If you want a framework whose execution model is explicit and whose internals are approachable, Rustral is designed for that.
 
-The public roadmap lives in [`docs/master-plan.md`](docs/master-plan.md). Maintainers may keep a private root-level `IMPROVEMENT_PLAN.md` for detailed checklists (that file is gitignored and not shipped in the repo).
+The public roadmap lives in [`docs/master-plan.md`](docs/master-plan.md). Detailed execution plans are tracked in [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md).
 
 ## Why Rustral Feels Different
 
@@ -257,10 +257,10 @@ cargo build --workspace
 
 This runs formatting checks, clippy lints, the full workspace build, and tests across workspace crates (`rustral-wgpu-backend` may warn on some GPU/driver stacks). Newer crates include `rustral-inference-server`, `rustral-model-zoo`, and `rustral-onnx-export`; see [Inference, checkpoints, and deployment](#inference-checkpoints-and-deployment).
 
-### 3. Run Your First Example: XOR
+### 3. Run Your First Example: XOR Classification
 
 ```bash
-cd examples && cargo run --bin xor
+cargo run -p rustral-runtime --features training --example tape_xor_classification
 ```
 
 **What it does:** A 2-layer network learns that `0 XOR 0 = 0`, `0 XOR 1 = 1`, `1 XOR 0 = 1`, `1 XOR 1 = 0`.
@@ -609,15 +609,17 @@ Rustral now has a small evidence loop that is meant to be useful to both researc
 - `.github/workflows/bench-gpu.yml` runs CUDA benchmarks only when a maintainer asks for them with the `bench-gpu` label or manual dispatch.
 - `.github/workflows/pages.yml` renders a GitHub Pages dashboard from `benchmarks/runs/<version>/`.
 
-### Real evaluation results (v0.1.0)
+### Real evaluation results
 
-Curated 3-seed real-data snapshots live under `benchmarks/runs/v0.1.0/nlp/`:
+**v0.1.0 (default / modest caps in the orchestrator)** — curated 3-seed snapshots under `benchmarks/runs/v0.1.0/nlp/`:
 
 - **SST-2 dev accuracy (Rustral)**: **0.509 ± 0.000** (`sst2.json`)
 - **WikiText-2 dev perplexity (Rustral)**: **10643.9 ± 472.5** (`wikitext2.json`)
 - **PyTorch baselines (same architecture + vocab)**: `sst2_pytorch.json`, `wikitext2_pytorch.json`
 
-See `EVALUATION.md` for the exact model architecture, dataset pins, and parity table.
+**Upcoming releases (paper-profile, pre-tag)** — run `./scripts/eval/run_release_nlp_eval.sh <semver>` and commit `benchmarks/runs/v<version>/nlp/*.json` before tagging (see [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) and [`EVALUATION.md`](EVALUATION.md)). The nightly [`nlp-real`](.github/workflows/nlp-real.yml) workflow uses a **fast** preset; it does **not** replace the release eval.
+
+See `EVALUATION.md` for architecture, dataset pins, and parity tables.
 
 ---
 

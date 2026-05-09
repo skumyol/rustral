@@ -9,15 +9,26 @@ shared JSON schema documented in benchmarks/SCHEMA.md, then writes:
     benchmarks/results/summary.md         (aggregated Markdown summary)
 
 Suites:
-    rustral  -> Rustral via the ndarray-cpu backend (always available)
-    candle   -> Candle-direct (Rust, always available)
-    pytorch  -> PyTorch CPU (requires `torch` in the active Python environment)
+    rustral       -> Rustral via the ndarray-cpu backend (always available)
+    candle        -> Candle-direct (Rust, always available)
+    pytorch       -> PyTorch CPU (requires `torch` in the active Python environment)
+    pytorch-cuda  -> PyTorch CUDA (requires `torch` with GPU; skipped if unavailable)
+    rustral-cuda  -> Rustral CUDA backend (requires CUDA toolchain)
+    rustral-metal -> Rustral Metal backend (Apple GPUs)
+    jax           -> JAX CPU (requires `jax`)
+    jax-gpu       -> JAX GPU (requires `jax` + GPU backend)
+    tensorflow    -> TensorFlow CPU (requires `tensorflow`)
+    tensorflow-gpu-> TensorFlow GPU (requires `tensorflow` + GPU)
+    onnxruntime   -> ONNX Runtime CPU (requires `onnx` + `onnxruntime`)
+    onnxruntime-cuda -> ONNX Runtime CUDA EP (requires `onnx` + `onnxruntime-gpu`)
 
 Usage:
     python3 scripts/bench/run_all.py
     python3 scripts/bench/run_all.py --repeats 10
     python3 scripts/bench/run_all.py --suite rustral --suite candle
     python3 scripts/bench/run_all.py --suite pytorch
+    python3 scripts/bench/run_all.py --suite pytorch --suite pytorch-cuda
+    python3 scripts/bench/run_all.py --suite jax --suite tensorflow --suite onnxruntime
 """
 from __future__ import annotations
 
@@ -72,11 +83,28 @@ def run_suite_candle(repeats: int, warmup: int) -> dict:
 
 
 def run_suite_pytorch(repeats: int, warmup: int) -> dict:
+    return _run_suite_pytorch_device(repeats, warmup, "cpu")
+
+
+def run_suite_pytorch_cuda(repeats: int, warmup: int) -> dict:
+    return _run_suite_pytorch_device(repeats, warmup, "cuda")
+
+
+def _run_suite_pytorch_device(repeats: int, warmup: int, device: str) -> dict:
     script = REPO_ROOT / "benchmarks" / "pytorch" / "baselines.py"
     if not script.exists():
         raise FileNotFoundError(f"pytorch baseline script missing: {script}")
     out = run_cmd(
-        [sys.executable, str(script), "--repeats", str(repeats), "--warmup", str(warmup)],
+        [
+            sys.executable,
+            str(script),
+            "--repeats",
+            str(repeats),
+            "--warmup",
+            str(warmup),
+            "--device",
+            device,
+        ],
     )
     return json.loads(out)
 
@@ -112,12 +140,51 @@ def run_suite_rustral_metal(repeats: int, warmup: int) -> dict:
     return json.loads(out)
 
 
+def _run_py_baseline(script_rel: str, repeats: int, warmup: int, *extra: str) -> dict:
+    script = REPO_ROOT / script_rel
+    if not script.exists():
+        raise FileNotFoundError(f"baseline script missing: {script}")
+    out = run_cmd([sys.executable, str(script), "--repeats", str(repeats), "--warmup", str(warmup), *extra])
+    return json.loads(out)
+
+
+def run_suite_jax(repeats: int, warmup: int) -> dict:
+    return _run_py_baseline("benchmarks/jax_baselines.py", repeats, warmup, "--device", "cpu")
+
+
+def run_suite_jax_gpu(repeats: int, warmup: int) -> dict:
+    return _run_py_baseline("benchmarks/jax_baselines.py", repeats, warmup, "--device", "gpu")
+
+
+def run_suite_tensorflow(repeats: int, warmup: int) -> dict:
+    return _run_py_baseline("benchmarks/tensorflow_baselines.py", repeats, warmup, "--device", "cpu")
+
+
+def run_suite_tensorflow_gpu(repeats: int, warmup: int) -> dict:
+    return _run_py_baseline("benchmarks/tensorflow_baselines.py", repeats, warmup, "--device", "gpu")
+
+
+def run_suite_onnxruntime(repeats: int, warmup: int) -> dict:
+    return _run_py_baseline("benchmarks/onnxruntime_baselines.py", repeats, warmup, "--device", "cpu")
+
+
+def run_suite_onnxruntime_cuda(repeats: int, warmup: int) -> dict:
+    return _run_py_baseline("benchmarks/onnxruntime_baselines.py", repeats, warmup, "--device", "cuda")
+
+
 SUITES = {
     "rustral": run_suite_rustral,
     "candle": run_suite_candle,
     "pytorch": run_suite_pytorch,
+    "pytorch-cuda": run_suite_pytorch_cuda,
     "rustral-cuda": run_suite_rustral_cuda,
     "rustral-metal": run_suite_rustral_metal,
+    "jax": run_suite_jax,
+    "jax-gpu": run_suite_jax_gpu,
+    "tensorflow": run_suite_tensorflow,
+    "tensorflow-gpu": run_suite_tensorflow_gpu,
+    "onnxruntime": run_suite_onnxruntime,
+    "onnxruntime-cuda": run_suite_onnxruntime_cuda,
 }
 
 

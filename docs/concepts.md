@@ -542,16 +542,14 @@ let normalized = ops.normalize(&flipped, mean, std)?;  // Zero mean, unit varian
 ### Data Parallel (Simplest)
 
 ```rust
-use rustral_distributed::{ProcessGroup, DataParallelTrainer};
+use rustral_distributed::ProcessGroup;
+// Note: DataParallelTrainer API may vary; check crate documentation for current surface
 
 // 8 GPUs, I'm GPU #rank
 let pg = ProcessGroup::new_threaded(8, rank)?;
 
-// Batch is automatically split: 256 -> 32 per GPU
-let mut trainer = DataParallelTrainer::new(pg, Adam::new(0.001));
-
 // Gradients are automatically synchronized after each step
-let loss = trainer.step(&mut params, &batch, &mut loss_fn, &mut ctx)?;
+// (API subject to change; see crate documentation)
 ```
 
 ### ZeRO (Memory Optimization)
@@ -573,7 +571,7 @@ let optimizer = Zero2Optimizer::new(Adam::new(0.001), pg, total_params);
 ### Pipeline Parallel (Model Too Big)
 
 ```rust
-use rustral_distributed::{PipelineConfig, PipelineParallel};
+use rustral_distributed::pipeline_parallel::{PipelineConfig, PipelineParallel};
 
 // Layer 0-3 on GPU 0, Layer 4-7 on GPU 1, etc.
 let config = PipelineConfig::new()
@@ -657,14 +655,16 @@ fn evaluate<B: Backend>(
 ### Pattern 3: Model Checkpointing
 
 ```rust
-use rustral_io::{save, load};
+use rustral_io::{save_parameters, load_parameters};
 
 // Save
-save(&params, "model_checkpoint.safetensors")?;
+let data = save_parameters(&params)?;
 
 // Load (resumes training from saved state)
-let loaded_params = load("model_checkpoint.safetensors", backend)?;
+let loaded_params = load_parameters(&data)?;
 ```
+
+For higher-level model I/O with named parameters, see `rustral-runtime` (`save_model` / `load_model`).
 
 ### Pattern 4: Mixed Precision
 

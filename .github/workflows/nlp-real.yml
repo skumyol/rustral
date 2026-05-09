@@ -2,12 +2,25 @@ name: nlp-real
 
 on:
   workflow_dispatch:
+    inputs:
+      preset:
+        description: "benchmark = fast regression (default for schedule); paper = full pre-release eval (slow, 3 seeds)"
+        type: choice
+        options:
+          - benchmark
+          - paper
+        default: benchmark
+      curated_version:
+        description: "Paper preset only — semver without v (e.g. 0.2.0)"
+        type: string
+        default: "0.2.0"
   schedule:
     - cron: "0 6 * * *"
 
 jobs:
   nlp-real:
     runs-on: ubuntu-latest
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.preset == 'paper' && 360 || 45 }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -29,25 +42,58 @@ jobs:
       - name: Build runtime examples
         run: cargo build --release -p rustral-runtime --features training --examples
 
-      - name: Run real-data NLP (single seed, benchmark preset)
+      - name: Run real-data NLP
         env:
           CANDLE_FORCE_CPU: "1"
         run: |
-          python3 scripts/eval/run_nlp_real.py \
-            --benchmark \
-            --seeds 0 \
-            --out-root out/nlp_real_ci
+          set -euo pipefail
+          PRESET='${{ github.event_name == 'workflow_dispatch' && github.event.inputs.preset || 'benchmark' }}'
+          CURATED='${{ github.event_name == 'workflow_dispatch' && github.event.inputs.curated_version || '0.2.0' }}'
+          if [ "$PRESET" = "paper" ]; then
+            python3 scripts/eval/run_nlp_real.py \
+              --paper \
+              --clean \
+              --curated-version "$CURATED" \
+              --seeds 0,1,2 \
+              --out-root "out/nlp_paper_${CURATED}"
+          else
+            python3 scripts/eval/run_nlp_real.py \
+              --benchmark \
+              --seeds 0 \
+              --out-root out/nlp_real_ci
+          fi
 
-      - name: Validate curated manifests
+      - name: Validate curated manifests (benchmark preset)
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.preset || 'benchmark') != 'paper' }}
         run: |
-          python3 scripts/bench/validate_manifest.py benchmarks/runs/v0.1.0/nlp/sst2.json benchmarks/runs/v0.1.0/nlp/wikitext2.json
+          python3 scripts/bench/validate_manifest.py \
+            benchmarks/runs/v0.1.0/nlp/sst2.json \
+            benchmarks/runs/v0.1.0/nlp/wikitext2.json
 
-      - name: Upload curated manifests
+      - name: Validate curated manifests (paper preset)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.preset == 'paper' }}
+        run: |
+          CURATED='${{ github.event.inputs.curated_version }}'
+          python3 scripts/bench/validate_manifest.py \
+            "benchmarks/runs/v${CURATED}/nlp/sst2.json" \
+            "benchmarks/runs/v${CURATED}/nlp/wikitext2.json"
+
+      - name: Upload curated manifests (benchmark)
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.preset || 'benchmark') != 'paper' }}
         uses: actions/upload-artifact@v4
         with:
-          name: nlp-real-${{ github.sha }}
+          name: nlp-real-${{ github.sha }}-benchmark
           path: |
             benchmarks/runs/v0.1.0/nlp/sst2.json
             benchmarks/runs/v0.1.0/nlp/wikitext2.json
           retention-days: 14
 
+      - name: Upload curated manifests (paper)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.preset == 'paper' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nlp-real-${{ github.sha }}-paper-v${{ github.event.inputs.curated_version }}
+          path: |
+            benchmarks/runs/v${{ github.event.inputs.curated_version }}/nlp/sst2.json
+            benchmarks/runs/v${{ github.event.inputs.curated_version }}/nlp/wikitext2.json
+          retention-days: 30

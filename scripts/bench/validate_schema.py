@@ -44,6 +44,45 @@ def _try_jsonschema():
 REQUIRED_SUITE_KEYS = {"suite", "schema_version", "machine", "samples"}
 REQUIRED_MACHINE_KEYS = {"os", "arch", "hostname"}
 REQUIRED_SAMPLE_KEYS = {"name", "backend", "device", "dtype", "params", "runs_ms"}
+OPTIONAL_SAMPLE_STATS = {
+    "mean_ms",
+    "std_ms",
+    "min_ms",
+    "max_ms",
+    "p50_ms",
+    "ci95_low_ms",
+    "ci95_high_ms",
+    "stats_note",
+}
+ALLOWED_SAMPLE_KEYS = REQUIRED_SAMPLE_KEYS | OPTIONAL_SAMPLE_STATS | {"model_params", "outlier_run_indices"}
+
+
+def _fallback_validate_sample_optional(s: Dict[str, Any], path: str, i: int) -> List[str]:
+    errs: List[str] = []
+    has_lo = "ci95_low_ms" in s
+    has_hi = "ci95_high_ms" in s
+    if has_lo ^ has_hi:
+        errs.append(f"{path}: samples[{i}] ci95_low_ms and ci95_high_ms must appear together")
+    if has_lo and has_hi:
+        for k in ("ci95_low_ms", "ci95_high_ms"):
+            v = s.get(k)
+            if not isinstance(v, (int, float)) or v < 0:
+                errs.append(f"{path}: samples[{i}].{k} must be a non-negative number")
+    oi = s.get("outlier_run_indices")
+    if oi is not None:
+        if not isinstance(oi, list):
+            errs.append(f"{path}: samples[{i}].outlier_run_indices must be an array")
+        else:
+            for j, idx in enumerate(oi):
+                if not isinstance(idx, int) or idx < 0:
+                    errs.append(f"{path}: samples[{i}].outlier_run_indices[{j}] must be a non-negative int")
+    sn = s.get("stats_note")
+    if sn is not None and not isinstance(sn, str):
+        errs.append(f"{path}: samples[{i}].stats_note must be a string")
+    for k in s.keys():
+        if k not in ALLOWED_SAMPLE_KEYS:
+            errs.append(f"{path}: samples[{i}] unknown key {k!r} (schema additionalProperties false)")
+    return errs
 
 
 def _fallback_validate_suite(doc: Dict[str, Any], path: str) -> List[str]:
@@ -75,6 +114,7 @@ def _fallback_validate_suite(doc: Dict[str, Any], path: str) -> List[str]:
             rm = s.get("runs_ms")
             if not isinstance(rm, list) or not rm:
                 errs.append(f"{path}: samples[{i}].runs_ms must be a non-empty array")
+            errs.extend(_fallback_validate_sample_optional(s, path, i))
     return errs
 
 

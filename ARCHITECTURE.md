@@ -75,4 +75,4 @@ The design optimizes for *legible* deep-learning systems: backend selection, tra
 - No hidden mutable model state; pass `ForwardCtx` and backends explicitly.
 - Parameters are owned by modules; optimizers and checkpointers traverse via `NamedParameters`.
 - Save/load is **strict** by default: missing keys, extra keys, shape mismatch, and dtype mismatch all fail loudly (see [`crates/runtime/src/model_io.rs`](crates/runtime/src/model_io.rs)).
-- Determinism: `TapeTrainer` shuffles via `seed ^ (epoch * constant)`; CPU runs are bitwise reproducible across runs given identical seeds (see [`examples/emnlp_char_lm.rs`](crates/runtime/examples/emnlp_char_lm.rs)).
+- Determinism: `TapeTrainer` shuffles via `seed ^ (epoch * constant)`; CPU runs are bitwise reproducible across runs given identical seeds (see [`crates/runtime/examples/emnlp_char_lm.rs`](crates/runtime/examples/emnlp_char_lm.rs)).

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
 Build a comparative analysis Markdown report: Rustral vs PyTorch (NLP) and
-optionally micro-benchmark harness JSON (rustral / candle / pytorch suites).
+micro-benchmark harness JSON (rustral / candle / pytorch / pytorch-cuda / GPU Rust suites).
 
 Usage:
   python3 scripts/bench/comparative_report.py
   python3 scripts/bench/comparative_report.py --runs-version 0.2.0
-  python3 scripts/bench/comparative_report.py --harness benchmarks/results/queue-foo.json
+  python3 scripts/bench/comparative_report.py --harness benchmarks/results/queue-foo.json \\
+      --harness-extra benchmarks/results/queue-foo-pytorch.json
 
 Output: benchmarks/reports/comparative_<runs_version>_<date>.md (or --out path)
 """
@@ -137,28 +138,81 @@ def _nlp_section(
     return "\n".join(lines)
 
 
-def _harness_section(path: Optional[Path]) -> str:
+def _resolve_harness_paths(harness: Optional[Path], extras: List[Path]) -> List[Path]:
+    raw: List[Optional[Path]] = []
+    if harness is not None:
+        raw.append(harness)
+    raw.extend(extras)
+    out: List[Path] = []
+    for p in raw:
+        if p is None:
+            continue
+        path = p if p.is_absolute() else (REPO_ROOT / p).resolve()
+        if path.exists():
+            out.append(path)
+    return out
+
+
+def _harness_section(paths: List[Path]) -> str:
     lines: List[str] = ["## Micro-benchmarks (schema v2 harness)", ""]
-    if not path or not path.exists():
-        lines.append("*No harness JSON provided or file missing.*")
+    if not paths:
+        lines.append("*No harness JSON provided or files missing.*")
         lines.append("")
-        lines.append("Generate with: `python3 scripts/bench/run_all.py --suite rustral --suite candle [--suite pytorch] --out …`")
+        lines.append(
+            "Generate with: `python3 scripts/bench/run_all.py --suite rustral --suite candle "
+            "[--suite pytorch] [--suite pytorch-cuda] [--suite rustral-cuda] --out …`"
+        )
         lines.append("")
         return "\n".join(lines)
 
-    doc = _read_json(path)
-    lines.append(f"*Source:* `{path.relative_to(REPO_ROOT)}`")
+    lines.append("### Methodology (operator timing)")
     lines.append("")
-    lines.append("| Workload | Suite | Backend | Mean (ms) | Std (ms) |")
-    lines.append("|----------|-------|---------|-----------|----------|")
-    for block in doc.get("suites", []):
-        sname = block.get("suite", "?")
-        for sample in block.get("samples", []):
-            name = sample.get("name", "?")
-            backend = sample.get("backend", "?")
-            mean = sample.get("mean_ms", 0)
-            std = sample.get("std_ms", 0)
-            lines.append(f"| {name} | {sname} | {backend} | {mean:.3f} | {std:.3f} |")
+    lines.append(
+        "- **Wall-clock ms** per repeat; **CPU** timings use `time.perf_counter()` around the op."
+    )
+    lines.append(
+        "- **PyTorch CUDA**: `torch.cuda.synchronize()` before/after each timed region so "
+        "async launch does not skew means (standard practice for academic GPU micro-benchmarks)."
+    )
+    lines.append(
+        "- **Rustral `rustral-cuda` / `rustral-metal`**: same schema; compare only within "
+        "the same device class (CPU vs CPU, GPU vs GPU)."
+    )
+    lines.append(
+        "- **Frameworks**: ndarray CPU and Candle CPU vs PyTorch CPU/CUDA — apples-to-apples on "
+        "`name` + `params`, not across different op fusion or autograd paths."
+    )
+    lines.append("")
+
+    lines.append("| Workload | Suite | Backend | Device | Mean (ms) | 95% CI | Std (ms) | JSON |")
+    lines.append("|----------|-------|---------|--------|-----------|--------|----------|------|")
+    for path in paths:
+        doc = _read_json(path)
+        rel = path.relative_to(REPO_ROOT)
+        raw_suites = doc.get("suites")
+        if isinstance(raw_suites, list) and raw_suites:
+            blocks = raw_suites
+        elif isinstance(doc.get("samples"), list):
+            blocks = [{"suite": doc.get("suite", "?"), "samples": doc["samples"]}]
+        else:
+            blocks = []
+        for block in blocks:
+            sname = block.get("suite", "?")
+            for sample in block.get("samples", []):
+                name = sample.get("name", "?")
+                backend = sample.get("backend", "?")
+                dev = sample.get("device", "?")
+                mean = float(sample.get("mean_ms", 0))
+                std = float(sample.get("std_ms", 0))
+                lo = sample.get("ci95_low_ms")
+                hi = sample.get("ci95_high_ms")
+                if lo is not None and hi is not None:
+                    ci_cell = f"[{float(lo):.3f}, {float(hi):.3f}]"
+                else:
+                    ci_cell = "—"
+                lines.append(
+                    f"| {name} | {sname} | {backend} | {dev} | {mean:.3f} | {ci_cell} | {std:.3f} | `{rel}` |"
+                )
     lines.append("")
     return "\n".join(lines)
 
@@ -167,7 +221,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--runs-version", default="0.2.0", help="NLP curated folder v<version> (default 0.2.0)")
     ap.add_argument("--fallback-version", default="0.1.0", help="if v0.2.0 nlp missing, try this")
-    ap.add_argument("--harness", type=Path, default=None, help="optional run_all.py output JSON")
+    ap.add_argument("--harness", type=Path, default=None, help="primary run_all.py output JSON (e.g. rustral+candle)")
+    ap.add_argument(
+        "--harness-extra",
+        type=Path,
+        action="append",
+        default=[],
+        help="additional harness JSON files (e.g. pytorch stack, rustral-cuda); repeatable",
+    )
     ap.add_argument("--out", type=Path, default=None, help="output Markdown path")
     args = ap.parse_args()
 
@@ -208,13 +269,21 @@ def main() -> int:
     harness_path = args.harness
     if harness_path and not harness_path.is_absolute():
         harness_path = (REPO_ROOT / harness_path).resolve()
-    parts.append(_harness_section(harness_path))
+    extra_paths: List[Path] = []
+    for h in args.harness_extra or []:
+        hp = h if h.is_absolute() else (REPO_ROOT / h).resolve()
+        extra_paths.append(hp)
+    h_paths = _resolve_harness_paths(harness_path, extra_paths)
+    parts.append(_harness_section(h_paths))
 
     parts.append("## Checklist for the paper")
     parts.append("")
     parts.append("- [ ] Same tokenizer vocabulary file for Rustral and PyTorch rows being compared.")
     parts.append("- [ ] Same train token cap / eval window cap documented (WikiText-2).")
     parts.append("- [ ] Hardware (CPU/GPU), batch size, and wall-clock noted.")
+    parts.append(
+        "- [ ] Micro-benchmark table: compare same `name`+`params` only; GPU rows use synchronized timing."
+    )
     parts.append("- [ ] Learning-rate schedule: document if warmup differs between stacks.")
     parts.append("")
 

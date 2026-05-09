@@ -74,7 +74,20 @@ Without `--benchmark`, `run_nlp_real.py` still applies modest WikiText-2 caps by
 
 For heavier, slower runs, increase `--wikitext-*` caps and pass larger `--seq-len`, `--d-model`, etc. to the Rust examples explicitly.
 
-Older curated JSON numbers in this file may be stale; always prefer the aggregates embedded in `benchmarks/runs/v0.1.0/nlp/*.json` for the commit you are on.
+### Pre-release full evaluation (paper profile)
+
+Before a **release tag**, maintainers must capture **three-seed** paper-profile runs and **commit** the curated summaries under `benchmarks/runs/v<version>/nlp/`. This is **not** `--quick` or `--benchmark`: the Rust examples run with `--paper` (larger model, full SST-2 training split in the example, 200k WikiText-2 train tokens, shared vocab across seeds for fair aggregates). See [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md).
+
+One command (validates manifests after):
+
+```bash
+./scripts/eval/run_release_nlp_eval.sh 0.2.0
+# Optional: ./scripts/eval/run_release_nlp_eval.sh 0.2.0 --pytorch
+```
+
+This wraps `python3 scripts/eval/run_nlp_real.py --paper --clean --curated-version <version> --seeds 0,1,2`. Replace `0.2.0` with the version directory you are about to tag.
+
+Older curated JSON numbers in prose below may be stale; prefer the aggregates in `benchmarks/runs/<version>/nlp/*.json` for the commit you are on.
 
 ## Rustral vs PyTorch parity (v0.1.0)
 
@@ -120,9 +133,8 @@ Both examples support online and offline runs through `rustral-data` environment
 
 `crates/data/src/datasets/sst2.rs` and `crates/data/src/datasets/wikitext2.rs` declare
 canonical URLs and a `*_SHA256` constant for each artifact. The hashes are real
-SHA-256 values verified against the downloaded files on the dates listed below; if
-upstream rotates a file the loader fails loudly with `ChecksumMismatch` and a maintainer
-must re-pin deliberately.
+SHA-256 values verified against the downloaded files; if upstream rotates a file
+the loader fails loudly with `ChecksumMismatch` and a maintainer must re-pin deliberately.
 
 | Artifact | URL | Verified SHA-256 |
 |---|---|---|
@@ -151,6 +163,31 @@ cargo test -p rustral-runtime --features training -- --include-ignored wikitext2
 ```
 
 CI runs these on every PR.
+
+## Micro-benchmarks: frameworks and hardware (operator timing)
+
+The harness in `scripts/bench/run_all.py` runs a **fixed workload list** (matmul, manual attention, conv2d, plus additional training-oriented kernels in the Rust binaries) across stacks that share the same **schema v2** (`benchmarks/SCHEMA.md`):
+
+| Suite | Stack | Device class | When to cite |
+|-------|--------|--------------|--------------|
+| `rustral` | Rustral ndarray backend | CPU | Core comparisons vs other CPU frameworks |
+| `candle` | Candle (Rust) | CPU | Another Rust ML baseline on CPU |
+| `pytorch` | PyTorch | CPU | Industry baseline; requires `torch` in the active env |
+| `pytorch-cuda` | PyTorch | NVIDIA GPU | Same workloads on CUDA; timings use `cuda.synchronize()` around each repeat |
+| `rustral-cuda` | Rustral CUDA backend | NVIDIA GPU | Rustral on GPU (requires CUDA build of `rustral-bench`) |
+| `rustral-metal` | Rustral Metal backend | Apple GPU | Rustral on Metal (macOS) |
+
+**Academic / reporting practice:** treat these as **throughput-oriented micro-benchmarks**, not end-to-end training. Report **warmup and repeat counts** (`--warmup`, `--repeats`), **hardware model**, **OS**, and **library versions** (see `machine` in each suite JSON). Compare rows with the same **`name`** and **`params`** only. Do not compare CPU PyTorch latency to CUDA PyTorch without stating the device change explicitly.
+
+**Orchestration:** `./scripts/bench/queue_all_benchmarks.sh` runs the CPU harnesses by default. Optional env flags:
+
+- `RUN_PYTORCH_CUDA=1` — append `pytorch-cuda` to the PyTorch JSON (skipped automatically if no CUDA).
+- `RUN_CUDA_BENCH=1` — run `rustral-cuda` to `benchmarks/results/queue-<stamp>-cuda.json`.
+- `RUN_METAL_BENCH=1` — run `rustral-metal` to `queue-<stamp>-metal.json`.
+
+`scripts/bench/comparative_report.py` merges the primary harness file with `--harness-extra` outputs so the paper draft table lists **CPU + GPU + PyTorch** in one place.
+
+**Not in-tree (future):** JAX / TensorFlow / ONNX Runtime baselines would follow the same pattern (new suite emitting schema v2). Contributions welcome.
 
 ## Not yet covered
 

@@ -1,0 +1,49 @@
+# Optional: compare two harness JSON artifacts (workflow_dispatch only).
+# Default CI does not gate on wall-clock performance. Use this locally or when
+# you have a stable baseline file and a candidate run.
+#
+# See BENCHMARKS.md § "Regression comparison (optional)".
+
+name: bench-regression
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_artifact:
+        description: "Path inside the repo to baseline JSON (e.g. benchmarks/results/baseline.json)"
+        required: true
+        type: string
+      current_artifact:
+        description: "Path inside the repo to current JSON"
+        required: true
+        type: string
+      max_slowdown:
+        description: "Allowed current_mean / baseline_mean"
+        required: false
+        default: "1.25"
+      fail_on_regression:
+        description: "Fail job if slowdown exceeds max_slowdown"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compare harness JSON
+        run: |
+          set -e
+          FAIL_FLAG=""
+          if [ "${{ inputs.fail_on_regression }}" = "true" ]; then
+            FAIL_FLAG=--fail-on-regression
+          fi
+          python3 scripts/bench/compare_harness.py \
+            --baseline "${{ inputs.baseline_artifact }}" \
+            --current "${{ inputs.current_artifact }}" \
+            --max-slowdown "${{ inputs.max_slowdown }}" \
+            ${FAIL_FLAG}

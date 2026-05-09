@@ -89,8 +89,28 @@ Every workload is repeated `--repeats` times. The JSON records:
 
 - `runs_ms`: every individual measurement.
 - `mean_ms`, `std_ms`, `min_ms`, `max_ms`, `p50_ms`
+- Optional: `ci95_low_ms`, `ci95_high_ms` (Student’s \(t\) on `runs_ms`, when \(n \ge 2\)).
+- Optional: `outlier_run_indices` (Tukey IQR advisory flags; `runs_ms` is not altered).
+- Optional: `stats_note` (e.g. `t_interval_on_ms;iqr_outliers`).
 
 This lets reviewers see the noise, not just one cherry-picked timing.
+
+## Regression comparison (optional)
+
+[`scripts/bench/compare_harness.py`](scripts/bench/compare_harness.py) compares two harness JSON files (combined or single-suite), matching samples by suite name, workload `name`, and `params`. Use `--max-slowdown` and `--fail-on-regression` for local or opt-in CI gates. Default PR CI does **not** fail on timing noise; upload artifacts and compare manually or via [Bencher](#benchdev-continuous-trend-tracking).
+
+Example:
+
+```bash
+python3 scripts/bench/compare_harness.py \
+  --baseline benchmarks/results/old.json \
+  --current benchmarks/results/new.json \
+  --max-slowdown 1.20
+```
+
+Add `--fail-on-regression` to exit with status 1 when any matched sample exceeds the slowdown ratio.
+
+Opt-in GitHub workflow: [`.github/workflows/bench-regression.yml`](.github/workflows/bench-regression.yml) (`workflow_dispatch` only). Commit or upload baseline/current JSON paths valid on the runner checkout.
 
 ## GPU benchmarks (CUDA / Metal)
 

@@ -78,7 +78,26 @@
         "std_ms": { "type": "number", "minimum": 0 },
         "min_ms": { "type": "number", "minimum": 0 },
         "max_ms": { "type": "number", "minimum": 0 },
-        "p50_ms": { "type": "number", "minimum": 0 }
+        "p50_ms": { "type": "number", "minimum": 0 },
+        "ci95_low_ms": {
+          "type": "number",
+          "minimum": 0,
+          "description": "95% two-sided CI lower bound (Student t on runs_ms); omitted when n < 2"
+        },
+        "ci95_high_ms": {
+          "type": "number",
+          "minimum": 0,
+          "description": "95% two-sided CI upper bound; pair with ci95_low_ms"
+        },
+        "outlier_run_indices": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 },
+          "description": "0-based indices into runs_ms flagged by Tukey IQR (1.5); runs are not removed"
+        },
+        "stats_note": {
+          "type": "string",
+          "description": "e.g. t_interval_on_ms;iqr_outliers"
+        }
       }
     }
   }

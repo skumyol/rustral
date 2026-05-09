@@ -13,6 +13,14 @@ Run the main CPU harness from the repo root:
 python3 scripts/bench/run_all.py --suite rustral --suite candle --repeats 5 --warmup 1
 ```
 
+Add PyTorch (CPU) and optional PyTorch CUDA in one JSON (CUDA is skipped if unavailable):
+
+```bash
+python3 scripts/bench/run_all.py --suite pytorch --suite pytorch-cuda --repeats 3 --warmup 1 --out benchmarks/results/pt.json
+```
+
+Full local queue (CPU + optional GPU flags): `scripts/bench/queue_all_benchmarks.sh` (see header comments for `RUN_PYTORCH_CUDA`, `RUN_CUDA_BENCH`, `RUN_METAL_BENCH`).
+
 Run the Rustral workload binary directly:
 
 ```bash

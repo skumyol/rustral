@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """
-Run real-data NLP evals (3 seeds) and curate manifests.
+Run real-data NLP evals (multi-seed) and curate manifests.
 
-Writes (default / quick):
-  benchmarks/runs/v0.1.0/nlp/sst2.json
-  benchmarks/runs/v0.1.0/nlp/wikitext2.json
+**Fast CI preset** (`--benchmark`): tiny model + minimal data → writes under
+`benchmarks/runs/v0.1.0/nlp/` by default (override `--curated-version`).
 
-With --paper (larger model + full SST-2 train + 200k wiki tokens):
-  benchmarks/runs/v0.2.0/nlp/sst2.json
-  benchmarks/runs/v0.2.0/nlp/wikitext2.json
-  (optional) sst2_pytorch.json / wikitext2_pytorch.json when --pytorch is set
+**Pre-release / paper preset** (`--paper`): larger model, full SST-2 train in the example,
+200k WikiText-2 train tokens, shared vocab across seeds → writes under
+`benchmarks/runs/v<curated-version>/nlp/`. For releases, prefer the wrapper:
 
-Each curated JSON embeds the raw per-seed manifests (as emitted by the Rust examples)
-and adds mean/std aggregates for the headline metric.
+  ./scripts/eval/run_release_nlp_eval.sh 0.2.0
+  ./scripts/eval/run_release_nlp_eval.sh 0.2.0 --pytorch   # optional PyTorch JSON
 
-Paper mode fits vocabulary on the first seed only, then reuses that vocab.txt for other
-seeds so aggregates are comparable. Use:
+Raw equivalent:
 
-  python3 scripts/eval/run_nlp_real.py --paper --clean
-  # or: ./scripts/eval/run_paper_bench.sh
+  python3 scripts/eval/run_nlp_real.py --paper --clean --curated-version 0.2.0 --seeds 0,1,2
+
+Optional `sst2_pytorch.json` / `wikitext2_pytorch.json` when `--pytorch` is set (needs torch).
+
+Each curated JSON embeds per-seed manifests from the Rust examples plus mean/std aggregates.
 """
 
 from __future__ import annotations

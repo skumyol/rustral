@@ -93,6 +93,84 @@ impl Sample {
     }
 }
 
+/// Two-sided 97.5% quantile of Student's t (df = 1..=30); normal 1.96 for larger df.
+fn t_crit_975(df: usize) -> f64 {
+    if df == 0 {
+        return f64::NAN;
+    }
+    if df > 30 {
+        return 1.96;
+    }
+    const TABLE: [f64; 30] = [
+        12.706_204, 4.302_653, 3.182_446, 2.776_445, 2.570_582, 2.446_912, 2.364_624, 2.306_004,
+        2.262_157, 2.228_139, 2.200_985, 2.178_813, 2.160_369, 2.144_787, 2.131_450, 2.119_905,
+        2.109_816, 2.100_922, 2.093_024, 2.085_963, 2.079_614, 2.073_873, 2.068_658, 2.063_899,
+        2.059_539, 2.055_529, 2.051_831, 2.048_407, 2.045_230, 2.042_272,
+    ];
+    TABLE[df - 1]
+}
+
+/// Linear interpolation percentile (0–100), `sorted` ascending.
+fn linear_percentile(sorted: &[f64], pct: f64) -> f64 {
+    let n = sorted.len();
+    match n {
+        0 => 0.0,
+        1 => sorted[0],
+        _ => {
+            let pos = (n - 1) as f64 * (pct / 100.0);
+            let lo = pos.floor() as usize;
+            let hi = pos.ceil() as usize;
+            if lo == hi {
+                sorted[lo]
+            } else {
+                let w = pos - lo as f64;
+                sorted[lo].mul_add(1.0 - w, sorted[hi] * w)
+            }
+        }
+    }
+}
+
+/// 95% two-sided CI for the mean of `runs_ms` (Student's t). `None` if `runs_ms.len() < 2`.
+pub fn ci95_mean_ms(runs_ms: &[f64]) -> Option<(f64, f64)> {
+    let n = runs_ms.len();
+    if n < 2 {
+        return None;
+    }
+    let mean = runs_ms.iter().sum::<f64>() / n as f64;
+    let var = runs_ms.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
+    let s = var.sqrt();
+    if !s.is_finite() {
+        return None;
+    }
+    let t = t_crit_975(n - 1);
+    let half = t * s / (n as f64).sqrt();
+    let low = (mean - half).max(0.0);
+    let high = mean + half;
+    Some((low, high))
+}
+
+/// Tukey IQR outliers: indices into `runs_ms` (original order) outside
+/// \[Q1 - 1.5·IQR, Q3 + 1.5·IQR\]. Quartiles via linear interpolation on sorted values.
+pub fn tukey_iqr_outlier_indices(runs_ms: &[f64]) -> Vec<usize> {
+    if runs_ms.is_empty() {
+        return Vec::new();
+    }
+    let mut sorted: Vec<f64> = runs_ms.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let q1 = linear_percentile(&sorted, 25.0);
+    let q3 = linear_percentile(&sorted, 75.0);
+    let iqr = q3 - q1;
+    let low = q1 - 1.5 * iqr;
+    let high = q3 + 1.5 * iqr;
+    runs_ms
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, v)| *v < low || *v > high)
+        .map(|(i, _)| i)
+        .collect()
+}
+
 /// Run a closure `repeats` times after a small warmup; collect per-run wall time in ms.
 pub fn time_runs<F: FnMut()>(mut f: F, warmup: usize, repeats: usize) -> Vec<f64> {
     for _ in 0..warmup {
@@ -193,14 +271,34 @@ pub fn samples_to_json(suite: &str, samples: &[Sample]) -> String {
         }
         s.push_str("],\n");
         s.push_str(&format!(
-            "      \"mean_ms\": {:.6}, \"std_ms\": {:.6}, \"min_ms\": {:.6}, \"max_ms\": {:.6}, \"p50_ms\": {:.6}\n",
+            "      \"mean_ms\": {:.6}, \"std_ms\": {:.6}, \"min_ms\": {:.6}, \"max_ms\": {:.6}, \"p50_ms\": {:.6}",
             smp.mean_ms(),
             smp.std_ms(),
             smp.min_ms(),
             smp.max_ms(),
             smp.p50_ms(),
         ));
-        s.push_str("    }");
+        if let Some((lo, hi)) = ci95_mean_ms(&smp.runs_ms) {
+            s.push_str(&format!(
+                ",\n      \"ci95_low_ms\": {:.6}, \"ci95_high_ms\": {:.6}",
+                lo, hi
+            ));
+        }
+        let outliers = tukey_iqr_outlier_indices(&smp.runs_ms);
+        if !outliers.is_empty() {
+            s.push_str(",\n      \"outlier_run_indices\": [");
+            for (j, idx) in outliers.iter().enumerate() {
+                if j > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&format!("{}", idx));
+            }
+            s.push(']');
+        }
+        if smp.runs_ms.len() >= 2 {
+            s.push_str(",\n      \"stats_note\": \"t_interval_on_ms;iqr_outliers\"");
+        }
+        s.push_str("\n    }");
         if i + 1 < samples.len() {
             s.push(',');
         }
@@ -250,4 +348,46 @@ fn json_escape(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod stats_tests {
+    use super::{ci95_mean_ms, linear_percentile, samples_to_json, tukey_iqr_outlier_indices, Sample, t_crit_975};
+
+    #[test]
+    fn t_crit_df1_is_large() {
+        assert!((t_crit_975(1) - 12.706).abs() < 0.01);
+        assert!((t_crit_975(30) - 2.042).abs() < 0.01);
+        assert!((t_crit_975(100) - 1.96).abs() < 1e-9);
+    }
+
+    #[test]
+    fn ci95_identical_runs_tight() {
+        let runs = vec![1.0_f64, 1.0, 1.0, 1.0];
+        let (lo, hi) = ci95_mean_ms(&runs).unwrap();
+        assert!((lo - 1.0).abs() < 1e-9);
+        assert!((hi - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn linear_percentile_median() {
+        let s = vec![1.0_f64, 2.0, 3.0, 4.0];
+        assert!((linear_percentile(&s, 50.0) - 2.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn tukey_flags_extreme() {
+        let runs = vec![1.0_f64, 1.0, 1.0, 1.0, 100.0];
+        let idx = tukey_iqr_outlier_indices(&runs);
+        assert!(idx.contains(&4));
+    }
+
+    #[test]
+    fn samples_to_json_includes_ci_when_n_ge_2() {
+        let smp = Sample::cpu_f32("matmul", "ndarray-cpu", vec![("m".into(), "2".into())], vec![1.0, 2.0, 3.0]);
+        let j = samples_to_json("rustral", &[smp]);
+        assert!(j.contains("ci95_low_ms"));
+        assert!(j.contains("ci95_high_ms"));
+        assert!(j.contains("stats_note"));
+    }
 }

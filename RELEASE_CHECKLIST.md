@@ -54,16 +54,44 @@ python3 scripts/bench/validate_schema.py benchmarks/results/release-${VERSION}.j
 python3 scripts/bench/regen_index.py
 ```
 
-## Nightly NLP gate (real data)
+## Full NLP evaluation (required before tagging)
 
-Before tagging, verify the real-data NLP gate runs successfully:
+CI’s [`nlp-real.yml`](.github/workflows/nlp-real.yml) job uses the **fast** `--benchmark` preset so every run finishes on a free runner. **That is not sufficient for a release.** Before you tag, you must capture **paper-profile** results (three seeds, full SST-2 train set in the example, 200k WikiText-2 train tokens, larger model — see [`EVALUATION.md`](EVALUATION.md)) and **commit** the curated JSON under `benchmarks/runs/v<version>/nlp/`.
 
-- Trigger [`nlp-real.yml`](.github/workflows/nlp-real.yml) via `workflow_dispatch` (or confirm the most recent scheduled run is green).
-- Confirm curated manifests validate against the schema:
+From the repo root (allow plenty of wall time on CPU; first run downloads corpora):
+
+```bash
+python3 -m pip install --upgrade pip jsonschema
+./scripts/eval/run_release_nlp_eval.sh 0.2.0
+# Optional PyTorch parity JSON (requires `torch` in the active Python):
+# ./scripts/eval/run_release_nlp_eval.sh 0.2.0 --pytorch
+```
+
+Equivalent manual invocation:
+
+```bash
+python3 scripts/eval/run_nlp_real.py --paper --clean --curated-version 0.2.0 --seeds 0,1,2 --out-root out/paper_bench_release
+python3 scripts/bench/validate_manifest.py benchmarks/runs/v0.2.0/nlp/sst2.json benchmarks/runs/v0.2.0/nlp/wikitext2.json
+```
+
+Then:
+
+- Update `benchmarks/runs/v<version>/manifest.json` with **date**, **hardware** (CPU model / GPU if used), and **`git_sha`** for the commit you are about to tag.
+- Ensure [`benchmarks/runs/INDEX.md`](benchmarks/runs/INDEX.md) describes the snapshot.
+- `git add benchmarks/runs/v<version>/` and include the NLP JSON in the release PR or tag commit.
+
+Maintainers can also trigger a **paper** preset on [`nlp-real.yml`](.github/workflows/nlp-real.yml) via **workflow_dispatch**; artifacts are uploaded for review but **do not** land in git automatically — copy or re-run locally and commit.
+
+## Nightly NLP gate (real data, fast preset)
+
+For regression signal between releases:
+
+- Scheduled / default `workflow_dispatch` runs use `--benchmark` (single seed, tiny model).
+- Validate with:
 
 ```bash
 python3 -m pip install jsonschema
-python3 scripts/bench/validate_manifest.py
+python3 scripts/bench/validate_manifest.py benchmarks/runs/v0.1.0/nlp/sst2.json benchmarks/runs/v0.1.0/nlp/wikitext2.json
 ```
 
 Do NOT commit raw logs or Criterion intermediate outputs to `benchmarks/runs/`.

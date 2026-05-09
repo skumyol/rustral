@@ -214,22 +214,6 @@ impl<O> MixedPrecisionOptimizer<O> {
         }
     }
 
-    /// Convert tensor to low precision.
-    fn to_low_precision<B: Backend>(&self, tensor: &B::Tensor, _ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
-        match self.dtype {
-            DType::Float32 => Ok(tensor.clone()),
-            DType::Float16 => {
-                // Convert to FP16 (simulated - actual impl would use half crate or GPU)
-                // For now, we keep FP32 but track that we "would" use FP16
-                Ok(tensor.clone())
-            }
-            DType::BFloat16 => {
-                // Convert to BF16 (simulated)
-                Ok(tensor.clone())
-            }
-        }
-    }
-
     /// Check if gradients have overflow (Inf/NaN).
     fn has_overflow<B: Backend>(&self, gradients: &[Gradient<B>]) -> bool
     where
@@ -271,48 +255,6 @@ impl<O> MixedPrecisionOptimizer<O> {
             .collect()
     }
 
-    /// Unscale gradients after optimizer step.
-    fn unscale_gradients<B: Backend>(
-        &self,
-        gradients: &[Gradient<B>],
-        ops: &dyn TensorOps<B>,
-    ) -> Result<Vec<Gradient<B>>>
-    where
-        B::Tensor: AsRef<[f32]>,
-    {
-        let scale = self.loss_scale.current_scale();
-        if scale == 1.0 {
-            return Ok(gradients.to_vec());
-        }
-
-        let inv_scale = 1.0 / scale;
-        gradients
-            .iter()
-            .map(|g| {
-                let shape = ops.shape(&g.tensor);
-                let unscaled_data: Vec<f32> = g.tensor.as_ref().iter().map(|&v| v * inv_scale).collect();
-                let unscaled_tensor = ops.tensor_from_vec(unscaled_data, &shape)?;
-                Ok(Gradient { param_id: g.param_id, tensor: unscaled_tensor })
-            })
-            .collect()
-    }
-
-    /// Copy master weights to parameters (for FP16 mode).
-    fn copy_master_to_param<B2: Backend>(
-        &self,
-        param: &mut Parameter<B2>,
-        ops: &dyn TensorOps<B2>,
-    ) -> Result<()>
-    where
-        B2::Tensor: AsRef<[f32]>,
-    {
-        if let Some(master_data) = self.master_weights.get(&param.id()) {
-            let shape = ops.shape(param.tensor());
-            let new_tensor = ops.tensor_from_vec(master_data.clone(), &shape)?;
-            *param = Parameter::new(param.name(), new_tensor);
-        }
-        Ok(())
-    }
 }
 
 impl<B: Backend, O: Optimizer<B>> Optimizer<B> for MixedPrecisionOptimizer<O>
