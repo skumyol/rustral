@@ -13,6 +13,30 @@ use rustral_optim::{Gradient, Optimizer};
 
 use crate::EpochStats;
 
+fn operation_profiler_from_env() -> Option<Arc<Mutex<OperationProfiler>>> {
+    if std::env::var("RUSTRAL_PROFILE").as_deref() != Ok("1") {
+        return None;
+    }
+    let ci = std::env::var("CI").is_ok() || std::env::var("RUSTRAL_PROFILE_CI").as_deref() == Ok("1");
+    let p = if ci { OperationProfiler::new_ci_safe() } else { OperationProfiler::new() };
+    Some(Arc::new(Mutex::new(p)))
+}
+
+fn finish_training_profiler(profiler: &Arc<Mutex<OperationProfiler>>) {
+    if let Ok(p) = profiler.lock() {
+        p.print_report();
+        if let Ok(path) = std::env::var("RUSTRAL_PROFILE_EXPORT_JSON") {
+            let limit = std::env::var("RUSTRAL_PROFILE_SNAPSHOT_LIMIT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(64usize);
+            if let Err(e) = p.export_regression_report(&path, limit) {
+                eprintln!("RUSTRAL_PROFILE_EXPORT_JSON: failed to write {path}: {e}");
+            }
+        }
+    }
+}
+
 /// A supervised model that can run forward + loss on a tape.
 ///
 /// This is the building block for a high-level `fit(...)` API: the trainer owns the tape,
@@ -159,11 +183,7 @@ where
             anyhow::bail!("batch_size must be non-zero");
         }
 
-        let profiler = if std::env::var("RUSTRAL_PROFILE").as_deref() == Ok("1") {
-            Some(Arc::new(Mutex::new(OperationProfiler::new())))
-        } else {
-            None
-        };
+        let profiler = operation_profiler_from_env();
 
         let mut stats = Vec::with_capacity(self.config.epochs);
         for epoch in 0..self.config.epochs {
@@ -246,10 +266,8 @@ where
             stats.push(EpochStats { epoch, examples: data.len(), mean_loss, elapsed: start.elapsed() });
         }
 
-        if let Some(p) = profiler {
-            if let Ok(p) = p.lock() {
-                p.print_report();
-            }
+        if let Some(ref p) = profiler {
+            finish_training_profiler(p);
         }
 
         Ok(stats)
@@ -318,11 +336,7 @@ where
         let mut epochs: Vec<EpochStats> = Vec::with_capacity(self.config.epochs);
         let mut throughput: Vec<ThroughputStats> = Vec::with_capacity(self.config.epochs);
 
-        let profiler = if std::env::var("RUSTRAL_PROFILE").as_deref() == Ok("1") {
-            Some(Arc::new(Mutex::new(OperationProfiler::new())))
-        } else {
-            None
-        };
+        let profiler = operation_profiler_from_env();
 
         for epoch in 0..self.config.epochs {
             let start = Instant::now();
@@ -463,10 +477,8 @@ where
             }
         }
 
-        if let Some(p) = profiler {
-            if let Ok(p) = p.lock() {
-                p.print_report();
-            }
+        if let Some(ref p) = profiler {
+            finish_training_profiler(p);
         }
 
         Ok(TrainingReport { epochs, accuracy: if acc_hist.is_empty() { None } else { Some(acc_hist) }, throughput })
