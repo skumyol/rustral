@@ -1055,7 +1055,7 @@ impl TensorOps<CpuBackend> for CpuOps {
         let values = &x.values;
 
         // Deterministic SIMD reduction: process chunks in fixed order
-        let mut total: f32 = if par && values.len() > 32_768 {
+        let total: f32 = if par && values.len() > 32_768 {
             // Deterministic parallel reduction: parallel chunk sums, then sequential fold.
             use rayon::prelude::*;
             let chunk = 4096usize;
