@@ -6,6 +6,7 @@
 mod backend;
 mod context;
 mod error;
+mod fusion;
 mod fusion_tests;
 mod memory_profiler;
 mod module;
@@ -21,6 +22,7 @@ pub use backend::{
 };
 pub use context::{ForwardCtx, Mode, RunId};
 pub use error::{CoreError, Result};
+pub use fusion::{FusionOptimizer, FusionPattern, Op, OpType, PatternMatcher};
 pub use fusion_tests::{
     generate_constant_data, generate_random_data, FusionTestConfig, FusionTestHarness, FusionTestResult,
     FusionTestSuiteResult,
