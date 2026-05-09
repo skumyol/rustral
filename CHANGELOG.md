@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Documentation
+
+- README **Examples gallery**: commands now match [`crates/runtime/examples/`](crates/runtime/examples/), [`crates/nn/examples/`](crates/nn/examples/), and the top-level [`examples/`](examples/) pointer crate (see [`examples/README.md`](examples/README.md)).
+- [`docs/api-signatures.md`](docs/api-signatures.md): full `TensorOps` method inventory aligned with `rustral-core` ([`Backend`](crates/core/src/backend.rs) / `BackendCapabilities` were already listed).
+- [`docs/concepts.md`](docs/concepts.md): distributed snippets use crate-root imports (`ZeroOptimizer` / `Zero2Optimizer`, `PipelineParallel` / `PipelineConfig`); `DataParallelTrainer` and `ProcessGroup` remain valid at the crate root.
+- **“Paper mode”** in scripts (e.g. `run_nlp_real.py --paper`, benchmark harness presets) means a heavier evaluation or benchmark configuration, not an academic PDF shipped in this repository. External references and methodology live in docs such as [`EVALUATION.md`](EVALUATION.md) and [`crates/nn/TRANSFORMERS.md`](crates/nn/TRANSFORMERS.md).
+
 ### Added
 
 - `rustral-inference-server`: Axum HTTP MVP for Safetensors artifacts (`/health`, `/ready`, `/v1/metadata`, `/v1/infer`, Prometheus `/metrics`), graceful shutdown (SIGINT/SIGTERM on Unix), [`DEPLOYMENT.md`](crates/inference-server/DEPLOYMENT.md), `Dockerfile`, and `docker-compose.yml`.
@@ -33,7 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Workspace of `rustral-*` crates: core tensors/backends, NN layers, autodiff, optimizers, data loaders, I/O (Safetensors), Candle and experimental WebGPU backends, distributed-style APIs, metrics, HF helpers, benchmarks, and runtime helpers.
-- Examples workspace under `examples/` (XOR, MNIST, vision/NLP samples).
+- Examples entry point under `examples/` (pointer crate; runnable demos in `crates/runtime/examples/` and `crates/nn/examples/`).
 - CI: `fmt`, `clippy -D warnings`, `doc`, tests (excluding flaky `rustral-wgpu-backend` by default), examples build.
 - Documentation: architecture concepts, security guidelines, master roadmap (honest scope).
 

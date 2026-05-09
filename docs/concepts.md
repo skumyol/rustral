@@ -557,7 +557,7 @@ let loss = trainer.step(&mut params, &batch, &mut loss_fn, &mut ctx)?;
 ### ZeRO (Memory Optimization)
 
 ```rust
-use rustral_distributed::{ZeROOptimizer, Zero2Optimizer};
+use rustral_distributed::{Zero2Optimizer, ZeroOptimizer};
 
 // Standard: each GPU stores all optimizer states
 // Memory = 4x model size (params + grads + Adam m + Adam v)
@@ -567,12 +567,13 @@ use rustral_distributed::{ZeROOptimizer, Zero2Optimizer};
 // With 8 GPUs: ~50% memory reduction!
 
 let optimizer = Zero2Optimizer::new(Adam::new(0.001), pg, total_params);
+// ZeRO-1 wrapper: `ZeroOptimizer::new(Adam::new(0.001), pg, total_params)`
 ```
 
 ### Pipeline Parallel (Model Too Big)
 
 ```rust
-use rustral_distributed::pipeline_parallel::{PipelineParallel, PipelineConfig};
+use rustral_distributed::{PipelineConfig, PipelineParallel};
 
 // Layer 0-3 on GPU 0, Layer 4-7 on GPU 1, etc.
 let config = PipelineConfig::new()

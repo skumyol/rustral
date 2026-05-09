@@ -543,52 +543,61 @@ This is especially important for layers like `Conv2d` and normalization that nee
 
 ## Examples Gallery
 
-Examples live in the `examples/` directory, which is a separate workspace with its own `Cargo.toml`.
+Runnable demos are split by crate:
 
-### Basics
+- **[`crates/runtime/examples/`](crates/runtime/examples/)** — training loops, real NLP corpora, tape XOR, fusion/mixed-precision demos (`rustral-runtime` with `--features training`).
+- **[`crates/nn/examples/`](crates/nn/examples/)** — layer and model recipes: XOR, MNIST, vision, transformers, MoE (`rustral-nn`).
+- **[`examples/`](examples/)** — **pointer workspace only** (placeholder binary so `cargo build --manifest-path examples/Cargo.toml` stays green). See [`examples/README.md`](examples/README.md).
 
-| Example | Run Command |
+### Training and NLP (`rustral-runtime`)
+
+| Example | Run command |
 |---------|-------------|
-| XOR | `cd examples && cargo run --bin xor` |
-| MNIST | `cd examples && cargo run --bin mnist` |
-| Linear Regression | `cd examples && cargo run --bin train_demo` |
-| Character RNN | `cd examples && cargo run --bin char_rnn` |
-
-### Vision
-
-| Example | Run Command |
-|---------|-------------|
-| Building Blocks | `cd examples && cargo run --example building_blocks` |
-| ResNet | `cd examples && cargo run --example resnet_image_classification` |
-| Diffusion | `cd examples && cargo run --example diffusion_model` |
-
-### NLP
-
-| Example | Run Command |
-|---------|-------------|
-| BERT | `cd examples && cargo run --example bert_fine_tuning` |
-| GPT | `cd examples && cargo run --example gpt_training` |
+| Tape training demo | `cargo run -p rustral-runtime --features training --example tape_train_demo` |
+| Tape XOR classification | `cargo run -p rustral-runtime --features training --example tape_xor_classification` |
+| Save linear artifact (inference server) | `cargo run -p rustral-runtime --features training --example save_linear_artifact` |
 | EMNLP char LM | `cargo run -p rustral-runtime --features training --example emnlp_char_lm` |
 | SST-2 classifier | `cargo run --release -p rustral-runtime --features training --example sst2_classifier -- --quick` |
 | WikiText-2 word LM | `cargo run --release -p rustral-runtime --features training --example wikitext2_lm -- --quick` |
+| Advanced optimizations | `cargo run -p rustral-runtime --features training --example advanced_optimizations` |
+| Backend-agnostic fusion | `cargo run -p rustral-runtime --features training --example backend_agnostic_fusion` |
+| Memory layout optimization | `cargo run -p rustral-runtime --features training --example memory_layout_optimization` |
+| Mixed precision training | `cargo run -p rustral-runtime --features training --example mixed_precision_training` |
 
-### Advanced
+### Basics and vision (`rustral-nn`)
 
-| Example | Run Command |
+| Example | Run command |
 |---------|-------------|
-| MoE | `cd examples && cargo run --example moe_training` |
-| Custom Layer | `cd examples && cargo run --example custom_layer` |
+| XOR | `cargo run -p rustral-nn --example xor` |
+| MNIST | `cargo run -p rustral-nn --example mnist` |
+| Character RNN | `cargo run -p rustral-nn --example char_rnn` |
+| Building blocks | `cargo run -p rustral-nn --example building_blocks` |
+| ResNet (image classification) | `cargo run -p rustral-nn --example resnet_image_classification` |
+| Diffusion | `cargo run -p rustral-nn --example diffusion_model` |
 
-### In-Package Examples
+### NLP and MoE (`rustral-nn`)
 
-Some crates also provide standalone examples:
-
-| Example | Run Command |
+| Example | Run command |
 |---------|-------------|
-| Linear Readout | `cargo run -p rustral-nn --example linear_readout` |
-| BERT Encoder | `cargo run -p rustral-nn --example transformer_bert_encoder` |
-| GPT Decoder | `cargo run -p rustral-nn --example transformer_gpt_decoder` |
-| Candle Benchmark | `cargo run -p rustral-candle-backend --example benchmark` |
+| BERT fine-tuning | `cargo run -p rustral-nn --example bert_fine_tuning` |
+| GPT training | `cargo run -p rustral-nn --example gpt_training` |
+| MoE training | `cargo run -p rustral-nn --example moe_training` |
+
+### Transformer building blocks (`rustral-nn`)
+
+| Example | Run command |
+|---------|-------------|
+| Linear readout | `cargo run -p rustral-nn --example linear_readout` |
+| BERT encoder | `cargo run -p rustral-nn --example transformer_bert_encoder` |
+| GPT decoder | `cargo run -p rustral-nn --example transformer_gpt_decoder` |
+| Seq2seq transformer | `cargo run -p rustral-nn --example transformer_seq2seq` |
+| Transformer composition | `cargo run -p rustral-nn --example transformer_composition` |
+
+### Other crates
+
+| Example | Run command |
+|---------|-------------|
+| Candle backend benchmark | `cargo run -p rustral-candle-backend --example benchmark` |
 
 ### Evaluation and Benchmarks
 

@@ -89,40 +89,61 @@ pub trait TensorOps<B: Backend>: Send + Sync {
     fn tensor_from_vec(&self, values: Vec<f32>, shape: &[usize]) -> Result<B::Tensor>;
     fn zeros(&self, shape: &[usize]) -> Result<B::Tensor>;
     fn matmul(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor>;
+    fn transpose(&self, x: &B::Tensor) -> Result<B::Tensor>;
     fn add(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor>;
     fn add_row_vector(&self, a: &B::Tensor, row: &B::Tensor) -> Result<B::Tensor>;
     fn relu(&self, x: &B::Tensor) -> Result<B::Tensor>;
-    fn gelu(&self, x: &B::Tensor) -> Result<B::Tensor>;
     fn softmax(&self, x: &B::Tensor) -> Result<B::Tensor>;
+    fn log_softmax(&self, x: &B::Tensor) -> Result<B::Tensor>;
+    fn softmax_dim(&self, x: &B::Tensor, dim: usize) -> Result<B::Tensor>;
+    fn log_softmax_dim(&self, x: &B::Tensor, dim: usize) -> Result<B::Tensor>;
+    fn sum_dim(&self, x: &B::Tensor, dim: usize, keepdim: bool) -> Result<B::Tensor>;
+    fn mean_dim(&self, x: &B::Tensor, dim: usize, keepdim: bool) -> Result<B::Tensor>;
+    fn var_dim(&self, x: &B::Tensor, dim: usize, unbiased: bool, keepdim: bool) -> Result<B::Tensor>;
+    fn broadcast_to(&self, x: &B::Tensor, shape: &[usize]) -> Result<B::Tensor>;
     fn argmax(&self, x: &B::Tensor) -> Result<usize>;
     fn gather_rows(&self, table: &Parameter<B>, ids: &[usize]) -> Result<B::Tensor>;
-    fn linear(&self, input: &B::Tensor, weight: &Parameter<B>, bias: Option<&Parameter<B>>) -> Result<B::Tensor>;
+    fn linear(
+        &self,
+        input: &B::Tensor,
+        weight: &Parameter<B>,
+        bias: Option<&Parameter<B>>,
+    ) -> Result<B::Tensor>;
+    fn sigmoid(&self, x: &B::Tensor) -> Result<B::Tensor>;
+    fn tanh(&self, x: &B::Tensor) -> Result<B::Tensor>;
+    fn gelu(&self, x: &B::Tensor) -> Result<B::Tensor>;
+    fn mul(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor>;
+    fn dropout(&self, x: &B::Tensor, p: f32, training: bool) -> Result<B::Tensor>;
+    fn dropout_with_seed(&self, x: &B::Tensor, p: f32, seed: u64, training: bool) -> Result<B::Tensor>;
+    fn concat(&self, tensors: &[&B::Tensor], dim: usize) -> Result<B::Tensor>;
+    fn slice(&self, x: &B::Tensor, start: usize, end: usize) -> Result<B::Tensor>;
+    fn reshape(&self, x: &B::Tensor, shape: &[usize]) -> Result<B::Tensor>;
+    fn add_scalar(&self, x: &B::Tensor, scalar: f32) -> Result<B::Tensor>;
+    fn mul_scalar(&self, x: &B::Tensor, scalar: f32) -> Result<B::Tensor>;
+    fn broadcast(&self, x: &B::Tensor, shape: &[usize]) -> Result<B::Tensor>;
+    fn neg(&self, x: &B::Tensor) -> Result<B::Tensor>;
+    fn sub(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor>;
+    fn sqrt(&self, x: &B::Tensor) -> Result<B::Tensor>;
+    fn div(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor>;
+    fn exp(&self, x: &B::Tensor) -> Result<B::Tensor>;
+    fn log(&self, x: &B::Tensor) -> Result<B::Tensor>;
+    fn maximum(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor>;
+    fn gt_scalar(&self, x: &B::Tensor, scalar: f32) -> Result<B::Tensor>;
+    fn sum_all(&self, x: &B::Tensor) -> Result<B::Tensor>;
+    fn sum_dim0(&self, x: &B::Tensor) -> Result<B::Tensor>;
+    fn tensor_to_vec(&self, x: &B::Tensor) -> Result<Vec<f32>>;
+    fn tensor_element(&self, x: &B::Tensor, index: usize) -> Result<f32>;
 }
 ```
 
-- `shape`: returns row-major dimensions.
-- `tensor_from_vec`: creates a tensor from flat values and shape.
-- `zeros`: allocates a zero-filled tensor.
-- `matmul`: multiplies rank-2 tensors.
-- `add`: performs element-wise addition.
-- `add_row_vector`: broadcasts a row vector across matrix rows.
-- `relu`: applies ReLU element-wise.
-- `gelu`: GELU activation (tanh approximation); used in transformer FFNs (eager and `Tape::gelu`).
-- `softmax`: normalizes tensor values.
-- `argmax`: returns the flat index of the maximum value.
-- `gather_rows`: performs embedding-style row lookup.
-- `linear`: applies `input * weight^T + bias`.
+- **Shape / allocation**: `shape`, `tensor_from_vec`, `zeros`, `reshape`, `slice`, `concat`, `broadcast` / `broadcast_to`.
+- **Linear algebra**: `matmul`, `transpose`, `linear`, `gather_rows`.
+- **Elementwise**: `add`, `sub`, `mul`, `div`, `neg`, `add_scalar`, `mul_scalar`, `maximum`, `gt_scalar`, `sqrt`, `exp`, `log`, `add_row_vector`.
+- **Activations / probability**: `relu`, `gelu`, `sigmoid`, `tanh`, `softmax`, `log_softmax`, `softmax_dim`, `log_softmax_dim`.
+- **Reductions**: `sum_dim`, `mean_dim`, `var_dim`, `sum_all`, `sum_dim0`, `argmax`.
+- **Regularization**: `dropout`; **`dropout_with_seed`** defaults to delegating to `dropout` (optional determinism hook; backends may override).
 
-The real `TensorOps` trait in [`backend.rs`](../crates/core/src/backend.rs) also includes axis-aware softmax/reductions, conv helpers, dropout, and more. Notable for determinism:
-
-```rust
-fn dropout(&self, x: &B::Tensor, p: f32, training: bool) -> Result<B::Tensor>;
-fn dropout_with_seed(&self, x: &B::Tensor, p: f32, seed: u64, training: bool) -> Result<B::Tensor> {
-    /* default: ignores seed, delegates to dropout */
-}
-```
-
-Backends may override `dropout_with_seed` for reproducible dropout; `ndarray-backend` and `wgpu-backend` implement seeded paths where applicable.
+Axis-aware ops (`softmax_dim`, `sum_dim`, …) have default implementations that return “not supported” errors until a backend implements them. Source of truth: [`backend.rs`](../crates/core/src/backend.rs).
 
 ### Forward context
 
