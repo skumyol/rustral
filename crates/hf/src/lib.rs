@@ -216,6 +216,80 @@ pub fn snapshot_model(model_id: &str) -> Result<HubModelSnapshot, HfError> {
     Ok(HubModelSnapshot { model_id: model_id.to_string(), revision: None, root, files })
 }
 
+impl HubModelSnapshot {
+    /// Returns the path to `config.json` when present.
+    pub fn require_config_json(&self) -> Result<&Path, HfError> {
+        self.files.config_json.as_deref().ok_or_else(|| HfError::MissingFile {
+            repo: self.model_id.clone(),
+            file: "config.json".to_string(),
+        })
+    }
+}
+
+/// Discover model files under a **local directory** (offline, no Hub API).
+///
+/// Recognizes the same layout as [`snapshot_model`]: optional tokenizer files,
+/// `model.safetensors` or sharded `model.safetensors.index.json` + shard files,
+/// optional `model.gguf`.
+///
+/// [`HubModelSnapshot::model_id`] is set to `local:<canonical-root>` for diagnostics.
+pub fn scan_local_model_dir(root: impl AsRef<Path>) -> Result<HubModelSnapshot, HfError> {
+    let root = root.as_ref().canonicalize()?;
+    let model_id = format!("local:{}", root.display());
+    let mut files = HubModelFiles::default();
+
+    macro_rules! file_if_exists {
+        ($field:ident, $name:expr) => {
+            let p = root.join($name);
+            if p.is_file() {
+                files.$field = Some(p);
+            }
+        };
+    }
+
+    file_if_exists!(config_json, "config.json");
+    file_if_exists!(tokenizer_json, "tokenizer.json");
+    file_if_exists!(tokenizer_config_json, "tokenizer_config.json");
+    file_if_exists!(special_tokens_map_json, "special_tokens_map.json");
+    file_if_exists!(generation_config_json, "generation_config.json");
+
+    let index_path = root.join("model.safetensors.index.json");
+    if index_path.is_file() {
+        files.safetensors_index_json = Some(index_path.clone());
+        let idx_bytes = std::fs::read(&index_path)?;
+        let idx: SafeTensorsIndex =
+            serde_json::from_slice(&idx_bytes).map_err(|e| HfError::Json(e.to_string()))?;
+        let mut shard_names: Vec<String> = idx.weight_map.values().cloned().collect();
+        shard_names.sort();
+        shard_names.dedup();
+        for shard in shard_names {
+            let p = root.join(&shard);
+            if p.is_file() {
+                files.safetensors_files.push(p);
+            } else {
+                return Err(HfError::MissingFile {
+                    repo: model_id.clone(),
+                    file: shard,
+                });
+            }
+        }
+    } else if root.join("model.safetensors").is_file() {
+        files.safetensors_files.push(root.join("model.safetensors"));
+    }
+
+    let gguf = root.join("model.gguf");
+    if gguf.is_file() {
+        files.gguf_files.push(gguf);
+    }
+
+    Ok(HubModelSnapshot {
+        model_id,
+        revision: None,
+        root,
+        files,
+    })
+}
+
 /// Save a state dictionary to a local Safetensors file.
 ///
 /// Serializes the state dict to Safetensors format and writes it to
@@ -400,5 +474,45 @@ mod tests {
     fn test_hf_error_display() {
         let e = HfError::MissingFile { repo: "test".to_string(), file: "model.safetensors".to_string() };
         assert!(e.to_string().contains("model.safetensors"));
+    }
+
+    #[test]
+    fn test_scan_local_model_dir_single_safetensors() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("config.json"), br#"{"model_type":"gpt2"}"#).unwrap();
+        let mut dict = HashMap::new();
+        dict.insert("w".to_string(), vec![1.0f32]);
+        let bytes = save_state_dict(&dict).unwrap();
+        std::fs::write(root.join("model.safetensors"), bytes).unwrap();
+
+        let snap = scan_local_model_dir(root).unwrap();
+        assert!(snap.files.config_json.is_some());
+        assert_eq!(snap.files.safetensors_files.len(), 1);
+        snap.require_config_json().unwrap();
+    }
+
+    #[test]
+    fn test_scan_local_model_dir_sharded_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("config.json"), br"{}").unwrap();
+        let idx = serde_json::json!({
+            "weight_map": {
+                "a": "shard1.safetensors",
+                "b": "shard2.safetensors"
+            }
+        });
+        std::fs::write(root.join("model.safetensors.index.json"), serde_json::to_vec(&idx).unwrap()).unwrap();
+        let mut d1 = HashMap::new();
+        d1.insert("a".to_string(), vec![1.0f32]);
+        let mut d2 = HashMap::new();
+        d2.insert("b".to_string(), vec![2.0f32]);
+        std::fs::write(root.join("shard1.safetensors"), save_state_dict(&d1).unwrap()).unwrap();
+        std::fs::write(root.join("shard2.safetensors"), save_state_dict(&d2).unwrap()).unwrap();
+
+        let snap = scan_local_model_dir(root).unwrap();
+        assert_eq!(snap.files.safetensors_files.len(), 2);
+        assert!(snap.files.safetensors_index_json.is_some());
     }
 }

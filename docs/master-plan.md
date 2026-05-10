@@ -170,6 +170,19 @@ PyTorch/JAX ship mature kernels, distributed runtimes, and ecosystems Rustral do
 
 ---
 
+## LLM v3 bite progress
+
+Maintainer-only detail may live in local `IMPROVEMENT_PLAN.md` (gitignored). This table is committed for visibility.
+
+| Bite | Deliverable | Status |
+|------|-------------|--------|
+| 01 | `rustral-hf::scan_local_model_dir` | Done |
+| 02 | `snapshot_model_at` Hub revision pinning | |
+| 03 | `rustral-io` sharded `MetaStateDict` load (`load_meta_state_dict_from_paths`, `load_meta_state_dict_from_hub_index`) | |
+| 04 | `rustral-llm` re-export `HubModelSnapshot` / `HubModelFiles` | Done |
+
+---
+
 ## Next actions (maintainers)
 
 1. Capture the first release benchmark snapshot under `benchmarks/runs/<version>/`.
@@ -177,6 +190,7 @@ PyTorch/JAX ship mature kernels, distributed runtimes, and ecosystems Rustral do
 3. Fix the `LstmCell` weight layout so LSTM workloads can enter the JSON harness.
 4. Upgrade `wgpu` and revisit GPU RNG/dropout stories.
 5. Wire metrics (`rustral-metrics`) to real sinks where desired.
+6. **LLM vertical (v3):** next bites — **02** revision snapshot; **03** sharded meta load; **05** GPT-2 HF → `NamedParameters` map + **06** load into `Gpt2Decoder` (see table above and `IMPROVEMENT_PLAN.md` if present).
 
 ---
 

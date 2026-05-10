@@ -26,3 +26,4 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 rustral-nn = { path = "../nn", version = "0.1.0" }
+tempfile = "3"

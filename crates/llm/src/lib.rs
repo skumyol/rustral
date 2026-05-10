@@ -5,11 +5,15 @@
 //! - No global mutable state.
 //! - Clear errors for unsupported model families / files.
 
-use std::path::{Path, PathBuf};
+#[cfg(feature = "hf-tokenizers")]
+use std::path::Path;
 
 use thiserror::Error;
 
 pub mod gpt2;
+
+/// Canonical Hub snapshot types from [`rustral_hf`] (avoid duplicating paths in this crate).
+pub use rustral_hf::{HubModelFiles, HubModelSnapshot};
 
 /// Errors surfaced by `rustral-llm`.
 #[derive(Debug, Error)]
@@ -25,24 +29,6 @@ pub enum LlmError {
 
     #[error(transparent)]
     Anyhow(#[from] anyhow::Error),
-}
-
-/// A local snapshot of a Hugging Face model repository (paths to key files).
-///
-/// This is a lightweight mirror of the more complete snapshot type that lives in `rustral-hf`.
-#[derive(Clone, Debug)]
-pub struct HubSnapshot {
-    pub root: PathBuf,
-    pub config_json: Option<PathBuf>,
-    pub tokenizer_json: Option<PathBuf>,
-    pub safetensors_index_json: Option<PathBuf>,
-    pub safetensors_files: Vec<PathBuf>,
-}
-
-impl HubSnapshot {
-    pub fn require_config_json(&self) -> Result<&Path, LlmError> {
-        self.config_json.as_deref().ok_or_else(|| LlmError::MissingFile("config.json".to_string()))
-    }
 }
 
 /// Minimal tokenizer abstraction for LLM workflows.
