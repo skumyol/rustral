@@ -2,7 +2,7 @@
 
 This is the **single source of truth** for Rustral’s architecture direction, current status, and the next implementation steps. Other documents in `docs/` should be treated as **supporting references** and should link back here rather than restating roadmaps.
 
-**Last updated:** 2026-05
+**Last updated:** 2026-05-10
 
 ---
 
@@ -13,6 +13,7 @@ Rustral is a Rust-first neural network workspace with:
 - **Explicit execution**: `ForwardCtx` + `Mode` (+ run id, optional `ShapePolicy` and `OperationProfiler`), no hidden global state.
 - **Backend abstraction**: `Backend` + `TensorOps` (CPU reference backend; Candle CPU/CUDA/Metal; wgpu experimental).
 - **Training utilities**: tape-based autodiff, optimizers, and a runtime trainer that exercises end-to-end training + checkpoint I/O.
+- **LLM v3 (CPU reference path)**: `rustral-hf` Hub/local snapshots + sharded SafeTensors meta load; `rustral-llm` **GPT-2** and **Llama**-class F32 weight mapping; **`LlamaDecoder`** with **GQA** and **`LlamaDecodeCache`** (`forward_prompt_cache` / `forward_token_cache`); greedy generation uses the KV path for Llama. No **GGUF** or weight quantization yet.
 - **Real evaluation artifacts**: SST-2 and WikiText-2 examples write reproducibility manifests and can run in offline CI smoke tests.
 - **Benchmark evidence**: schema-v2 JSON harness, CPU CI artifacts, optional CUDA/Metal suites, bencher.dev upload, and a Pages dashboard for release snapshots.
 - **Distributed APIs**: a `ProcessGroup` abstraction and higher-level DP/TP/ZeRO-style components (correctness-first; performance backend collectives are future work).
@@ -100,7 +101,7 @@ This validates the plumbing (forward → loss → backward → step → save/loa
 - `scripts/bench/to_bencher_bmf.py` converts results for bencher.dev trend tracking.
 - `scripts/bench/render_site.py` renders the Pages dashboard from `benchmarks/runs/<version>/`.
 
-Known gaps are explicit, not hidden: transformer train-step still needs tape support for attention layers, and LSTM workload promotion waits on the `LstmCell` weight-layout fix.
+Known gaps are explicit, not hidden: transformer train-step still needs tape support for attention layers; LSTM workload promotion waits on the `LstmCell` weight-layout fix; **Llama** inference is **CPU f32 reference** + **KV cache** on the greedy path — **GGUF**, weight quantization, and GPU-first Llama serving are not goals of the current vertical.
 
 ---
 

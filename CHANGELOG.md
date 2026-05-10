@@ -17,6 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `rustral-nn`: **`LlamaDecoderConfig::num_kv_heads`** / **`with_num_kv_heads`**, **`sdpa_multi_head_gqa_f32`**, **`LlamaDecodeCache`** + **`LlamaLayerKvCache`**, **`forward_prompt_cache`** / **`forward_token_cache`** on **`LlamaDecoder`** (KV-backed incremental decode); unit tests **`kv_prefill_logits_match_forward`**, **`kv_decode_step_matches_full_forward_extension`**.
+- `rustral-llm`: **Llama GQA** — **`HfLlamaConfig`** accepts **`num_key_value_heads`** when it divides **`num_attention_heads`**; **`build_llama_flat_map`** loads **`k_proj`/`v_proj`** with **`kv_dim × hidden`**; **`LlamaCausalLm`** greedy decode uses **KV prefill + single-token steps** (no full-sequence recompute each token).
 - `rustral-llm`: integration test **`transformer_decoder_ndarray_candle_parity`** — copy **`NamedParameters`** from **`CpuBackend`** to **`CandleBackend::cpu()`**, assert logits within tolerance and matching greedy **`generate_token`** (GPT-style **`TransformerDecoder`** path).
 - `rustral-llm`: **`generate` CLI metrics** — JSON includes **`hub_snapshot_ms`**, **`model_init_ms`**, **`tokenizer_load_ms`**, **`first_token_ms`** (first greedy step), **`decode_wall_ms`**, **`tokens_per_sec`** (`max_new_tokens` / decode seconds); **`Gpt2Decoder::generate_greedy_timed`** + **`GreedyDecodeTiming`** for the same breakdown.
 - `rustral-llm`: **`CausalLm`** trait (`crates/llm/src/causal_lm.rs`) with greedy **`generate_greedy(ctx, …)`** using an explicit **`ForwardCtx`**; **`Gpt2Decoder`** implements it for **`CpuBackend`** and exposes **`backend()`** for building matching contexts. Convenience **`Gpt2Decoder::generate_greedy`** still allocates an inference context.
@@ -40,6 +42,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `rustral-nn`: **`LlamaDecoder::generate_token`** last-position logit indexing fixed for **`batch == 1`**, **`seq_len > 1`** (argmax now uses the final timestep, not offset `0`).
 - `rustral-nn`: GPT-style **transformer** modules (`PositionalEncoding`, `TransformerEncoder`/`Decoder`, **`generate_token`**, encoder-decoder **`generate`**, **`cls_token`**) no longer require `B::Tensor: AsRef<[f32]>`; host reads go through **`TensorOps::tensor_to_vec`**, so **`TransformerDecoder`** runs on **`CandleBackend`** (`candle_core::Tensor`) without a slice wrapper.
 - `rustral-llm` **`hf_weights`**: GPT-2 FFN `mlp.c_fc` / `mlp.c_proj` weights accept Hugging Face tensor layouts that are transposed relative to `Linear` storage `[out_dim, in_dim]` and transpose when needed (matches real Hub checkpoints such as `tiny-random-gpt2`).
 - NLP real-data orchestrator (`scripts/eval/run_nlp_real.py`): added `--benchmark` (tiny model + small data) and reduced default WikiText-2 caps for faster local runs; SST-2 / WikiText-2 examples accept CLI overrides for `--seq-len`, `--d-model`, `--num-heads`, `--ffn-dim`, and (WikiText-2) `--block-size` / `--num-layers`.

@@ -33,7 +33,7 @@ That sets `RUSTRAL_TEST_HF_NETWORK=1` and runs:
 
 1. **`rustral-hf`** — download smoke (`tiny-random-bert`).
 2. **`rustral-llm`** — [`hf_gpt2_real_load_smoke`](crates/llm/tests/hf_gpt2_real_load_smoke.rs): snapshot → meta → `Gpt2Decoder::from_hf_meta` → `generate_greedy`.
-3. **`rustral-llm`** — [`llama_hf_real_load_smoke`](crates/llm/tests/llama_hf_real_load_smoke.rs): snapshot → meta → `LlamaCausalLm::from_hf_meta` → `generate_greedy`.
+3. **`rustral-llm`** — [`llama_hf_real_load_smoke`](crates/llm/tests/llama_hf_real_load_smoke.rs): snapshot → meta → `LlamaCausalLm::from_hf_meta` → `generate_greedy` (uses **`LlamaDecodeCache`**: KV prefill + per-token decode, not a full-sequence forward each step).
 4. **`rustral-llm`** with **`hf-tokenizers`** — [`hf_smoke`](crates/llm/tests/hf_smoke.rs): snapshot, tokenizer encode, generate.
 
 To **enforce** the same checks on every commit (requires network when you commit):

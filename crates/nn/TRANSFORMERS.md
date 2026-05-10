@@ -56,6 +56,17 @@ let logits = decoder.forward(input_tokens, &mut ctx)?;
 let next_token = decoder.generate_token(&prefix, &mut ctx)?;
 ```
 
+### LLaMA-style decoder (`LlamaDecoder`)
+
+RMSNorm, RoPE, SwiGLU MLP, and reference f32 attention (including **grouped-query attention** when `LlamaDecoderConfig::num_kv_heads < num_heads`). Hugging Face **F32** weight load and greedy APIs live in **`rustral-llm`** (`LlamaCausalLm`); the module itself is backend-agnostic.
+
+For autoregressive decode without re-running the full sequence each step, use **`LlamaDecodeCache`**:
+
+- **`forward_prompt_cache(prompt_ids, ctx, &mut cache)`** — fills per-layer K/V after RoPE.
+- **`forward_token_cache(next_id, ctx, &mut cache)`** — one new token at the current cache length.
+
+`LlamaCausalLm::generate_greedy` uses this path on CPU. Full-sequence **`forward`** remains available for training-shaped passes and tests.
+
 ### T5-Style Encoder-Decoder
 
 ```rust
