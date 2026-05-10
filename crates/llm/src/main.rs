@@ -15,7 +15,7 @@ fn main() -> Result<(), LlmError> {
         eprintln!();
         eprintln!("Notes:");
         eprintln!("  - tokenizer support requires building with: --features hf-tokenizers");
-        eprintln!("  - current implementation constructs a config-matched random model (weight loading is next)");
+        eprintln!("  - prints JSON metrics (hub_snapshot_ms, model_init_ms, first_token_ms, tokens_per_sec, …) then generated text");
         return Ok(());
     }
 
@@ -67,13 +67,16 @@ fn cmd_generate(args: &[String]) -> Result<(), LlmError> {
     let model_id = model_id.ok_or_else(|| LlmError::InvalidArg("--model is required".to_string()))?;
     let prompt = prompt.ok_or_else(|| LlmError::InvalidArg("--prompt is required".to_string()))?;
 
-    let t0 = Instant::now();
+    let t_snap = Instant::now();
     let snap = rustral_hf::snapshot_model(&model_id).map_err(|e| anyhow::anyhow!("{e}"))?;
-    let load_snapshot_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    let hub_snapshot_ms = t_snap.elapsed().as_secs_f64() * 1000.0;
 
     let cfg_path = snap.files.config_json.as_deref().ok_or_else(|| LlmError::MissingFile("config.json".to_string()))?;
     let cfg = HfGpt2Config::from_json_file(cfg_path)?;
+
+    let t_model = Instant::now();
     let model = Gpt2Decoder::new_random(&cfg, seed)?;
+    let model_init_ms = t_model.elapsed().as_secs_f64() * 1000.0;
 
     #[cfg(not(feature = "hf-tokenizers"))]
     {
@@ -81,7 +84,13 @@ fn cmd_generate(args: &[String]) -> Result<(), LlmError> {
         let _cfg = cfg;
         let _prompt = prompt;
         let _max_new_tokens = max_new_tokens;
-        let _load_snapshot_ms = load_snapshot_ms;
+        let metrics = serde_json::json!({
+            "model_id": model_id,
+            "hub_snapshot_ms": hub_snapshot_ms,
+            "model_init_ms": model_init_ms,
+            "error": "tokenizer feature disabled; rebuild with --features hf-tokenizers",
+        });
+        eprintln!("{}", serde_json::to_string_pretty(&metrics).map_err(|e| LlmError::Anyhow(e.into()))?);
         return Err(LlmError::InvalidArg(
             "tokenizer support is disabled; rebuild with `cargo run -p rustral-llm --features hf-tokenizers -- generate ...`"
                 .to_string(),
@@ -95,13 +104,21 @@ fn cmd_generate(args: &[String]) -> Result<(), LlmError> {
             .tokenizer_json
             .as_deref()
             .ok_or_else(|| LlmError::MissingFile("tokenizer.json".to_string()))?;
+
+        let t_tok = Instant::now();
         let tok = TokenizerHandle::from_file(tok_path)?;
+        let tokenizer_load_ms = t_tok.elapsed().as_secs_f64() * 1000.0;
+
         let prompt_ids_u32 = tok.encode(&prompt)?;
         let prompt_ids: Vec<usize> = prompt_ids_u32.iter().map(|&x| x as usize).collect();
 
-        let t1 = Instant::now();
-        let out_ids = model.generate_greedy(prompt_ids.clone(), max_new_tokens)?;
-        let gen_ms = t1.elapsed().as_secs_f64() * 1000.0;
+        let (out_ids, decode_timing) = model.generate_greedy_timed(prompt_ids.clone(), max_new_tokens)?;
+
+        let tokens_per_sec = if max_new_tokens > 0 && decode_timing.decode_wall_ms > 0.0 {
+            Some(max_new_tokens as f64 / (decode_timing.decode_wall_ms / 1000.0))
+        } else {
+            None
+        };
 
         let out_ids_u32: Vec<u32> = out_ids.iter().map(|&x| x as u32).collect();
         let out_text = tok.decode(&out_ids_u32)?;
@@ -111,10 +128,14 @@ fn cmd_generate(args: &[String]) -> Result<(), LlmError> {
             "backend": "ndarray",
             "dtype": "f32",
             "seed": seed,
+            "hub_snapshot_ms": hub_snapshot_ms,
+            "model_init_ms": model_init_ms,
+            "tokenizer_load_ms": tokenizer_load_ms,
             "prompt_tokens": prompt_ids.len(),
-            "generated_tokens": max_new_tokens,
-            "load_snapshot_ms": load_snapshot_ms,
-            "generation_ms": gen_ms,
+            "max_new_tokens": max_new_tokens,
+            "first_token_ms": decode_timing.first_token_ms,
+            "decode_wall_ms": decode_timing.decode_wall_ms,
+            "tokens_per_sec": tokens_per_sec,
         });
         println!("{}", serde_json::to_string_pretty(&metrics).map_err(|e| LlmError::Anyhow(e.into()))?);
         println!();
