@@ -5,7 +5,7 @@
 //! - `token_embedding.embed` ← `{prefix}.wte.weight`
 //! - `lm_head.weight` ← `lm_head.weight`
 //! - `layers.{i}.norm1.*`, `norm2.*` ← `h.{i}.ln_1`, `ln_2`
-//! - `layers.{i}.ff_linear1.*`, `ff_linear2.*` ← `mlp.c_fc`, `mlp.c_proj` (HF Conv1D storage matches our `[out, in]` Linear weights)
+//! - `layers.{i}.ff_linear1.*`, `ff_linear2.*` ← `mlp.c_fc`, `mlp.c_proj` (weights are accepted as `[out, in]` or the HF-transposed layout and normalized to our `[out_dim, in_dim]` matrices)
 //! - `final_norm.*` ← `{prefix}.ln_f.*`
 //!
 //! # Not loaded (architecture mismatch)
@@ -52,6 +52,38 @@ pub fn detect_gpt2_state_dict_prefix(meta: &MetaStateDict) -> Result<&'static st
     }
 }
 
+/// Row-major `[rows, cols]` → row-major `[cols, rows]`.
+fn transpose_2d_row_major(data: &[f32], rows: usize, cols: usize) -> Vec<f32> {
+    let mut out = vec![0f32; rows * cols];
+    for i in 0..rows {
+        for j in 0..cols {
+            out[j * rows + i] = data[i * cols + j];
+        }
+    }
+    out
+}
+
+/// HF GPT-2 `Conv1D`/`Linear` exports sometimes use the transposed shape vs our [`rustral_nn::Linear`] storage `[out_dim, in_dim]`.
+fn tensor_entry_f32_rustral_matrix(
+    entry: &TensorEntry,
+    rustral_shape: [usize; 2],
+) -> Result<(Vec<f32>, Vec<usize>), LlmError> {
+    let data = tensor_entry_f32(entry)?;
+    let shape = entry.shape.clone();
+    if shape == rustral_shape.to_vec() {
+        return Ok((data, shape));
+    }
+    if shape.len() == 2 && shape[0] == rustral_shape[1] && shape[1] == rustral_shape[0] {
+        let t = transpose_2d_row_major(&data, shape[0], shape[1]);
+        return Ok((t, rustral_shape.to_vec()));
+    }
+    Err(LlmError::Gpt2ShapeMismatch {
+        name: entry.name.clone(),
+        expected: rustral_shape.to_vec(),
+        got: shape,
+    })
+}
+
 fn tensor_entry_f32(entry: &TensorEntry) -> Result<Vec<f32>, LlmError> {
     if entry.dtype != Dtype::F32 {
         return Err(LlmError::UnsupportedCheckpointDtype {
@@ -76,6 +108,20 @@ fn tensor_entry_f32(entry: &TensorEntry) -> Result<Vec<f32>, LlmError> {
         .collect())
 }
 
+fn insert_hf_tensor_if_present(
+    out: &mut HashMap<String, (Vec<f32>, Vec<usize>)>,
+    meta: &MetaStateDict,
+    rustral: &str,
+    hf: &str,
+) -> Result<(), LlmError> {
+    let Some(entry) = meta.tensors.get(hf) else {
+        return Ok(());
+    };
+    let data = tensor_entry_f32(entry)?;
+    out.insert(rustral.to_string(), (data, entry.shape.clone()));
+    Ok(())
+}
+
 /// Build `(rustral_name -> data, shape)` for every parameter we can take verbatim from HF GPT-2 dumps.
 pub fn build_gpt2_flat_map(
     meta: &MetaStateDict,
@@ -84,38 +130,42 @@ pub fn build_gpt2_flat_map(
 ) -> Result<HashMap<String, (Vec<f32>, Vec<usize>)>, LlmError> {
     let mut out: HashMap<String, (Vec<f32>, Vec<usize>)> = HashMap::new();
 
-    let mut take = |rustral: &str, hf: &str| -> Result<(), LlmError> {
-        let Some(entry) = meta.tensors.get(hf) else {
-            return Ok(());
-        };
-        let data = tensor_entry_f32(entry)?;
-        out.insert(rustral.to_string(), (data, entry.shape.clone()));
-        Ok(())
-    };
-
-    take("token_embedding.embed", &format!("{prefix}.wte.weight"))?;
-    take("lm_head.weight", "lm_head.weight")?;
+    insert_hf_tensor_if_present(&mut out, meta, "token_embedding.embed", &format!("{prefix}.wte.weight"))?;
+    insert_hf_tensor_if_present(&mut out, meta, "lm_head.weight", "lm_head.weight")?;
 
     if cfg.n_positions > 0 {
         // Learned position embeddings exist in HF but our decoder uses sinusoidal `PositionalEncoding` (no weights).
         let _ = meta.tensors.get(&format!("{prefix}.wpe.weight"));
     }
 
+    let d_model = cfg.n_embd;
+    let ff_dim = cfg.n_embd.saturating_mul(4);
+
     for i in 0..cfg.n_layer {
         let h = format!("{prefix}.h.{i}");
-        take(&format!("layers.{i}.norm1.weight"), &format!("{h}.ln_1.weight"))?;
-        take(&format!("layers.{i}.norm1.bias"), &format!("{h}.ln_1.bias"))?;
-        take(&format!("layers.{i}.norm2.weight"), &format!("{h}.ln_2.weight"))?;
-        take(&format!("layers.{i}.norm2.bias"), &format!("{h}.ln_2.bias"))?;
-        take(&format!("layers.{i}.ff_linear1.weight"), &format!("{h}.mlp.c_fc.weight"))?;
-        take(&format!("layers.{i}.ff_linear1.bias"), &format!("{h}.mlp.c_fc.bias"))?;
-        take(&format!("layers.{i}.ff_linear2.weight"), &format!("{h}.mlp.c_proj.weight"))?;
-        take(&format!("layers.{i}.ff_linear2.bias"), &format!("{h}.mlp.c_proj.bias"))?;
+        insert_hf_tensor_if_present(&mut out, meta, &format!("layers.{i}.norm1.weight"), &format!("{h}.ln_1.weight"))?;
+        insert_hf_tensor_if_present(&mut out, meta, &format!("layers.{i}.norm1.bias"), &format!("{h}.ln_1.bias"))?;
+        insert_hf_tensor_if_present(&mut out, meta, &format!("layers.{i}.norm2.weight"), &format!("{h}.ln_2.weight"))?;
+        insert_hf_tensor_if_present(&mut out, meta, &format!("layers.{i}.norm2.bias"), &format!("{h}.ln_2.bias"))?;
+
+        let k_fc_w = format!("{h}.mlp.c_fc.weight");
+        if let Some(e) = meta.tensors.get(&k_fc_w) {
+            let (data, sh) = tensor_entry_f32_rustral_matrix(e, [ff_dim, d_model])?;
+            out.insert(format!("layers.{i}.ff_linear1.weight"), (data, sh));
+        }
+        insert_hf_tensor_if_present(&mut out, meta, &format!("layers.{i}.ff_linear1.bias"), &format!("{h}.mlp.c_fc.bias"))?;
+
+        let k_proj_w = format!("{h}.mlp.c_proj.weight");
+        if let Some(e) = meta.tensors.get(&k_proj_w) {
+            let (data, sh) = tensor_entry_f32_rustral_matrix(e, [d_model, ff_dim])?;
+            out.insert(format!("layers.{i}.ff_linear2.weight"), (data, sh));
+        }
+        insert_hf_tensor_if_present(&mut out, meta, &format!("layers.{i}.ff_linear2.bias"), &format!("{h}.mlp.c_proj.bias"))?;
         // Attention keys deliberately omitted — see module docs.
     }
 
-    take("final_norm.weight", &format!("{prefix}.ln_f.weight"))?;
-    take("final_norm.bias", &format!("{prefix}.ln_f.bias"))?;
+    insert_hf_tensor_if_present(&mut out, meta, "final_norm.weight", &format!("{prefix}.ln_f.weight"))?;
+    insert_hf_tensor_if_present(&mut out, meta, "final_norm.bias", &format!("{prefix}.ln_f.bias"))?;
 
     if !out.contains_key("token_embedding.embed") {
         return Err(LlmError::MissingFile(format!("{prefix}.wte.weight")));
@@ -238,7 +288,7 @@ mod tests {
     #[test]
     fn loads_embedding_ln_ff_lm_head_small_fixture() {
         let d = 8usize;
-        let ff = 16usize;
+        let ff = d.saturating_mul(4);
         let vocab = 11usize;
         let n_layer = 1usize;
         let n_head = 2usize;
@@ -255,14 +305,15 @@ mod tests {
         tensors.insert(format!("{h}.ln_2.weight"), entry(&format!("{h}.ln_2.weight"), vec![d], vec![1.0; d]));
         tensors.insert(format!("{h}.ln_2.bias"), entry(&format!("{h}.ln_2.bias"), vec![d], vec![0.0; d]));
 
+        // HF-style shapes `[d_model, ff_dim]` / `[ff_dim, d_model]` (transposed vs our Linear storage).
         tensors.insert(
             format!("{h}.mlp.c_fc.weight"),
-            entry(&format!("{h}.mlp.c_fc.weight"), vec![ff, d], vec![0.01; ff * d]),
+            entry(&format!("{h}.mlp.c_fc.weight"), vec![d, ff], vec![0.01; d * ff]),
         );
         tensors.insert(format!("{h}.mlp.c_fc.bias"), entry(&format!("{h}.mlp.c_fc.bias"), vec![ff], vec![0.0; ff]));
         tensors.insert(
             format!("{h}.mlp.c_proj.weight"),
-            entry(&format!("{h}.mlp.c_proj.weight"), vec![d, ff], vec![0.01; d * ff]),
+            entry(&format!("{h}.mlp.c_proj.weight"), vec![ff, d], vec![0.01; ff * d]),
         );
         tensors.insert(format!("{h}.mlp.c_proj.bias"), entry(&format!("{h}.mlp.c_proj.bias"), vec![d], vec![0.0; d]));
 
@@ -299,7 +350,7 @@ mod tests {
         };
 
         let backend = CpuBackend::default();
-        let mut dec_cfg = TransformerDecoderConfig::new(d, n_head, n_layer, ff).with_max_seq_len(32);
+        let mut dec_cfg = TransformerDecoderConfig::new(d, n_head, n_layer, ff).with_max_seq_len(32); // ff = 4 * d (GPT-2 MLP)
         dec_cfg.dropout = 0.0;
         let mut model = TransformerDecoder::new(&backend, dec_cfg, vocab, 42).expect("decoder");
 
