@@ -6,12 +6,14 @@ use rustral_io::MetaStateDict;
 use rustral_ndarray_backend::CpuBackend;
 use rustral_nn::TransformerDecoderConfig;
 
+use crate::causal_lm::CausalLm;
 use crate::LlmError;
 
 pub mod hf_weights;
 
 pub use hf_weights::{
-    build_gpt2_flat_map, detect_gpt2_state_dict_prefix, load_hf_gpt2_weights_into_decoder, Gpt2WeightLoadReport,
+    build_gpt2_flat_map, detect_gpt2_state_dict_prefix, load_hf_gpt2_weights_into_decoder,
+    Gpt2WeightLoadReport,
 };
 
 /// Minimal subset of Hugging Face GPT-2 config fields we care about.
@@ -30,7 +32,8 @@ impl HfGpt2Config {
     pub fn from_json_file(path: impl AsRef<Path>) -> Result<Self, LlmError> {
         let bytes = std::fs::read(path.as_ref())
             .with_context(|| format!("read config json at {}", path.as_ref().display()))?;
-        let cfg: Self = serde_json::from_slice(&bytes).with_context(|| "parse gpt2 config json".to_string())?;
+        let cfg: Self =
+            serde_json::from_slice(&bytes).with_context(|| "parse gpt2 config json".to_string())?;
         Ok(cfg)
     }
 }
@@ -46,6 +49,11 @@ pub struct Gpt2Decoder {
 }
 
 impl Gpt2Decoder {
+    /// Reference to the CPU backend used by this decoder (use this when building a [`ForwardCtx`] for [`crate::CausalLm`]).
+    pub fn backend(&self) -> &CpuBackend {
+        &self.backend
+    }
+
     /// Borrow the underlying decoder (e.g. for tests or advanced loading).
     pub fn decoder(&self) -> &rustral_nn::TransformerDecoder<CpuBackend> {
         &self.model
@@ -59,12 +67,20 @@ impl Gpt2Decoder {
     /// Load compatible Hugging Face GPT-2 tensors from a merged [`MetaStateDict`] (see `gpt2::hf_weights`).
     ///
     /// Attention weights are **not** mapped yet; they remain at initialization values.
-    pub fn load_hf_weights_from_meta(&mut self, meta: &MetaStateDict, cfg: &HfGpt2Config) -> Result<Gpt2WeightLoadReport, LlmError> {
+    pub fn load_hf_weights_from_meta(
+        &mut self,
+        meta: &MetaStateDict,
+        cfg: &HfGpt2Config,
+    ) -> Result<Gpt2WeightLoadReport, LlmError> {
         hf_weights::load_hf_gpt2_weights_into_decoder(&mut self.model, &self.backend, meta, cfg)
     }
 
     /// Build a decoder and load compatible checkpoint tensors in one step.
-    pub fn from_hf_meta(cfg: &HfGpt2Config, meta: &MetaStateDict, seed: u64) -> Result<(Self, Gpt2WeightLoadReport), LlmError> {
+    pub fn from_hf_meta(
+        cfg: &HfGpt2Config,
+        meta: &MetaStateDict,
+        seed: u64,
+    ) -> Result<(Self, Gpt2WeightLoadReport), LlmError> {
         let mut dec = Self::new_random(cfg, seed)?;
         let report = dec.load_hf_weights_from_meta(meta, cfg)?;
         Ok((dec, report))
@@ -72,8 +88,8 @@ impl Gpt2Decoder {
 
     pub fn new_random(cfg: &HfGpt2Config, seed: u64) -> Result<Self, LlmError> {
         let backend = CpuBackend::default();
-        let mut dec_cfg =
-            TransformerDecoderConfig::new(cfg.n_embd, cfg.n_head, cfg.n_layer, cfg.n_embd * 4).with_max_seq_len(cfg.n_positions);
+        let mut dec_cfg = TransformerDecoderConfig::new(cfg.n_embd, cfg.n_head, cfg.n_layer, cfg.n_embd * 4)
+            .with_max_seq_len(cfg.n_positions);
         if let Some(p) = cfg.resid_pdrop {
             dec_cfg.dropout = p;
         }
@@ -82,16 +98,32 @@ impl Gpt2Decoder {
         Ok(Self { backend, model })
     }
 
-    pub fn generate_greedy(&self, mut input_ids: Vec<usize>, max_new_tokens: usize) -> Result<Vec<usize>, LlmError> {
+    /// Greedy generation with a fresh inference [`ForwardCtx`].
+    ///
+    /// For profiling or custom [`rustral_core::ShapePolicy`], use [`CausalLm::generate_greedy`] with your own context.
+    pub fn generate_greedy(
+        &self,
+        input_ids: Vec<usize>,
+        max_new_tokens: usize,
+    ) -> Result<Vec<usize>, LlmError> {
         let mut ctx = ForwardCtx::new(&self.backend, Mode::Inference);
+        CausalLm::generate_greedy(self, &mut ctx, input_ids, max_new_tokens)
+    }
+}
+
+impl CausalLm<CpuBackend> for Gpt2Decoder {
+    fn generate_greedy(
+        &self,
+        ctx: &mut ForwardCtx<'_, CpuBackend>,
+        mut input_ids: Vec<usize>,
+        max_new_tokens: usize,
+    ) -> Result<Vec<usize>, LlmError> {
         for _ in 0..max_new_tokens {
-            let next = self
-                .model
-                .generate_token(input_ids.clone(), &mut ctx)
-                .map_err(|e| anyhow::anyhow!("{e}"))? as usize;
+            let next =
+                self.model.generate_token(input_ids.clone(), ctx).map_err(|e| anyhow::anyhow!("{e}"))?
+                    as usize;
             input_ids.push(next);
         }
         Ok(input_ids)
     }
 }
-

@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `rustral-llm`: **`CausalLm`** trait (`crates/llm/src/causal_lm.rs`) with greedy **`generate_greedy(ctx, …)`** using an explicit **`ForwardCtx`**; **`Gpt2Decoder`** implements it for **`CpuBackend`** and exposes **`backend()`** for building matching contexts. Convenience **`Gpt2Decoder::generate_greedy`** still allocates an inference context.
 - `rustral-hf`: **`scan_local_model_dir`** discovers `config.json`, tokenizer files, single or **sharded** SafeTensors (`model.safetensors.index.json` + shards), and optional `model.gguf` under a local path with no Hub API; **`HubModelSnapshot::require_config_json`** for callers that require config; **`snapshot_model_at`** pins Hub downloads to an optional revision (branch/tag/SHA); **`snapshot_model`** delegates to `snapshot_model_at(..., None)` (default `main`).
 - `rustral-llm`: re-exports **`HubModelSnapshot`** / **`HubModelFiles`** from `rustral-hf` (removes the duplicated snapshot struct).
 - `rustral-io`: **`load_meta_state_dict_from_paths`** merges multiple SafeTensors files into one **`MetaStateDict`**; **`load_meta_state_dict_from_hub_index`** parses `model.safetensors.index.json` and loads shards from a snapshot root; **`IoError::FileRead`** / **`IndexJson`** for filesystem and index parse failures.

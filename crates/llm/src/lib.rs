@@ -10,7 +10,10 @@ use std::path::Path;
 
 use thiserror::Error;
 
+pub mod causal_lm;
 pub mod gpt2;
+
+pub use causal_lm::CausalLm;
 
 /// Canonical Hub snapshot types from [`rustral_hf`] (avoid duplicating paths in this crate).
 pub use rustral_hf::{HubModelFiles, HubModelSnapshot};
@@ -34,11 +37,7 @@ pub enum LlmError {
     UnsupportedCheckpointDtype { name: String, dtype: String },
 
     #[error("shape mismatch loading '{name}': model expects {expected:?}, checkpoint has {got:?}")]
-    Gpt2ShapeMismatch {
-        name: String,
-        expected: Vec<usize>,
-        got: Vec<usize>,
-    },
+    Gpt2ShapeMismatch { name: String, expected: Vec<usize>, got: Vec<usize> },
 }
 
 /// Minimal tokenizer abstraction for LLM workflows.
@@ -66,9 +65,6 @@ impl TokenizerHandle {
     #[cfg(feature = "hf-tokenizers")]
     pub fn decode(&self, ids: &[u32]) -> Result<String, LlmError> {
         let ids_u32: Vec<u32> = ids.to_vec();
-        self.inner
-            .decode(&ids_u32, true)
-            .map_err(|e| anyhow::anyhow!("{e}").into())
+        self.inner.decode(&ids_u32, true).map_err(|e| anyhow::anyhow!("{e}").into())
     }
 }
-

@@ -182,6 +182,7 @@ Maintainer-only detail may live in local `IMPROVEMENT_PLAN.md` (gitignored). Thi
 | 04 | `rustral-llm` re-export `HubModelSnapshot` / `HubModelFiles` | Done |
 | 05 | GPT-2 HF → `NamedParameters` mapping (embed/LN/FFN/`lm_head`) | Done |
 | 06 | `Gpt2Decoder::load_hf_weights_from_meta` / `from_hf_meta` | Done |
+| 07 | **`CausalLm<B>`** trait + greedy **`generate`** via explicit **`ForwardCtx`** (`rustral-llm`) | Done |
 
 ---
 
@@ -192,7 +193,7 @@ Maintainer-only detail may live in local `IMPROVEMENT_PLAN.md` (gitignored). Thi
 3. Fix the `LstmCell` weight layout so LSTM workloads can enter the JSON harness.
 4. Upgrade `wgpu` and revisit GPU RNG/dropout stories.
 5. Wire metrics (`rustral-metrics`) to real sinks where desired.
-6. **LLM vertical (v3):** next — GPT-2 **attention** weight conversion (HF `c_attn` / `c_proj` ↔ `SelfAttention`); then **`CausalLm`**, metrics JSON, Candle parity (**07**–**09** in `IMPROVEMENT_PLAN.md` V3 table).
+6. **LLM vertical (v3):** next — **metrics JSON** (thin CLI `main`), **Candle vs ndarray parity** (**08**–**09**); GPT-2 **attention** weight conversion (HF `c_attn` / `c_proj` ↔ `SelfAttention`) remains parallel/future (**07** `CausalLm` delivered).
 
 ---
 
