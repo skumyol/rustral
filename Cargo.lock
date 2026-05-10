@@ -3592,6 +3592,7 @@ dependencies = [
  "rustral-io",
  "rustral-ndarray-backend",
  "rustral-nn",
+ "safetensors 0.4.5",
  "serde",
  "serde_json",
  "tempfile",

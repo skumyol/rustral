@@ -2,10 +2,17 @@ use std::path::Path;
 
 use anyhow::Context;
 use rustral_core::{ForwardCtx, Mode};
+use rustral_io::MetaStateDict;
 use rustral_ndarray_backend::CpuBackend;
 use rustral_nn::TransformerDecoderConfig;
 
 use crate::LlmError;
+
+pub mod hf_weights;
+
+pub use hf_weights::{
+    build_gpt2_flat_map, detect_gpt2_state_dict_prefix, load_hf_gpt2_weights_into_decoder, Gpt2WeightLoadReport,
+};
 
 /// Minimal subset of Hugging Face GPT-2 config fields we care about.
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -39,6 +46,30 @@ pub struct Gpt2Decoder {
 }
 
 impl Gpt2Decoder {
+    /// Borrow the underlying decoder (e.g. for tests or advanced loading).
+    pub fn decoder(&self) -> &rustral_nn::TransformerDecoder<CpuBackend> {
+        &self.model
+    }
+
+    /// Mutable reference to the underlying decoder.
+    pub fn decoder_mut(&mut self) -> &mut rustral_nn::TransformerDecoder<CpuBackend> {
+        &mut self.model
+    }
+
+    /// Load compatible Hugging Face GPT-2 tensors from a merged [`MetaStateDict`] (see `gpt2::hf_weights`).
+    ///
+    /// Attention weights are **not** mapped yet; they remain at initialization values.
+    pub fn load_hf_weights_from_meta(&mut self, meta: &MetaStateDict, cfg: &HfGpt2Config) -> Result<Gpt2WeightLoadReport, LlmError> {
+        hf_weights::load_hf_gpt2_weights_into_decoder(&mut self.model, &self.backend, meta, cfg)
+    }
+
+    /// Build a decoder and load compatible checkpoint tensors in one step.
+    pub fn from_hf_meta(cfg: &HfGpt2Config, meta: &MetaStateDict, seed: u64) -> Result<(Self, Gpt2WeightLoadReport), LlmError> {
+        let mut dec = Self::new_random(cfg, seed)?;
+        let report = dec.load_hf_weights_from_meta(meta, cfg)?;
+        Ok((dec, report))
+    }
+
     pub fn new_random(cfg: &HfGpt2Config, seed: u64) -> Result<Self, LlmError> {
         let backend = CpuBackend::default();
         let mut dec_cfg =

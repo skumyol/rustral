@@ -30,6 +30,7 @@ rustral-hf = { path = "../hf", version = "0.1.0" }
 rustral-ndarray-backend = { path = "../ndarray-backend", version = "0.1.0" }
 rustral-candle-backend = { path = "../candle-backend", version = "0.1.0" }
 rustral-nn = { path = "../nn", version = "0.1.0" }
+safetensors = { workspace = true }
 
 tokenizers = { version = "0.22", optional = true }
 

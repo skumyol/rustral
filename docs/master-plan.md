@@ -180,6 +180,8 @@ Maintainer-only detail may live in local `IMPROVEMENT_PLAN.md` (gitignored). Thi
 | 02 | `snapshot_model_at` Hub revision pinning | Done |
 | 03 | `rustral-io` sharded `MetaStateDict` load (`load_meta_state_dict_from_paths`, `load_meta_state_dict_from_hub_index`) | Done |
 | 04 | `rustral-llm` re-export `HubModelSnapshot` / `HubModelFiles` | Done |
+| 05 | GPT-2 HF → `NamedParameters` mapping (embed/LN/FFN/`lm_head`) | Done |
+| 06 | `Gpt2Decoder::load_hf_weights_from_meta` / `from_hf_meta` | Done |
 
 ---
 
@@ -190,7 +192,7 @@ Maintainer-only detail may live in local `IMPROVEMENT_PLAN.md` (gitignored). Thi
 3. Fix the `LstmCell` weight layout so LSTM workloads can enter the JSON harness.
 4. Upgrade `wgpu` and revisit GPU RNG/dropout stories.
 5. Wire metrics (`rustral-metrics`) to real sinks where desired.
-6. **LLM vertical (v3):** next bites — **02** revision snapshot; **03** sharded meta load; **05** GPT-2 HF → `NamedParameters` map + **06** load into `Gpt2Decoder` (see table above and `IMPROVEMENT_PLAN.md` if present).
+6. **LLM vertical (v3):** next — GPT-2 **attention** weight conversion (HF `c_attn` / `c_proj` ↔ `SelfAttention`); then **`CausalLm`**, metrics JSON, Candle parity (**07**–**09** in `IMPROVEMENT_PLAN.md` V3 table).
 
 ---
 

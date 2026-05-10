@@ -29,6 +29,16 @@ pub enum LlmError {
 
     #[error(transparent)]
     Anyhow(#[from] anyhow::Error),
+
+    #[error("checkpoint tensor '{name}' has unsupported dtype '{dtype}' (load GPT-2 path expects F32)")]
+    UnsupportedCheckpointDtype { name: String, dtype: String },
+
+    #[error("shape mismatch loading '{name}': model expects {expected:?}, checkpoint has {got:?}")]
+    Gpt2ShapeMismatch {
+        name: String,
+        expected: Vec<usize>,
+        got: Vec<usize>,
+    },
 }
 
 /// Minimal tokenizer abstraction for LLM workflows.
