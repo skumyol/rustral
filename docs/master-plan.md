@@ -187,7 +187,8 @@ Maintainer-only detail may live in local `IMPROVEMENT_PLAN.md` (gitignored). Thi
 | 09 | **`TransformerDecoder`** ndarray vs **`CandleBackend::cpu`** parity test (`rustral-llm`) + relax transformer **`AsRef<[f32]>`** bounds (`rustral-nn`) | Done |
 | 10 | **LLaMA-shaped** `LlamaDecoder` in `rustral-nn` (`RmsNorm`, RoPE, SwiGLU MLP; reference f32 attention) | Done (architecture) |
 | 11 | **LLaMA** Hugging Face safetensors → `LlamaDecoder` / `NamedParameters` (`llama/hf_weights`, `LlamaCausalLm`) | Done (F32; GQA rejected at load) |
-| 12 | **KV cache**-tuned Llama decode / optional HTTP / GGUF | Not started |
+| 12 | Llama **fixture `config.json`** + integration load + **causal logits parity** (`tests/llama_fixture_integration.rs`; `rustral-nn` causal unit test) | Done |
+| 13 | **KV cache**-tuned Llama decode / **GQA** / optional HTTP / GGUF | Not started |
 
 ---
 
@@ -198,7 +199,7 @@ Maintainer-only detail may live in local `IMPROVEMENT_PLAN.md` (gitignored). Thi
 3. Fix the `LstmCell` weight layout so LSTM workloads can enter the JSON harness.
 4. Upgrade `wgpu` and revisit GPU RNG/dropout stories.
 5. Wire metrics (`rustral-metrics`) to real sinks where desired.
-6. **LLM vertical (v3):** **LLaMA HF → `LlamaDecoder`** weight loading lives in `rustral-llm` (`llama` module); next — **KV decode**, **GQA**, optional HTTP / GGUF as needed.
+6. **LLM vertical (v3):** Next — **KV-cache incremental decode** and **GQA** on top of Llama load + causal parity tests; optional HTTP / GGUF as needed.
 
 ---
 
