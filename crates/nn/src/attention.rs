@@ -65,11 +65,34 @@ pub struct SelfAttention<B: Backend> {
 
 /// Row-major layout `[batch, seq, num_heads, head_dim]` flattened as `[batch, seq, d_model]`.
 #[inline]
-pub(crate) fn idx_bshd_fixed(b: usize, s: usize, h: usize, d: usize, seq_len: usize, num_heads: usize, head_dim: usize) -> usize {
+pub(crate) fn idx_bshd_fixed(
+    b: usize,
+    s: usize,
+    h: usize,
+    d: usize,
+    seq_len: usize,
+    num_heads: usize,
+    head_dim: usize,
+) -> usize {
     (b * seq_len + s) * (num_heads * head_dim) + h * head_dim + d
 }
 
+/// Row-major `[batch, seq, num_kv_heads, head_dim]` (K/V in GQA).
+#[inline]
+pub(crate) fn idx_bshd_kv(
+    b: usize,
+    s: usize,
+    h_kv: usize,
+    d: usize,
+    seq_len: usize,
+    num_kv_heads: usize,
+    head_dim: usize,
+) -> usize {
+    (b * seq_len + s) * (num_kv_heads * head_dim) + h_kv * head_dim + d
+}
+
 /// Reference multi-head attention (f32). When `causal`, mask future positions with `-inf` before softmax.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn sdpa_multi_head_f32(
     q: &[f32],
     k: &[f32],
@@ -114,11 +137,7 @@ pub(crate) fn sdpa_multi_head_f32(
                 }
                 let mut sum = 0f32;
                 for j in 0..seq_len {
-                    let e = if scores[row + j].is_finite() {
-                        (scores[row + j] - max_v).exp()
-                    } else {
-                        0.0
-                    };
+                    let e = if scores[row + j].is_finite() { (scores[row + j] - max_v).exp() } else { 0.0 };
                     scores[row + j] = e;
                     sum += e;
                 }
@@ -135,6 +154,97 @@ pub(crate) fn sdpa_multi_head_f32(
                             * v[idx_bshd_fixed(b, j, h, d, seq_len, num_heads, head_dim)];
                     }
                     out[idx_bshd_fixed(b, i, h, d, seq_len, num_heads, head_dim)] = acc;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Grouped-query attention (HF Llama): `num_heads` query heads share `num_kv_heads` K/V heads
+/// (`group_size = num_heads / num_kv_heads`). When `sq == skv` and `causal`, apply causal mask on the square.
+/// When `sq < skv` (decode step), `query_global_offset` is the absolute index of the query row within the key
+/// span so causal visibility is `key_idx <= query_global_offset` (past + current token).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sdpa_multi_head_gqa_f32(
+    q: &[f32],
+    k: &[f32],
+    v: &[f32],
+    batch: usize,
+    sq: usize,
+    skv: usize,
+    num_heads: usize,
+    num_kv_heads: usize,
+    head_dim: usize,
+    scale: f32,
+    causal_square: bool,
+    query_global_offset: usize,
+) -> Vec<f32> {
+    assert!(num_heads >= num_kv_heads && num_heads % num_kv_heads == 0);
+    let group = num_heads / num_kv_heads;
+    let d_q = num_heads * head_dim;
+    let d_kv = num_kv_heads * head_dim;
+    debug_assert_eq!(q.len(), batch * sq * d_q);
+    debug_assert_eq!(k.len(), batch * skv * d_kv);
+    debug_assert_eq!(v.len(), batch * skv * d_kv);
+
+    let mut out = vec![0f32; batch * sq * d_q];
+    let mut scores = vec![0f32; sq * skv];
+
+    for b in 0..batch {
+        for h in 0..num_heads {
+            let kv_h = h / group;
+            for i in 0..sq {
+                for j in 0..skv {
+                    let visible = if causal_square {
+                        if sq != skv {
+                            panic!("causal_square requires sq == skv");
+                        }
+                        j <= i
+                    } else {
+                        j <= query_global_offset + i
+                    };
+                    if !visible {
+                        scores[i * skv + j] = f32::NEG_INFINITY;
+                    } else {
+                        let mut acc = 0f32;
+                        for d in 0..head_dim {
+                            let qi = idx_bshd_fixed(b, i, h, d, sq, num_heads, head_dim);
+                            let kj = idx_bshd_kv(b, j, kv_h, d, skv, num_kv_heads, head_dim);
+                            acc += q[qi] * k[kj];
+                        }
+                        scores[i * skv + j] = acc * scale;
+                    }
+                }
+            }
+            for i in 0..sq {
+                let row = i * skv;
+                let mut max_v = f32::NEG_INFINITY;
+                for j in 0..skv {
+                    let v = scores[row + j];
+                    if v.is_finite() {
+                        max_v = max_v.max(v);
+                    }
+                }
+                let mut sum = 0f32;
+                for j in 0..skv {
+                    let e = if scores[row + j].is_finite() { (scores[row + j] - max_v).exp() } else { 0.0 };
+                    scores[row + j] = e;
+                    sum += e;
+                }
+                let inv = if sum > 1e-12 { 1.0 / sum } else { 0.0 };
+                for j in 0..skv {
+                    scores[row + j] *= inv;
+                }
+            }
+            for i in 0..sq {
+                for d in 0..head_dim {
+                    let mut acc = 0f32;
+                    for j in 0..skv {
+                        acc +=
+                            scores[i * skv + j] * v[idx_bshd_kv(b, j, kv_h, d, skv, num_kv_heads, head_dim)];
+                    }
+                    out[idx_bshd_fixed(b, i, h, d, sq, num_heads, head_dim)] = acc;
                 }
             }
         }
@@ -240,8 +350,10 @@ impl<B: Backend> SelfAttention<B> {
         let v_flat = ops.reshape(v, &[batch * seq_len, d_k])?;
         let k_t = ops.transpose(&k_flat)?;
         let scores = ops.matmul(&q_flat, &k_t)?;
-        let scale_tensor =
-            ops.tensor_from_vec(vec![self.scale; batch * seq_len * batch * seq_len], &[batch * seq_len, batch * seq_len])?;
+        let scale_tensor = ops.tensor_from_vec(
+            vec![self.scale; batch * seq_len * batch * seq_len],
+            &[batch * seq_len, batch * seq_len],
+        )?;
         let scaled_scores = ops.mul(&scores, &scale_tensor)?;
         let attn_weights = ops.softmax(&scaled_scores)?;
         let output = ops.matmul(&attn_weights, &v_flat)?;

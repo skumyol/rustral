@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use rustral_llm::{gpt2::HfGpt2Config, gpt2::Gpt2Decoder, LlmError};
+use rustral_llm::{gpt2::Gpt2Decoder, gpt2::HfGpt2Config, LlmError};
 
 #[cfg(feature = "hf-tokenizers")]
 use rustral_llm::TokenizerHandle;
@@ -56,7 +56,8 @@ fn cmd_generate(args: &[String]) -> Result<(), LlmError> {
             }
             "--seed" => {
                 i += 1;
-                let v = args.get(i).ok_or_else(|| LlmError::InvalidArg("--seed requires a value".to_string()))?;
+                let v =
+                    args.get(i).ok_or_else(|| LlmError::InvalidArg("--seed requires a value".to_string()))?;
                 seed = v.parse::<u64>().map_err(|_| LlmError::InvalidArg(format!("invalid --seed: {v}")))?;
             }
             other => return Err(LlmError::InvalidArg(format!("unknown arg: {other}"))),
@@ -71,7 +72,8 @@ fn cmd_generate(args: &[String]) -> Result<(), LlmError> {
     let snap = rustral_hf::snapshot_model(&model_id).map_err(|e| anyhow::anyhow!("{e}"))?;
     let hub_snapshot_ms = t_snap.elapsed().as_secs_f64() * 1000.0;
 
-    let cfg_path = snap.files.config_json.as_deref().ok_or_else(|| LlmError::MissingFile("config.json".to_string()))?;
+    let cfg_path =
+        snap.files.config_json.as_deref().ok_or_else(|| LlmError::MissingFile("config.json".to_string()))?;
     let cfg = HfGpt2Config::from_json_file(cfg_path)?;
 
     let t_model = Instant::now();
@@ -91,10 +93,10 @@ fn cmd_generate(args: &[String]) -> Result<(), LlmError> {
             "error": "tokenizer feature disabled; rebuild with --features hf-tokenizers",
         });
         eprintln!("{}", serde_json::to_string_pretty(&metrics).map_err(|e| LlmError::Anyhow(e.into()))?);
-        return Err(LlmError::InvalidArg(
+        Err(LlmError::InvalidArg(
             "tokenizer support is disabled; rebuild with `cargo run -p rustral-llm --features hf-tokenizers -- generate ...`"
                 .to_string(),
-        ));
+        ))
     }
 
     #[cfg(feature = "hf-tokenizers")]
@@ -143,4 +145,3 @@ fn cmd_generate(args: &[String]) -> Result<(), LlmError> {
         Ok(())
     }
 }
-

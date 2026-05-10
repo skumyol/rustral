@@ -21,8 +21,8 @@ mod embedding;
 mod expert_choice;
 mod fusion_helper;
 mod kv_cache;
-mod llama;
 mod linear;
+mod llama;
 mod loss;
 mod lstm;
 mod moe;
@@ -57,11 +57,14 @@ pub use expert_choice::{
     TokenAssignment,
 };
 pub use fusion_helper::FusionHelper;
-pub use llama::{LlamaAttention, LlamaDecoder, LlamaDecoderConfig, LlamaDecoderLayer, LlamaMlp};
 pub use kv_cache::{
     BatchedCache, CacheConfig, CacheMemoryStats, CacheQuantization, KVCache, PagedCache, SlidingWindowCache,
 };
 pub use linear::{Linear, LinearBuilder, LinearConfig, LinearGELU, LinearReLU};
+pub use llama::{
+    LlamaAttention, LlamaDecodeCache, LlamaDecoder, LlamaDecoderConfig, LlamaDecoderLayer, LlamaLayerKvCache,
+    LlamaMlp,
+};
 pub use loss::{BCEWithLogitsLoss, CrossEntropyLoss, MSELoss};
 pub use lstm::{
     BidirectionalOutput, BidirectionalRnn, GruCell, GruConfig, GruState, LstmCell, LstmConfig, LstmState,

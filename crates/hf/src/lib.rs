@@ -193,16 +193,17 @@ pub fn snapshot_model_at(model_id: &str, revision: Option<&str>) -> Result<HubMo
         None => api.model(model_id.to_string()),
     };
 
-    let mut files = HubModelFiles::default();
-
-    files.config_json = try_get(&repo, "config.json");
-    files.tokenizer_json = try_get(&repo, "tokenizer.json");
-    files.tokenizer_config_json = try_get(&repo, "tokenizer_config.json");
-    files.special_tokens_map_json = try_get(&repo, "special_tokens_map.json");
-    files.generation_config_json = try_get(&repo, "generation_config.json");
+    let mut files = HubModelFiles {
+        config_json: try_get(&repo, "config.json"),
+        tokenizer_json: try_get(&repo, "tokenizer.json"),
+        tokenizer_config_json: try_get(&repo, "tokenizer_config.json"),
+        special_tokens_map_json: try_get(&repo, "special_tokens_map.json"),
+        generation_config_json: try_get(&repo, "generation_config.json"),
+        safetensors_index_json: try_get(&repo, "model.safetensors.index.json"),
+        ..Default::default()
+    };
 
     // SafeTensors: prefer an index (sharded) if present, else single-file.
-    files.safetensors_index_json = try_get(&repo, "model.safetensors.index.json");
     if let Some(index_path) = &files.safetensors_index_json {
         let idx_bytes = std::fs::read(index_path)?;
         let idx: SafeTensorsIndex =
@@ -288,10 +289,7 @@ pub fn scan_local_model_dir(root: impl AsRef<Path>) -> Result<HubModelSnapshot, 
             if p.is_file() {
                 files.safetensors_files.push(p);
             } else {
-                return Err(HfError::MissingFile {
-                    repo: model_id.clone(),
-                    file: shard,
-                });
+                return Err(HfError::MissingFile { repo: model_id.clone(), file: shard });
             }
         }
     } else if root.join("model.safetensors").is_file() {
@@ -303,12 +301,7 @@ pub fn scan_local_model_dir(root: impl AsRef<Path>) -> Result<HubModelSnapshot, 
         files.gguf_files.push(gguf);
     }
 
-    Ok(HubModelSnapshot {
-        model_id,
-        revision: None,
-        root,
-        files,
-    })
+    Ok(HubModelSnapshot { model_id, revision: None, root, files })
 }
 
 /// Save a state dictionary to a local Safetensors file.

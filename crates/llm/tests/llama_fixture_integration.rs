@@ -24,12 +24,7 @@ fn tensor_entry(name: &str, shape: Vec<usize>, data: Vec<f32>) -> TensorEntry {
     for x in data {
         bytes.extend_from_slice(&x.to_le_bytes());
     }
-    TensorEntry {
-        name: name.to_string(),
-        shape,
-        dtype: Dtype::F32,
-        data: bytes,
-    }
+    TensorEntry { name: name.to_string(), shape, dtype: Dtype::F32, data: bytes }
 }
 
 /// Synthetic Llama checkpoint tensors aligned with `cfg` (HF `model.*` naming).
@@ -38,6 +33,9 @@ fn synthetic_meta_state_dict(cfg: &HfLlamaConfig) -> MetaStateDict {
     let inter = cfg.intermediate_size;
     let vocab = cfg.vocab_size;
     let n_layer = cfg.num_hidden_layers;
+    let head_dim = d / cfg.num_attention_heads;
+    let n_kv = cfg.num_key_value_heads.unwrap_or(cfg.num_attention_heads);
+    let kv_dim = n_kv * head_dim;
 
     let mut tensors = HashMap::new();
     let root = "model";
@@ -50,10 +48,7 @@ fn synthetic_meta_state_dict(cfg: &HfLlamaConfig) -> MetaStateDict {
             (0..vocab * d).map(|i| (i as f32) * 1e-5).collect(),
         ),
     );
-    tensors.insert(
-        format!("{root}.norm.weight"),
-        tensor_entry("norm.weight", vec![d], vec![1.0f32; d]),
-    );
+    tensors.insert(format!("{root}.norm.weight"), tensor_entry("norm.weight", vec![d], vec![1.0f32; d]));
     tensors.insert(
         "lm_head.weight".to_string(),
         tensor_entry("lm_head.weight", vec![vocab, d], vec![0.01f32; vocab * d]),
@@ -61,18 +56,15 @@ fn synthetic_meta_state_dict(cfg: &HfLlamaConfig) -> MetaStateDict {
 
     for layer in 0..n_layer {
         let h = format!("{root}.layers.{layer}");
-        tensors.insert(
-            format!("{h}.input_layernorm.weight"),
-            tensor_entry("iln", vec![d], vec![1.0f32; d]),
-        );
+        tensors.insert(format!("{h}.input_layernorm.weight"), tensor_entry("iln", vec![d], vec![1.0f32; d]));
         tensors.insert(
             format!("{h}.post_attention_layernorm.weight"),
             tensor_entry("paln", vec![d], vec![1.0f32; d]),
         );
-        for pn in ["q_proj", "k_proj", "v_proj", "o_proj"] {
+        for (pn, rows) in [("q_proj", d), ("k_proj", kv_dim), ("v_proj", kv_dim), ("o_proj", d)] {
             tensors.insert(
                 format!("{h}.self_attn.{pn}.weight"),
-                tensor_entry(pn, vec![d, d], vec![0.001f32; d * d]),
+                tensor_entry(pn, vec![rows, d], vec![0.001f32; rows * d]),
             );
         }
         tensors.insert(
@@ -113,11 +105,7 @@ fn llama_load_fixture_meta_forward_and_causal_parity() {
     let meta = synthetic_meta_state_dict(&cfg);
 
     let (lm, report) = LlamaCausalLm::from_hf_meta(&cfg, &meta, 42).expect("from_hf_meta");
-    assert!(
-        report.skipped_parameters.is_empty(),
-        "skipped: {:?}",
-        report.skipped_parameters
-    );
+    assert!(report.skipped_parameters.is_empty(), "skipped: {:?}", report.skipped_parameters);
     assert!(
         report.loaded_rustral_keys.contains(&"token_embedding.embed".to_string()),
         "{:?}",
@@ -146,10 +134,7 @@ fn llama_load_fixture_meta_forward_and_causal_parity() {
         for i in 0..sl {
             let a = step_flat[offset_last + i];
             let b = full_flat[s * sl + i];
-            assert!(
-                (a - b).abs() < 5e-5,
-                "causal mismatch pos={s} dim={i}: prefix_last={a} full_row={b}"
-            );
+            assert!((a - b).abs() < 5e-5, "causal mismatch pos={s} dim={i}: prefix_last={a} full_row={b}");
         }
     }
 }

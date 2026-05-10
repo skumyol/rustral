@@ -69,6 +69,9 @@ pub fn build_llama_flat_map(
     let d = cfg.hidden_size;
     let inter = cfg.intermediate_size;
     let n_layer = cfg.num_hidden_layers;
+    let head_dim = d / cfg.num_attention_heads;
+    let n_kv = cfg.num_key_value_heads.unwrap_or(cfg.num_attention_heads);
+    let kv_dim = n_kv * head_dim;
 
     let embed_candidates = [hf_join(root, "embed_tokens.weight"), "embed_tokens.weight".to_string()];
     for cand in embed_candidates.iter() {
@@ -108,16 +111,16 @@ pub fn build_llama_flat_map(
             &format!("{layer}.post_attention_layernorm.weight"),
         )?;
 
-        for (rust_proj, hf_name) in [
-            ("q_proj", "q_proj"),
-            ("k_proj", "k_proj"),
-            ("v_proj", "v_proj"),
-            ("o_proj", "o_proj"),
+        for (rust_proj, hf_name, expected_rows) in [
+            ("q_proj", "q_proj", d),
+            ("k_proj", "k_proj", kv_dim),
+            ("v_proj", "v_proj", kv_dim),
+            ("o_proj", "o_proj", d),
         ] {
             let hf_k = format!("{layer}.self_attn.{hf_name}.weight");
             if let Some(e) = meta.tensors.get(&hf_k) {
                 consumed.insert(hf_k);
-                let (data, sh) = tensor_entry_f32_rustral_matrix(e, [d, d])?;
+                let (data, sh) = tensor_entry_f32_rustral_matrix(e, [expected_rows, d])?;
                 out.insert(format!("layers.{i}.self_attn.{rust_proj}.weight"), (data, sh));
             }
         }
@@ -157,7 +160,10 @@ fn insert_or_track(
     insert_hf_tensor_if_present(out, meta, rustral, hf)
 }
 
-fn collect_llama_param_shapes(model: &LlamaDecoder<CpuBackend>, backend: &CpuBackend) -> HashMap<String, Vec<usize>> {
+fn collect_llama_param_shapes(
+    model: &LlamaDecoder<CpuBackend>,
+    backend: &CpuBackend,
+) -> HashMap<String, Vec<usize>> {
     let ops = backend.ops();
     let mut m = HashMap::new();
     model.visit_parameters(&mut |name, p: &Parameter<CpuBackend>| {
@@ -199,7 +205,9 @@ pub fn load_hf_llama_weights_into_decoder(
 
     for (name, (data, shape)) in &flat {
         let expected = model_shapes.get(name).ok_or_else(|| {
-            LlmError::InvalidArg(format!("checkpoint has unexpected parameter name '{name}' for this Llama model"))
+            LlmError::InvalidArg(format!(
+                "checkpoint has unexpected parameter name '{name}' for this Llama model"
+            ))
         })?;
         if expected != shape {
             return Err(LlmError::CheckpointShapeMismatch {
@@ -220,9 +228,9 @@ pub fn load_hf_llama_weights_into_decoder(
 
     let mut materialized: HashMap<String, <CpuBackend as Backend>::Tensor> = HashMap::new();
     for (name, (data, shape)) in &flat {
-        let t = ops.tensor_from_vec(data.clone(), shape).map_err(|e| {
-            LlmError::InvalidArg(format!("tensor_from_vec failed for '{name}': {e:?}"))
-        })?;
+        let t = ops
+            .tensor_from_vec(data.clone(), shape)
+            .map_err(|e| LlmError::InvalidArg(format!("tensor_from_vec failed for '{name}': {e:?}")))?;
         materialized.insert(name.clone(), t);
     }
 
@@ -262,11 +270,7 @@ pub fn load_hf_llama_weights_into_decoder(
         .collect();
     unmapped_hf_keys.sort();
 
-    Ok(LlamaWeightLoadReport {
-        loaded_rustral_keys: loaded,
-        skipped_parameters,
-        unmapped_hf_keys,
-    })
+    Ok(LlamaWeightLoadReport { loaded_rustral_keys: loaded, skipped_parameters, unmapped_hf_keys })
 }
 
 #[cfg(test)]
@@ -280,12 +284,7 @@ mod tests {
         for x in data {
             bytes.extend_from_slice(&x.to_le_bytes());
         }
-        TensorEntry {
-            name: name.to_string(),
-            shape,
-            dtype: Dtype::F32,
-            data: bytes,
-        }
+        TensorEntry { name: name.to_string(), shape, dtype: Dtype::F32, data: bytes }
     }
 
     #[test]
@@ -300,37 +299,19 @@ mod tests {
         let root = "model";
         tensors.insert(
             format!("{root}.embed_tokens.weight"),
-            entry(
-                "embed",
-                vec![vocab, d],
-                (0..vocab * d).map(|i| (i as f32) * 1e-4).collect(),
-            ),
+            entry("embed", vec![vocab, d], (0..vocab * d).map(|i| (i as f32) * 1e-4).collect()),
         );
         tensors.insert(format!("{root}.norm.weight"), entry("norm", vec![d], vec![1.0f32; d]));
-        tensors.insert(
-            "lm_head.weight".to_string(),
-            entry("lm_head", vec![vocab, d], vec![0.01f32; vocab * d]),
-        );
+        tensors
+            .insert("lm_head.weight".to_string(), entry("lm_head", vec![vocab, d], vec![0.01f32; vocab * d]));
 
         let h = format!("{root}.layers.0");
-        tensors.insert(
-            format!("{h}.input_layernorm.weight"),
-            entry("iln", vec![d], vec![1.0f32; d]),
-        );
-        tensors.insert(
-            format!("{h}.post_attention_layernorm.weight"),
-            entry("paln", vec![d], vec![1.0f32; d]),
-        );
-        for (pn, sz) in [
-            ("q_proj", [d, d]),
-            ("k_proj", [d, d]),
-            ("v_proj", [d, d]),
-            ("o_proj", [d, d]),
-        ] {
-            tensors.insert(
-                format!("{h}.self_attn.{pn}.weight"),
-                entry(&pn, sz.to_vec(), vec![0.001f32; d * d]),
-            );
+        tensors.insert(format!("{h}.input_layernorm.weight"), entry("iln", vec![d], vec![1.0f32; d]));
+        tensors
+            .insert(format!("{h}.post_attention_layernorm.weight"), entry("paln", vec![d], vec![1.0f32; d]));
+        for (pn, sz) in [("q_proj", [d, d]), ("k_proj", [d, d]), ("v_proj", [d, d]), ("o_proj", [d, d])] {
+            tensors
+                .insert(format!("{h}.self_attn.{pn}.weight"), entry(&pn, sz.to_vec(), vec![0.001f32; d * d]));
         }
         tensors.insert(
             format!("{h}.mlp.gate_proj.weight"),
@@ -383,18 +364,66 @@ mod tests {
     }
 
     #[test]
-    fn gqa_config_is_rejected() {
+    fn gqa_kv_proj_shapes_use_kv_dim() {
+        let d = 64usize;
+        let n_head = 8usize;
+        let n_kv = 4usize;
+        let head_dim = d / n_head;
+        let kv_dim = n_kv * head_dim;
+
+        let mut tensors = HashMap::new();
+        let root = "model";
+        tensors.insert(
+            format!("{root}.embed_tokens.weight"),
+            entry("embed", vec![100, d], vec![0.001f32; 100 * d]),
+        );
+        tensors.insert(format!("{root}.norm.weight"), entry("norm", vec![d], vec![1.0f32; d]));
+        tensors.insert("lm_head.weight".to_string(), entry("lm_head", vec![100, d], vec![0.01f32; 100 * d]));
+
+        let h = format!("{root}.layers.0");
+        tensors.insert(format!("{h}.input_layernorm.weight"), entry("iln", vec![d], vec![1.0f32; d]));
+        tensors
+            .insert(format!("{h}.post_attention_layernorm.weight"), entry("paln", vec![d], vec![1.0f32; d]));
+        tensors.insert(format!("{h}.self_attn.q_proj.weight"), entry("q", vec![d, d], vec![0.001f32; d * d]));
+        tensors.insert(
+            format!("{h}.self_attn.k_proj.weight"),
+            entry("k", vec![kv_dim, d], vec![0.001f32; kv_dim * d]),
+        );
+        tensors.insert(
+            format!("{h}.self_attn.v_proj.weight"),
+            entry("v", vec![kv_dim, d], vec![0.001f32; kv_dim * d]),
+        );
+        tensors.insert(format!("{h}.self_attn.o_proj.weight"), entry("o", vec![d, d], vec![0.001f32; d * d]));
+        for (name, sz) in
+            [("gate_proj", vec![128, d]), ("up_proj", vec![128, d]), ("down_proj", vec![d, 128])]
+        {
+            let el = sz.iter().product::<usize>();
+            tensors.insert(format!("{h}.mlp.{name}.weight"), entry(name, sz, vec![0.002f32; el]));
+        }
+
+        let meta = MetaStateDict { tensors };
+
         let cfg = HfLlamaConfig {
             vocab_size: 100,
-            hidden_size: 64,
+            hidden_size: d,
             intermediate_size: 128,
             num_hidden_layers: 1,
-            num_attention_heads: 8,
-            num_key_value_heads: Some(4),
+            num_attention_heads: n_head,
+            num_key_value_heads: Some(n_kv),
             rms_norm_eps: 1e-5,
             rope_theta: 10_000.0,
-            max_position_embeddings: None,
+            max_position_embeddings: Some(128),
         };
-        assert!(cfg.validate_supported().is_err());
+
+        let backend = CpuBackend::default();
+        let dec_cfg = cfg.to_decoder_config();
+        let mut model = LlamaDecoder::new(&backend, dec_cfg, cfg.vocab_size, 42).expect("decoder");
+
+        let report = load_hf_llama_weights_into_decoder(&mut model, &backend, &meta, &cfg).expect("load");
+        assert!(report.skipped_parameters.is_empty());
+
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
+        let logits = model.forward(vec![1usize, 2, 3], &mut ctx).expect("forward");
+        assert_eq!(backend.ops().shape(&logits), &[1, 3, cfg.vocab_size]);
     }
 }

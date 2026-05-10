@@ -186,9 +186,10 @@ Maintainer-only detail may live in local `IMPROVEMENT_PLAN.md` (gitignored). Thi
 | 08 | CLI **`generate`** metrics JSON (`hub_snapshot_ms`, `model_init_ms`, **`first_token_ms`**, **`tokens_per_sec`**, …) | Done |
 | 09 | **`TransformerDecoder`** ndarray vs **`CandleBackend::cpu`** parity test (`rustral-llm`) + relax transformer **`AsRef<[f32]>`** bounds (`rustral-nn`) | Done |
 | 10 | **LLaMA-shaped** `LlamaDecoder` in `rustral-nn` (`RmsNorm`, RoPE, SwiGLU MLP; reference f32 attention) | Done (architecture) |
-| 11 | **LLaMA** Hugging Face safetensors → `LlamaDecoder` / `NamedParameters` (`llama/hf_weights`, `LlamaCausalLm`) | Done (F32; GQA rejected at load) |
+| 11 | **LLaMA** Hugging Face safetensors → `LlamaDecoder` / `NamedParameters` (`llama/hf_weights`, `LlamaCausalLm`) | Done (F32; **GQA** `k_proj`/`v_proj` shapes) |
 | 12 | Llama **fixture `config.json`** + integration load + **causal logits parity** (`tests/llama_fixture_integration.rs`; `rustral-nn` causal unit test) | Done |
-| 13 | **KV cache**-tuned Llama decode / **GQA** / optional HTTP / GGUF | Not started |
+| 13 | **`LlamaDecodeCache`** incremental decode (`forward_prompt_cache`, `forward_token_cache`; greedy uses KV) + **GQA** SDPA | Done |
+| 14 | Optional **HTTP** inference polish / **GGUF** | Not started |
 
 ---
 
@@ -199,7 +200,7 @@ Maintainer-only detail may live in local `IMPROVEMENT_PLAN.md` (gitignored). Thi
 3. Fix the `LstmCell` weight layout so LSTM workloads can enter the JSON harness.
 4. Upgrade `wgpu` and revisit GPU RNG/dropout stories.
 5. Wire metrics (`rustral-metrics`) to real sinks where desired.
-6. **LLM vertical (v3):** Next — **KV-cache incremental decode** and **GQA** on top of Llama load + causal parity tests; optional HTTP / GGUF as needed.
+6. **LLM vertical (v3):** **KV-cache decode** + **GQA** landed (`LlamaDecodeCache`, parity tests). Next optional work — **GGUF** path and serving polish if needed.
 
 ---
 
