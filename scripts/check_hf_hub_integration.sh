@@ -30,6 +30,10 @@ echo "--- rustral-llm: tiny-random-gpt2 safetensors → meta → Gpt2Decoder + g
 cargo test -p rustral-llm --test hf_gpt2_real_load_smoke -- --nocapture
 
 echo ""
+echo "--- rustral-llm: tiny-random-LlamaForCausalLM → meta → LlamaCausalLm + greedy generate ---"
+cargo test -p rustral-llm --test llama_hf_real_load_smoke -- --nocapture
+
+echo ""
 echo "--- rustral-llm (hf-tokenizers): snapshot, tokenizer encode, generate ---"
 cargo test -p rustral-llm --features hf-tokenizers --test hf_smoke -- --nocapture
 

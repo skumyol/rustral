@@ -23,7 +23,7 @@ Or run `./run_tests.sh` for a slightly looser local script. Benchmark harness us
 
 ### Hugging Face Hub — run before you commit
 
-Changes that touch `rustral-hf`, GPT-2 HF loaders, or Hub snapshots should be validated against the real Hub (download, merged Safetensors, partial weight load, and at least one greedy decode). Offline CI stays fast by default (`RUSTRAL_TEST_HF_NETWORK` unset); locally you should run the full integration script **before committing**:
+Changes that touch `rustral-hf`, GPT-2 or Llama HF loaders, or Hub snapshots should be validated against the real Hub (download, merged Safetensors, partial weight load, and at least one greedy decode). Offline CI stays fast by default (`RUSTRAL_TEST_HF_NETWORK` unset); locally you should run the full integration script **before committing**:
 
 ```bash
 ./scripts/check_hf_hub_integration.sh
@@ -33,7 +33,8 @@ That sets `RUSTRAL_TEST_HF_NETWORK=1` and runs:
 
 1. **`rustral-hf`** — download smoke (`tiny-random-bert`).
 2. **`rustral-llm`** — [`hf_gpt2_real_load_smoke`](crates/llm/tests/hf_gpt2_real_load_smoke.rs): snapshot → meta → `Gpt2Decoder::from_hf_meta` → `generate_greedy`.
-3. **`rustral-llm`** with **`hf-tokenizers`** — [`hf_smoke`](crates/llm/tests/hf_smoke.rs): snapshot, tokenizer encode, generate.
+3. **`rustral-llm`** — [`llama_hf_real_load_smoke`](crates/llm/tests/llama_hf_real_load_smoke.rs): snapshot → meta → `LlamaCausalLm::from_hf_meta` → `generate_greedy`.
+4. **`rustral-llm`** with **`hf-tokenizers`** — [`hf_smoke`](crates/llm/tests/hf_smoke.rs): snapshot, tokenizer encode, generate.
 
 To **enforce** the same checks on every commit (requires network when you commit):
 
