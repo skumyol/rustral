@@ -45,6 +45,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use hf_hub::Repo;
+use hf_hub::RepoType;
 use rustral_core::{Backend, Saveable};
 use rustral_io::load_parameters;
 use thiserror::Error;
@@ -173,9 +175,23 @@ struct SafeTensorsIndex {
 /// Notes:
 /// - This function is intentionally conservative: it only fetches well-known filenames.
 /// - Listing arbitrary repository contents is not required and is intentionally avoided.
+///
+/// Uses the Hub default revision (**`main`**). For a pinned branch, tag, or commit, use
+/// [`snapshot_model_at`].
 pub fn snapshot_model(model_id: &str) -> Result<HubModelSnapshot, HfError> {
+    snapshot_model_at(model_id, None)
+}
+
+/// Download common model files like [`snapshot_model`], optionally pinned to a **revision**
+/// (branch name, tag, or commit SHA) for reproducible artifact hashes.
+///
+/// When `revision` is `None`, behavior matches [`snapshot_model`] (default branch `main`).
+pub fn snapshot_model_at(model_id: &str, revision: Option<&str>) -> Result<HubModelSnapshot, HfError> {
     let api = Api::new()?;
-    let repo = api.model(model_id.to_string());
+    let repo = match revision {
+        Some(rev) => api.repo(Repo::with_revision(model_id.to_string(), RepoType::Model, rev.to_string())),
+        None => api.model(model_id.to_string()),
+    };
 
     let mut files = HubModelFiles::default();
 
@@ -213,7 +229,12 @@ pub fn snapshot_model(model_id: &str) -> Result<HubModelSnapshot, HfError> {
     }
 
     let root = snapshot_root(&files).unwrap_or_else(|| PathBuf::from("."));
-    Ok(HubModelSnapshot { model_id: model_id.to_string(), revision: None, root, files })
+    Ok(HubModelSnapshot {
+        model_id: model_id.to_string(),
+        revision: revision.map(|s| s.to_string()),
+        root,
+        files,
+    })
 }
 
 impl HubModelSnapshot {

@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- `rustral-hf`: **`scan_local_model_dir`** discovers `config.json`, tokenizer files, single or **sharded** SafeTensors (`model.safetensors.index.json` + shards), and optional `model.gguf` under a local path with no Hub API; **`HubModelSnapshot::require_config_json`** for callers that require config.
+- `rustral-hf`: **`scan_local_model_dir`** discovers `config.json`, tokenizer files, single or **sharded** SafeTensors (`model.safetensors.index.json` + shards), and optional `model.gguf` under a local path with no Hub API; **`HubModelSnapshot::require_config_json`** for callers that require config; **`snapshot_model_at`** pins Hub downloads to an optional revision (branch/tag/SHA); **`snapshot_model`** delegates to `snapshot_model_at(..., None)` (default `main`).
 - `rustral-llm`: re-exports **`HubModelSnapshot`** / **`HubModelFiles`** from `rustral-hf` (removes the duplicated snapshot struct).
 - `rustral-inference-server`: Axum HTTP MVP for Safetensors artifacts (`/health`, `/ready`, `/v1/metadata`, `/v1/infer`, Prometheus `/metrics`), graceful shutdown (SIGINT/SIGTERM on Unix), [`DEPLOYMENT.md`](crates/inference-server/DEPLOYMENT.md), `Dockerfile`, and `docker-compose.yml`.
 - `rustral-model-zoo`: embedded `registry.json`, HF key vs `NamedParameters` notes, and `registry()` parser for tooling/tests.
