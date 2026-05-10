@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `rustral-llm`: integration test **`transformer_decoder_ndarray_candle_parity`** — copy **`NamedParameters`** from **`CpuBackend`** to **`CandleBackend::cpu()`**, assert logits within tolerance and matching greedy **`generate_token`** (GPT-style **`TransformerDecoder`** path).
 - `rustral-llm`: **`generate` CLI metrics** — JSON includes **`hub_snapshot_ms`**, **`model_init_ms`**, **`tokenizer_load_ms`**, **`first_token_ms`** (first greedy step), **`decode_wall_ms`**, **`tokens_per_sec`** (`max_new_tokens` / decode seconds); **`Gpt2Decoder::generate_greedy_timed`** + **`GreedyDecodeTiming`** for the same breakdown.
 - `rustral-llm`: **`CausalLm`** trait (`crates/llm/src/causal_lm.rs`) with greedy **`generate_greedy(ctx, …)`** using an explicit **`ForwardCtx`**; **`Gpt2Decoder`** implements it for **`CpuBackend`** and exposes **`backend()`** for building matching contexts. Convenience **`Gpt2Decoder::generate_greedy`** still allocates an inference context.
 - `rustral-hf`: **`scan_local_model_dir`** discovers `config.json`, tokenizer files, single or **sharded** SafeTensors (`model.safetensors.index.json` + shards), and optional `model.gguf` under a local path with no Hub API; **`HubModelSnapshot::require_config_json`** for callers that require config; **`snapshot_model_at`** pins Hub downloads to an optional revision (branch/tag/SHA); **`snapshot_model`** delegates to `snapshot_model_at(..., None)` (default `main`).
@@ -39,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `rustral-nn`: GPT-style **transformer** modules (`PositionalEncoding`, `TransformerEncoder`/`Decoder`, **`generate_token`**, encoder-decoder **`generate`**, **`cls_token`**) no longer require `B::Tensor: AsRef<[f32]>`; host reads go through **`TensorOps::tensor_to_vec`**, so **`TransformerDecoder`** runs on **`CandleBackend`** (`candle_core::Tensor`) without a slice wrapper.
 - `rustral-llm` **`hf_weights`**: GPT-2 FFN `mlp.c_fc` / `mlp.c_proj` weights accept Hugging Face tensor layouts that are transposed relative to `Linear` storage `[out_dim, in_dim]` and transpose when needed (matches real Hub checkpoints such as `tiny-random-gpt2`).
 - NLP real-data orchestrator (`scripts/eval/run_nlp_real.py`): added `--benchmark` (tiny model + small data) and reduced default WikiText-2 caps for faster local runs; SST-2 / WikiText-2 examples accept CLI overrides for `--seq-len`, `--d-model`, `--num-heads`, `--ffn-dim`, and (WikiText-2) `--block-size` / `--num-layers`.
 - PyTorch NLP baselines: `--benchmark` flag for the same fast preset; WikiText-2 train token cap `0` means no cap (matches Rustral).

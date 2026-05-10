@@ -11,10 +11,7 @@ use crate::LlmError;
 ///
 /// Implementations should run the full sequence forward each step (no KV cache yet); [`ForwardCtx`]
 /// carries [`rustral_core::Mode::Inference`] for deterministic dropout/norm behavior.
-pub trait CausalLm<B: Backend>
-where
-    B::Tensor: AsRef<[f32]>,
-{
+pub trait CausalLm<B: Backend> {
     /// Append up to `max_new_tokens` greedy tokens to `input_ids` and return the full id sequence.
     fn generate_greedy(
         &self,

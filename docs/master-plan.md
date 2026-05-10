@@ -184,6 +184,7 @@ Maintainer-only detail may live in local `IMPROVEMENT_PLAN.md` (gitignored). Thi
 | 06 | `Gpt2Decoder::load_hf_weights_from_meta` / `from_hf_meta` | Done |
 | 07 | **`CausalLm<B>`** trait + greedy **`generate`** via explicit **`ForwardCtx`** (`rustral-llm`) | Done |
 | 08 | CLI **`generate`** metrics JSON (`hub_snapshot_ms`, `model_init_ms`, **`first_token_ms`**, **`tokens_per_sec`**, …) | Done |
+| 09 | **`TransformerDecoder`** ndarray vs **`CandleBackend::cpu`** parity test (`rustral-llm`) + relax transformer **`AsRef<[f32]>`** bounds (`rustral-nn`) | Done |
 
 ---
 
@@ -194,7 +195,7 @@ Maintainer-only detail may live in local `IMPROVEMENT_PLAN.md` (gitignored). Thi
 3. Fix the `LstmCell` weight layout so LSTM workloads can enter the JSON harness.
 4. Upgrade `wgpu` and revisit GPU RNG/dropout stories.
 5. Wire metrics (`rustral-metrics`) to real sinks where desired.
-6. **LLM vertical (v3):** next — **Candle vs ndarray parity** (**09**); GPT-2 **attention** weight conversion (HF `c_attn` / `c_proj` ↔ `SelfAttention`) remains parallel/future (**08** CLI metrics delivered).
+6. **LLM vertical (v3):** next — GPT-2 **attention** weight conversion (HF `c_attn` / `c_proj` ↔ `SelfAttention`); LLaMA blocks / KV decode / HTTP as later bites (**09** Candle parity + transformer bound relaxation landed).
 
 ---
 
