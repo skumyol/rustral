@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Documentation
 
+- [`CONTRIBUTING.md`](CONTRIBUTING.md): Hugging Face Hub **pre-commit** workflow — [`scripts/check_hf_hub_integration.sh`](scripts/check_hf_hub_integration.sh), [`scripts/install-git-hooks.sh`](scripts/install-git-hooks.sh), and `SKIP_HF_PRECOMMIT` for offline commits.
 - **Pre-release NLP**: [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) and [`EVALUATION.md`](EVALUATION.md) now require a **paper-profile** three-seed run via [`scripts/eval/run_release_nlp_eval.sh`](scripts/eval/run_release_nlp_eval.sh) before tagging; [`nlp-real.yml`](.github/workflows/nlp-real.yml) adds optional `workflow_dispatch` preset **paper** (slow) while scheduled runs stay on the fast **benchmark** preset.
 - README **Examples gallery**: commands now match [`crates/runtime/examples/`](crates/runtime/examples/), [`crates/nn/examples/`](crates/nn/examples/), and the top-level [`examples/`](examples/) pointer crate (see [`examples/README.md`](examples/README.md)).
 - [`docs/api-signatures.md`](docs/api-signatures.md): full `TensorOps` method inventory aligned with `rustral-core` ([`Backend`](crates/core/src/backend.rs) / `BackendCapabilities` were already listed).

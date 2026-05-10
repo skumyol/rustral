@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Run Hub download + load + inference checks before every commit.
+# Install once: ./scripts/install-git-hooks.sh
+# Opt out (offline only): SKIP_HF_PRECOMMIT=1 git commit
+
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+exec "$ROOT/scripts/check_hf_hub_integration.sh"
