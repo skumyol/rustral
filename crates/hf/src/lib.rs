@@ -43,6 +43,7 @@
 //! [`Module`]: rustral_core::Module
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use rustral_core::{Backend, Saveable};
 use rustral_io::load_parameters;
@@ -70,6 +71,10 @@ pub enum HfError {
     /// State dict loading error propagated from Saveable.
     #[error("state dict error: {0}")]
     StateDict(String),
+
+    /// JSON parsing error.
+    #[error("json error: {0}")]
+    Json(String),
 }
 
 impl From<hf_hub::api::sync::ApiError> for HfError {
@@ -129,6 +134,86 @@ pub fn download_state_dict(model_id: &str) -> Result<HashMap<String, Vec<f32>>, 
             }
         }
     }
+}
+
+/// A local snapshot of a Hugging Face model repository.
+///
+/// The snapshot is a set of resolved local file paths (downloaded via `hf-hub` cache).
+#[derive(Clone, Debug)]
+pub struct HubModelSnapshot {
+    pub model_id: String,
+    pub revision: Option<String>,
+    pub root: PathBuf,
+    pub files: HubModelFiles,
+}
+
+/// Key files we may download for LLM-style workflows.
+#[derive(Clone, Debug, Default)]
+pub struct HubModelFiles {
+    pub config_json: Option<PathBuf>,
+    pub tokenizer_json: Option<PathBuf>,
+    pub tokenizer_config_json: Option<PathBuf>,
+    pub special_tokens_map_json: Option<PathBuf>,
+    pub generation_config_json: Option<PathBuf>,
+    pub safetensors_index_json: Option<PathBuf>,
+    pub safetensors_files: Vec<PathBuf>,
+    pub gguf_files: Vec<PathBuf>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct SafeTensorsIndex {
+    weight_map: HashMap<String, String>,
+}
+
+/// Download a set of common model files from the Hub and return resolved local paths.
+///
+/// This is a building block for `rustral-llm` and other tooling that needs config/tokenizer
+/// metadata and sharded safetensors awareness (via `model.safetensors.index.json`).
+///
+/// Notes:
+/// - This function is intentionally conservative: it only fetches well-known filenames.
+/// - Listing arbitrary repository contents is not required and is intentionally avoided.
+pub fn snapshot_model(model_id: &str) -> Result<HubModelSnapshot, HfError> {
+    let api = Api::new()?;
+    let repo = api.model(model_id.to_string());
+
+    let mut files = HubModelFiles::default();
+
+    files.config_json = try_get(&repo, "config.json");
+    files.tokenizer_json = try_get(&repo, "tokenizer.json");
+    files.tokenizer_config_json = try_get(&repo, "tokenizer_config.json");
+    files.special_tokens_map_json = try_get(&repo, "special_tokens_map.json");
+    files.generation_config_json = try_get(&repo, "generation_config.json");
+
+    // SafeTensors: prefer an index (sharded) if present, else single-file.
+    files.safetensors_index_json = try_get(&repo, "model.safetensors.index.json");
+    if let Some(index_path) = &files.safetensors_index_json {
+        let idx_bytes = std::fs::read(index_path)?;
+        let idx: SafeTensorsIndex =
+            serde_json::from_slice(&idx_bytes).map_err(|e| HfError::Json(e.to_string()))?;
+        let mut shard_names: Vec<String> = idx.weight_map.values().cloned().collect();
+        shard_names.sort();
+        shard_names.dedup();
+
+        for shard in shard_names {
+            if let Ok(p) = repo.get(&shard) {
+                files.safetensors_files.push(p);
+            } else {
+                return Err(HfError::MissingFile { repo: model_id.to_string(), file: shard });
+            }
+        }
+    } else if let Some(p) = try_get(&repo, "model.safetensors") {
+        files.safetensors_files.push(p);
+    }
+
+    // Optional GGUF (best-effort only; file enumeration is not attempted here).
+    // Common names are tried, but absence is not an error.
+    if let Some(p) = try_get(&repo, "model.gguf") {
+        files.gguf_files.push(p);
+    }
+
+    let root = snapshot_root(&files).unwrap_or_else(|| PathBuf::from("."));
+    Ok(HubModelSnapshot { model_id: model_id.to_string(), revision: None, root, files })
 }
 
 /// Save a state dictionary to a local Safetensors file.
@@ -192,6 +277,21 @@ use hf_hub::api::sync::Api;
 
 fn sanitize(model_id: &str) -> String {
     model_id.replace(|c: char| !c.is_alphanumeric(), "_")
+}
+
+fn try_get(repo: &hf_hub::api::sync::ApiRepo, file: &str) -> Option<PathBuf> {
+    repo.get(file).ok()
+}
+
+fn snapshot_root(files: &HubModelFiles) -> Option<PathBuf> {
+    let first: Option<&Path> = files
+        .config_json
+        .as_deref()
+        .or(files.tokenizer_json.as_deref())
+        .or(files.safetensors_index_json.as_deref())
+        .or(files.safetensors_files.first().map(|p| p.as_path()))
+        .or(files.gguf_files.first().map(|p| p.as_path()));
+    first.and_then(|p| p.parent()).map(|p| p.to_path_buf())
 }
 
 #[cfg(test)]

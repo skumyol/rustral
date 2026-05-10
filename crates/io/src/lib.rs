@@ -30,6 +30,10 @@ pub enum IoError {
     /// A tensor had an unexpected dtype.
     #[error("dtype mismatch for '{name}': expected {expected:?}, got {actual:?}")]
     DTypeMismatch { name: String, expected: safetensors::Dtype, actual: safetensors::Dtype },
+
+    /// Duplicate tensor name encountered while merging shards.
+    #[error("duplicate tensor '{0}' in checkpoint")]
+    DuplicateTensor(String),
 }
 
 /// A loaded tensor entry from a safetensors state dict.
@@ -38,6 +42,25 @@ pub struct StateTensor {
     pub shape: Vec<usize>,
     pub dtype: safetensors::Dtype,
     pub data: Vec<f32>,
+}
+
+/// A metadata-preserving tensor entry loaded from a safetensors file.
+///
+/// Unlike [`StateTensor`], this keeps the raw bytes to avoid eagerly converting all tensors
+/// to `Vec<f32>`. This is important for LLM-style checkpoints where weights may be `F16/BF16`
+/// and/or sharded across multiple files.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TensorEntry {
+    pub name: String,
+    pub shape: Vec<usize>,
+    pub dtype: safetensors::Dtype,
+    pub data: Vec<u8>,
+}
+
+/// A metadata-preserving state dict (name → tensor entry).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MetaStateDict {
+    pub tensors: HashMap<String, TensorEntry>,
 }
 
 /// Owned tensor data for serialization.
@@ -177,6 +200,40 @@ pub fn load_state_dict_typed(data: &[u8]) -> Result<HashMap<String, StateTensor>
     // Note: safetensors metadata access is not exposed in our current dependency version.
     // We still allow writers to include metadata for inspection by external tools.
     Ok(result)
+}
+
+/// Load a metadata-preserving state dict from a safetensors byte buffer.
+///
+/// This does **not** perform dtype conversion; tensor payloads are returned as raw bytes.
+pub fn load_state_dict_meta(data: &[u8]) -> Result<MetaStateDict, IoError> {
+    let safe = SafeTensors::deserialize(data)?;
+    let mut out = MetaStateDict { tensors: HashMap::with_capacity(safe.len()) };
+    for (name, view) in safe.tensors() {
+        let entry = TensorEntry {
+            name: name.to_string(),
+            shape: view.shape().to_vec(),
+            dtype: view.dtype(),
+            data: view.data().to_vec(),
+        };
+        out.tensors.insert(name.to_string(), entry);
+    }
+    Ok(out)
+}
+
+/// Merge multiple metadata-preserving state dicts.
+///
+/// Returns an error if any tensor name appears more than once.
+pub fn merge_meta_state_dicts(dicts: impl IntoIterator<Item = MetaStateDict>) -> Result<MetaStateDict, IoError> {
+    let mut merged = MetaStateDict::default();
+    for d in dicts {
+        for (k, v) in d.tensors {
+            if merged.tensors.contains_key(&k) {
+                return Err(IoError::DuplicateTensor(k));
+            }
+            merged.tensors.insert(k, v);
+        }
+    }
+    Ok(merged)
 }
 
 /// Save a state dictionary (name -> flat f32 values) to a Safetensors byte buffer.

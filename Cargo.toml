@@ -57,6 +57,7 @@ members = [
     "crates/tui",
     "crates/autotuner",
     "crates/hf",
+    "crates/llm",
     "crates/candle-backend",
     "crates/model-zoo",
     "crates/inference-server",
