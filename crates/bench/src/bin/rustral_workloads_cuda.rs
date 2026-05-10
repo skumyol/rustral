@@ -51,7 +51,7 @@ fn main() {
     bench_attention(&device, repeats, warmup, &mut samples);
     bench_conv2d(&device, repeats, warmup, &mut samples);
 
-    print!("{}", samples_to_json("rustral", &samples));
+    print!("{}", samples_to_json("rustral-cuda", &samples));
 }
 
 #[inline]

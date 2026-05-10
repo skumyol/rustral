@@ -15,7 +15,7 @@ Best for lightweight inference and Hugging Face-style model loading. Implement a
 ### CUDA policy
 
 - CUDA is opt-in via `--features cuda`.
-- CUDA builds require **CUDA toolkit ≥ 12.2** (see `scripts/check_cuda_env.sh`).
+- CUDA builds require **CUDA toolkit ≥ 12.0** (see `scripts/check_cuda_env.sh`).
 
 ## tch-rs backend
 

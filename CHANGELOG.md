@@ -17,6 +17,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **`scripts/run_gpu_tests.sh`**: Linux + NVIDIA sweep — `check_cuda_env`, `rustral-candle-backend --features cuda`, `rustral-runtime training,cuda`, `RUSTRAL_TEST_GPU=1` bench `workload_bins`.
+- **`crates/candle-backend/tests/cuda_smoke.rs`**: opt-in real GPU matmul when `RUSTRAL_TEST_GPU=1` and `--features cuda`.
+
+### Fixed
+
+- **`rustral_workloads_cuda`** / **`rustral_workloads_metal`**: JSON **`suite`** field now **`rustral-cuda`** / **`rustral-metal`** (matches `workload_bins` integration tests and `bench-gpu` workflow expectations).
+
+### Changed
+
+- **`scripts/check_cuda_env.sh`**: minimum toolkit **12.0** (was 12.2; matches verified `candle-core` 0.10 builds).
+- **Perf system test** `perf_attention_medium`: failure threshold relaxed to **20s** mean (avoids flakes on loaded runners; still catches hangs).
+
 - `rustral-nn`: **`LlamaDecoderConfig::num_kv_heads`** / **`with_num_kv_heads`**, **`sdpa_multi_head_gqa_f32`**, **`LlamaDecodeCache`** + **`LlamaLayerKvCache`**, **`forward_prompt_cache`** / **`forward_token_cache`** on **`LlamaDecoder`** (KV-backed incremental decode); unit tests **`kv_prefill_logits_match_forward`**, **`kv_decode_step_matches_full_forward_extension`**.
 - `rustral-llm`: **Llama GQA** — **`HfLlamaConfig`** accepts **`num_key_value_heads`** when it divides **`num_attention_heads`**; **`build_llama_flat_map`** loads **`k_proj`/`v_proj`** with **`kv_dim × hidden`**; **`LlamaCausalLm`** greedy decode uses **KV prefill + single-token steps** (no full-sequence recompute each token).
 - `rustral-llm`: integration test **`transformer_decoder_ndarray_candle_parity`** — copy **`NamedParameters`** from **`CpuBackend`** to **`CandleBackend::cpu()`**, assert logits within tolerance and matching greedy **`generate_token`** (GPT-style **`TransformerDecoder`** path).

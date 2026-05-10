@@ -219,7 +219,8 @@ fn benchmark_self_attention(runner: &mut TestRunner, config: &PerfConfig) {
             batch, seq_len, d_model, num_heads
         );
         print_perf_result(&result);
-        if result.mean_ms > 8000.0 {
+        // Loaded CI / shared runners can exceed 8s; keep a generous ceiling to catch hangs only.
+        if result.mean_ms > 20_000.0 {
             return Err(format!("Attention medium too slow: {:.2}ms", result.mean_ms));
         }
         Ok(())

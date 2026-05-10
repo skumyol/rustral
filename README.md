@@ -731,6 +731,8 @@ The benchmark crate also ships CUDA and Metal workload binaries:
 ```bash
 cargo run --release -p rustral-bench --features cuda --bin rustral_workloads_cuda -- --repeats 5 --warmup 2
 cargo run --release -p rustral-bench --features metal --bin rustral_workloads_metal -- --repeats 5 --warmup 2
+# Linux + NVIDIA: CUDA backend tests + runtime (`training,cuda`) + bench JSON integration (`RUSTRAL_TEST_GPU=1`)
+./scripts/run_gpu_tests.sh
 ```
 
 ### Flash Attention

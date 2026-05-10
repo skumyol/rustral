@@ -14,6 +14,8 @@ There are three ways to measure performance:
 
 Each one has a job. For publishable numbers, use the **unified harness** below. It gives you raw timings, summary tables, machine metadata, and schema validation in one place.
 
+**NVIDIA CUDA (local):** [`scripts/run_gpu_tests.sh`](scripts/run_gpu_tests.sh) runs `check_cuda_env`, `rustral-candle-backend` tests with `--features cuda`, `rustral-runtime` with `training,cuda`, and `RUSTRAL_TEST_GPU=1 cargo test -p rustral-bench --features cuda --test workload_bins` (exercises `rustral_workloads_cuda`, JSON suite `rustral-cuda`).
+
 Kernel autotuning (optional, `rustral-autotuner`) is documented in [`ARCHITECTURE.md`](ARCHITECTURE.md) (`enabled`, `ci_mode`, cache behavior).
 
 ## Unified harness

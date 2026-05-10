@@ -54,7 +54,7 @@ Backends (ndarray, Candle, wgpu) implement `TensorOps`; orchestration lives abov
 - **CUDA builds** are opt-in (`--features cuda`) and require a CUDA toolkit.
 - **Metal builds** are opt-in (`--features metal`) and are mainly for local macOS / Apple Silicon benchmarking.
 - To avoid carrying source patches, CUDA builds require:
-  - **CUDA toolkit ≥ 12.2** (see `scripts/check_cuda_env.sh`).
+  - **CUDA toolkit ≥ 12.0** (see `scripts/check_cuda_env.sh`; `candle-core` 0.10 in this workspace).
 
 ---
 

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# candle-core 0.10 + RTX-class GPUs: 12.0+ toolkits work in practice; raise if a crate requires newer.
 want_major=12
-want_minor=2
+want_minor=0
 
 if ! command -v nvcc >/dev/null 2>&1; then
   echo "nvcc not found. CUDA builds require CUDA toolkit >= ${want_major}.${want_minor}." >&2
