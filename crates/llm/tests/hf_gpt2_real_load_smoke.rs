@@ -41,8 +41,13 @@ fn hf_tiny_random_gpt2_meta_load_smoke() {
         "expected wte→token_embedding.embed in {:?}",
         report.loaded_rustral_keys
     );
+    assert!(
+        report.skipped_attention_parameters.is_empty(),
+        "expected HF c_attn/c_proj mapped into self_attn; still skipped {:?}",
+        report.skipped_attention_parameters
+    );
 
-    // Sanity forward after partial load (attention still random).
+    // Sanity forward after checkpoint load (including attention projections).
     let logits_run = model.generate_greedy(vec![0usize], 1);
     assert!(logits_run.is_ok(), "generate after load failed: {:?}", logits_run.err());
 }
