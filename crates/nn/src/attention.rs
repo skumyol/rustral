@@ -50,41 +50,121 @@ impl SelfAttentionConfig {
     }
 }
 
-/// Single-head or multi-head self-attention.
-///
-/// Projects input to Q, K, V, then computes: softmax(Q @ K^T / sqrt(d_k)) @ V
+/// Multi-head self-attention aligned with GPT-2-style projections:
+/// Q/K/V are full `d_model` linear maps (Hugging Face `c_attn` split), heads are formed by
+/// reshaping the last dimension to `[num_heads, head_dim]`, then **causal** or **full** SDPA
+/// is applied in reference f32 (host) math so behavior matches Hub checkpoints when loaded.
 pub struct SelfAttention<B: Backend> {
     config: SelfAttentionConfig,
-    q_proj: Parameter<B>,
-    k_proj: Parameter<B>,
-    v_proj: Parameter<B>,
-    out_proj: Parameter<B>,
+    q_proj: Linear<B>,
+    k_proj: Linear<B>,
+    v_proj: Linear<B>,
+    out_proj: Linear<B>,
     scale: f32,
 }
 
+/// Row-major layout `[batch, seq, num_heads, head_dim]` flattened as `[batch, seq, d_model]`.
+#[inline]
+pub(crate) fn idx_bshd_fixed(b: usize, s: usize, h: usize, d: usize, seq_len: usize, num_heads: usize, head_dim: usize) -> usize {
+    (b * seq_len + s) * (num_heads * head_dim) + h * head_dim + d
+}
+
+/// Reference multi-head attention (f32). When `causal`, mask future positions with `-inf` before softmax.
+pub(crate) fn sdpa_multi_head_f32(
+    q: &[f32],
+    k: &[f32],
+    v: &[f32],
+    batch: usize,
+    seq_len: usize,
+    num_heads: usize,
+    head_dim: usize,
+    scale: f32,
+    causal: bool,
+) -> Vec<f32> {
+    let d_model = num_heads * head_dim;
+    debug_assert_eq!(q.len(), batch * seq_len * d_model);
+    let mut out = vec![0f32; batch * seq_len * d_model];
+    let mut scores = vec![0f32; seq_len * seq_len];
+
+    for b in 0..batch {
+        for h in 0..num_heads {
+            for i in 0..seq_len {
+                for j in 0..seq_len {
+                    if causal && j > i {
+                        scores[i * seq_len + j] = f32::NEG_INFINITY;
+                    } else {
+                        let mut acc = 0f32;
+                        for d in 0..head_dim {
+                            let qi = idx_bshd_fixed(b, i, h, d, seq_len, num_heads, head_dim);
+                            let kj = idx_bshd_fixed(b, j, h, d, seq_len, num_heads, head_dim);
+                            acc += q[qi] * k[kj];
+                        }
+                        scores[i * seq_len + j] = acc * scale;
+                    }
+                }
+            }
+            for i in 0..seq_len {
+                let row = i * seq_len;
+                let mut max_v = f32::NEG_INFINITY;
+                for j in 0..seq_len {
+                    let v = scores[row + j];
+                    if v.is_finite() {
+                        max_v = max_v.max(v);
+                    }
+                }
+                let mut sum = 0f32;
+                for j in 0..seq_len {
+                    let e = if scores[row + j].is_finite() {
+                        (scores[row + j] - max_v).exp()
+                    } else {
+                        0.0
+                    };
+                    scores[row + j] = e;
+                    sum += e;
+                }
+                let inv = if sum > 1e-12 { 1.0 / sum } else { 0.0 };
+                for j in 0..seq_len {
+                    scores[row + j] *= inv;
+                }
+            }
+            for i in 0..seq_len {
+                for d in 0..head_dim {
+                    let mut acc = 0f32;
+                    for j in 0..seq_len {
+                        acc += scores[i * seq_len + j]
+                            * v[idx_bshd_fixed(b, j, h, d, seq_len, num_heads, head_dim)];
+                    }
+                    out[idx_bshd_fixed(b, i, h, d, seq_len, num_heads, head_dim)] = acc;
+                }
+            }
+        }
+    }
+    out
+}
+
 impl<B: Backend> SelfAttention<B> {
-    /// Create a SelfAttention from explicit parameters.
+    /// Create from explicit linear maps (full `d_model` × `d_model` projections with bias).
     pub fn from_parameters(
         config: SelfAttentionConfig,
-        q_proj: Parameter<B>,
-        k_proj: Parameter<B>,
-        v_proj: Parameter<B>,
-        out_proj: Parameter<B>,
+        q_proj: Linear<B>,
+        k_proj: Linear<B>,
+        v_proj: Linear<B>,
+        out_proj: Linear<B>,
     ) -> Self {
         let scale = 1.0 / (config.head_dim as f32).sqrt();
         Self { config, q_proj, k_proj, v_proj, out_proj, scale }
     }
 
-    /// Create a SelfAttention layer with randomly initialized weights.
+    /// Random initialization (matches GPT-2 projection shapes: four `d_model`↔`d_model` layers with bias).
     pub fn new(backend: &B, config: SelfAttentionConfig, seed: u64) -> Result<Self> {
-        let d_k = config.head_dim;
-        let q_proj = backend.normal_parameter("q_proj", &[config.d_model, d_k], seed, 0.02)?;
+        let d = config.d_model;
+        let q_proj = crate::LinearBuilder::new(d, d).with_bias(true).seed(seed).build(backend)?;
         let k_proj =
-            backend.normal_parameter("k_proj", &[config.d_model, d_k], seed.wrapping_add(1), 0.02)?;
+            crate::LinearBuilder::new(d, d).with_bias(true).seed(seed.wrapping_add(11)).build(backend)?;
         let v_proj =
-            backend.normal_parameter("v_proj", &[config.d_model, d_k], seed.wrapping_add(2), 0.02)?;
+            crate::LinearBuilder::new(d, d).with_bias(true).seed(seed.wrapping_add(22)).build(backend)?;
         let out_proj =
-            backend.normal_parameter("out_proj", &[d_k, config.d_model], seed.wrapping_add(3), 0.02)?;
+            crate::LinearBuilder::new(d, d).with_bias(true).seed(seed.wrapping_add(33)).build(backend)?;
         Ok(Self::from_parameters(config, q_proj, k_proj, v_proj, out_proj))
     }
 
@@ -93,15 +173,57 @@ impl<B: Backend> SelfAttention<B> {
         &self.config
     }
 
-    /// Compute scaled dot-product attention.
-    ///
-    /// # Arguments
-    /// * `q` - Query tensor [batch, seq, d_k]
-    /// * `k` - Key tensor [batch, seq, d_k]
-    /// * `v` - Value tensor [batch, seq, d_v]
-    /// * `ops` - Tensor operations backend
-    ///
-    /// Returns: Attention output [batch, seq, d_v]
+    /// Decoder-style attention with a **causal** mask (autoregressive).
+    pub fn forward_causal(&self, input: B::Tensor, ctx: &mut ForwardCtx<B>) -> Result<B::Tensor> {
+        self.forward_impl(input, ctx, true)
+    }
+
+    fn forward_impl(&self, input: B::Tensor, ctx: &mut ForwardCtx<B>, causal: bool) -> Result<B::Tensor> {
+        let ops = ctx.backend().ops();
+        let input_shape = ops.shape(&input);
+        if input_shape.len() != 3 {
+            return Err(rustral_core::CoreError::InvalidShape {
+                shape: input_shape,
+                reason: "SelfAttention expects 3D [batch, seq, d_model] input".into(),
+            });
+        }
+        let batch = input_shape[0];
+        let seq_len = input_shape[1];
+        let d_model = input_shape[2];
+        if d_model != self.config.d_model {
+            return Err(rustral_core::CoreError::ShapeMismatch {
+                expected: vec![self.config.d_model],
+                actual: vec![d_model],
+            });
+        }
+
+        let flat_input = ops.reshape(&input, &[batch * seq_len, d_model])?;
+        let q_f = self.q_proj.forward(flat_input.clone(), ctx)?;
+        let k_f = self.k_proj.forward(flat_input.clone(), ctx)?;
+        let v_f = self.v_proj.forward(flat_input, ctx)?;
+
+        let q_vec = ops.tensor_to_vec(&q_f)?;
+        let k_vec = ops.tensor_to_vec(&k_f)?;
+        let v_vec = ops.tensor_to_vec(&v_f)?;
+
+        let merged = sdpa_multi_head_f32(
+            &q_vec,
+            &k_vec,
+            &v_vec,
+            batch,
+            seq_len,
+            self.config.num_heads,
+            self.config.head_dim,
+            self.scale,
+            causal,
+        );
+
+        let merged_t = ops.tensor_from_vec(merged, &[batch * seq_len, d_model])?;
+        let out = self.out_proj.forward(merged_t, ctx)?;
+        ops.reshape(&out, &[batch, seq_len, d_model])
+    }
+
+    /// Legacy helper: old simplified SDPA on rank-3 tensors (not used by [`SelfAttention::forward`]).
     pub fn scaled_dot_product_attention(
         &self,
         q: &B::Tensor,
@@ -113,50 +235,33 @@ impl<B: Backend> SelfAttention<B> {
         let batch = q_shape[0];
         let seq_len = q_shape[1];
         let d_k = q_shape[2];
-
-        // Flatten batch dimension for 2D matmul compatibility
-        // For batch > 1, this mixes across batches (simplified implementation)
         let q_flat = ops.reshape(q, &[batch * seq_len, d_k])?;
         let k_flat = ops.reshape(k, &[batch * seq_len, d_k])?;
         let v_flat = ops.reshape(v, &[batch * seq_len, d_k])?;
-
-        // K^T: [d_k, batch*seq]
         let k_t = ops.transpose(&k_flat)?;
-
-        // Q @ K^T: [batch*seq, d_k] @ [d_k, batch*seq] -> [batch*seq, batch*seq]
         let scores = ops.matmul(&q_flat, &k_t)?;
-
-        // Scale by 1/sqrt(d_k) - broadcast scale to full score matrix
-        let scale_tensor = ops.tensor_from_vec(
-            vec![self.scale; batch * seq_len * batch * seq_len],
-            &[batch * seq_len, batch * seq_len],
-        )?;
+        let scale_tensor =
+            ops.tensor_from_vec(vec![self.scale; batch * seq_len * batch * seq_len], &[batch * seq_len, batch * seq_len])?;
         let scaled_scores = ops.mul(&scores, &scale_tensor)?;
-
-        // Apply softmax to get attention weights
         let attn_weights = ops.softmax(&scaled_scores)?;
-
-        // Attention @ V: [batch*seq, batch*seq] @ [batch*seq, d_k] -> [batch*seq, d_k]
         let output = ops.matmul(&attn_weights, &v_flat)?;
-
-        // Reshape back to [batch, seq, d_k]
         ops.reshape(&output, &[batch, seq_len, d_k])
     }
 }
 
 impl<B: Backend> NamedParameters<B> for SelfAttention<B> {
     fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
-        f("q_proj", &self.q_proj);
-        f("k_proj", &self.k_proj);
-        f("v_proj", &self.v_proj);
-        f("out_proj", &self.out_proj);
+        self.q_proj.visit_parameters(&mut |n, p| f(&format!("q_proj.{n}"), p));
+        self.k_proj.visit_parameters(&mut |n, p| f(&format!("k_proj.{n}"), p));
+        self.v_proj.visit_parameters(&mut |n, p| f(&format!("v_proj.{n}"), p));
+        self.out_proj.visit_parameters(&mut |n, p| f(&format!("out_proj.{n}"), p));
     }
 
     fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
-        f("q_proj", &mut self.q_proj);
-        f("k_proj", &mut self.k_proj);
-        f("v_proj", &mut self.v_proj);
-        f("out_proj", &mut self.out_proj);
+        self.q_proj.visit_parameters_mut(&mut |n, p| f(&format!("q_proj.{n}"), p));
+        self.k_proj.visit_parameters_mut(&mut |n, p| f(&format!("k_proj.{n}"), p));
+        self.v_proj.visit_parameters_mut(&mut |n, p| f(&format!("v_proj.{n}"), p));
+        self.out_proj.visit_parameters_mut(&mut |n, p| f(&format!("out_proj.{n}"), p));
     }
 }
 
@@ -164,75 +269,19 @@ impl<B: Backend> Module<B> for SelfAttention<B> {
     type Input = B::Tensor;
     type Output = B::Tensor;
 
+    /// Encoder-style attention (bidirectional).
     fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
-        let ops = ctx.backend().ops();
-        let input_shape = ops.shape(&input);
-
-        // Expected: [batch, seq_len, d_model]
-        if input_shape.len() != 3 {
-            return Err(rustral_core::CoreError::InvalidShape {
-                shape: input_shape,
-                reason: "SelfAttention expects 3D [batch, seq, d_model] input".into(),
-            });
-        }
-
-        let batch = input_shape[0];
-        let seq_len = input_shape[1];
-        let d_model = input_shape[2];
-
-        if d_model != self.config.d_model {
-            return Err(rustral_core::CoreError::ShapeMismatch {
-                expected: vec![self.config.d_model],
-                actual: vec![d_model],
-            });
-        }
-
-        let head_dim = self.config.head_dim;
-        let _num_heads = self.config.num_heads;
-        let d_k = head_dim;
-
-        // Project input to Q, K, V
-        // For single-head attention: [batch*seq, d_model] @ [d_model, d_k] -> [batch*seq, d_k]
-        // We flatten batch and seq for matmul, then reshape back
-        let flat_input = ops.reshape(&input, &[batch * seq_len, d_model])?;
-
-        // Q projection
-        let q_proj_tensor = self.q_proj.tensor();
-        let q = ops.matmul(&flat_input, q_proj_tensor)?;
-        let q = ops.reshape(&q, &[batch, seq_len, d_k])?;
-
-        // K projection
-        let k_proj_tensor = self.k_proj.tensor();
-        let k = ops.matmul(&flat_input, k_proj_tensor)?;
-        let k = ops.reshape(&k, &[batch, seq_len, d_k])?;
-
-        // V projection
-        let v_proj_tensor = self.v_proj.tensor();
-        let v = ops.matmul(&flat_input, v_proj_tensor)?;
-        let v = ops.reshape(&v, &[batch, seq_len, d_k])?;
-
-        // Compute attention
-        let attn_out = self.scaled_dot_product_attention(&q, &k, &v, ops)?;
-
-        // Output projection
-        // Flatten: [batch, seq, d_k] -> [batch*seq, d_k]
-        let flat_attn = ops.reshape(&attn_out, &[batch * seq_len, d_k])?;
-        let out_proj_tensor = self.out_proj.tensor();
-        let output = ops.matmul(&flat_attn, out_proj_tensor)?;
-
-        // Reshape back to [batch, seq, d_model]
-        ops.reshape(&output, &[batch, seq_len, self.config.d_model])
+        self.forward_impl(input, ctx, false)
     }
 }
 
 impl<B: Backend> Trainable<B> for SelfAttention<B> {
     fn parameters(&self) -> Vec<ParameterRef> {
-        vec![
-            ParameterRef { id: self.q_proj.id() },
-            ParameterRef { id: self.k_proj.id() },
-            ParameterRef { id: self.v_proj.id() },
-            ParameterRef { id: self.out_proj.id() },
-        ]
+        let mut v = self.q_proj.parameters();
+        v.extend(self.k_proj.parameters());
+        v.extend(self.v_proj.parameters());
+        v.extend(self.out_proj.parameters());
+        v
     }
 }
 
@@ -256,16 +305,7 @@ impl<B: Backend> MultiHeadAttention<B> {
 
     /// Create MultiHeadAttention with randomly initialized parameters.
     pub fn new(backend: &B, config: SelfAttentionConfig, seed: u64) -> Result<Self> {
-        let d_model = config.d_model;
-        let head_dim = config.head_dim;
-
-        let q_proj = backend.normal_parameter("q_proj", &[d_model, head_dim], seed, 0.02)?;
-        let k_proj = backend.normal_parameter("k_proj", &[d_model, head_dim], seed.wrapping_add(1), 0.02)?;
-        let v_proj = backend.normal_parameter("v_proj", &[d_model, head_dim], seed.wrapping_add(2), 0.02)?;
-        let out_proj =
-            backend.normal_parameter("out_proj", &[head_dim, d_model], seed.wrapping_add(3), 0.02)?;
-
-        let attention = SelfAttention::from_parameters(config.clone(), q_proj, k_proj, v_proj, out_proj);
+        let attention = SelfAttention::new(backend, config.clone(), seed)?;
         Ok(Self { config, attention })
     }
 
@@ -313,57 +353,10 @@ impl<B: Backend> TapeModule<B> for SelfAttention<B>
 where
     B::Tensor: Clone,
 {
-    fn forward_tape(&self, input: TensorId, tape: &mut Tape<B>, ctx: &mut ForwardCtx<B>) -> Result<TensorId> {
-        let ops = ctx.backend().ops();
-        let input_val = tape
-            .value(input)
-            .ok_or_else(|| rustral_core::CoreError::InvalidArgument("tape: missing input value".into()))?;
-        let shape = ops.shape(input_val);
-        if shape.len() != 3 {
-            return Err(rustral_core::CoreError::InvalidShape {
-                shape,
-                reason: "SelfAttention TapeModule expects 3D [batch, seq, d_model] input".into(),
-            });
-        }
-        let batch = shape[0];
-        let seq_len = shape[1];
-        let d_model = shape[2];
-        if d_model != self.config.d_model {
-            return Err(rustral_core::CoreError::ShapeMismatch {
-                expected: vec![self.config.d_model],
-                actual: vec![d_model],
-            });
-        }
-        let d_k = self.config.head_dim;
-
-        // Flatten input for 2D matmul tape ops.
-        let flat_input = tape.reshape_tape(input, &[batch * seq_len, d_model], ctx)?;
-
-        // Watch parameters as tape leaves.
-        let q_w = tape.watch_parameter(&self.q_proj);
-        let k_w = tape.watch_parameter(&self.k_proj);
-        let v_w = tape.watch_parameter(&self.v_proj);
-        let out_w = tape.watch_parameter(&self.out_proj);
-
-        // Q/K/V projections: [B*S, d_model] @ [d_model, d_k] -> [B*S, d_k]
-        let q = tape.matmul(flat_input, q_w, ctx)?;
-        let k = tape.matmul(flat_input, k_w, ctx)?;
-        let v = tape.matmul(flat_input, v_w, ctx)?;
-
-        // scores = q @ k^T -> [B*S, B*S]
-        let k_t = tape.transpose_tape(k, ctx)?;
-        let scores = tape.matmul(q, k_t, ctx)?;
-        let scores = tape.mul_scalar(scores, self.scale, ctx)?;
-        let weights = tape.softmax(scores, ctx)?;
-
-        // output = weights @ v -> [B*S, d_k]
-        let out = tape.matmul(weights, v, ctx)?;
-        let out = tape.reshape_tape(out, &[batch, seq_len, d_k], ctx)?;
-
-        // Output projection: flatten -> matmul -> reshape back.
-        let flat_out = tape.reshape_tape(out, &[batch * seq_len, d_k], ctx)?;
-        let proj = tape.matmul(flat_out, out_w, ctx)?;
-        tape.reshape_tape(proj, &[batch, seq_len, d_model], ctx)
+    fn forward_tape(&self, _: TensorId, _: &mut Tape<B>, _: &mut ForwardCtx<B>) -> Result<TensorId> {
+        Err(rustral_core::CoreError::InvalidArgument(
+            "SelfAttention tape forward is not yet implemented for GPT-2-aligned multi-head attention".into(),
+        ))
     }
 }
 
@@ -534,7 +527,7 @@ mod tests {
 
         assert_eq!(mha.config().d_model, 16);
         assert_eq!(mha.config().num_heads, 4);
-        assert_eq!(mha.parameters().len(), 4); // q, k, v, out projections
+        assert_eq!(mha.parameters().len(), 8); // four Linears × (weight + bias)
     }
 
     #[test]
@@ -582,8 +575,8 @@ mod tests {
         let block = TransformerEncoderBlock::new(mha, norm1, ff1, ff2, norm2);
 
         let params = block.parameters();
-        // MHA: 4, norm1: 2, ff1: 2, ff2: 2, norm2: 2 = 12
-        assert_eq!(params.len(), 12);
+        // MHA: 8 (attention Linears), norm1: 2, ff1: 2, ff2: 2, norm2: 2 = 16
+        assert_eq!(params.len(), 16);
     }
 
     #[test]

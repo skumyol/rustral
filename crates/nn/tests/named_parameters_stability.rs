@@ -3,8 +3,9 @@ use std::collections::BTreeSet;
 use rustral_core::NamedParameters;
 use rustral_ndarray_backend::CpuBackend;
 use rustral_nn::{
-    chain, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, LinearBuilder, TransformerDecoder,
-    TransformerDecoderConfig, TransformerEncoder, TransformerEncoderConfig,
+    chain, Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, LinearBuilder, LlamaDecoder,
+    LlamaDecoderConfig, TransformerDecoder, TransformerDecoderConfig, TransformerEncoder,
+    TransformerEncoderConfig,
 };
 
 fn collect_names<B: rustral_core::Backend, M: NamedParameters<B>>(m: &M) -> Vec<String> {
@@ -75,6 +76,15 @@ fn named_parameters_transformer_decoder_are_stable() {
     let config = TransformerDecoderConfig::new(16, 4, 2, 32).with_max_seq_len(32);
     let a = TransformerDecoder::new(&backend, config.clone(), 64, 1).unwrap();
     let b = TransformerDecoder::new(&backend, config, 64, 999).unwrap();
+    assert_stable_names(collect_names(&a), collect_names(&b));
+}
+
+#[test]
+fn named_parameters_llama_decoder_are_stable() {
+    let backend = CpuBackend::default();
+    let config = LlamaDecoderConfig::new(16, 4, 2, 32).with_max_seq_len(32);
+    let a = LlamaDecoder::new(&backend, config.clone(), 64, 1).unwrap();
+    let b = LlamaDecoder::new(&backend, config, 64, 999).unwrap();
     assert_stable_names(collect_names(&a), collect_names(&b));
 }
 

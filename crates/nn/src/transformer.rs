@@ -655,10 +655,9 @@ where
         let seq_len = input_shape[1];
         let d_model = input_shape[2];
 
-        // Pre-norm: LN → Attention → Residual
+        // Pre-norm: LN → Attention → Residual (causal autoregressive attention)
         let normed = self.norm1.forward(input.clone(), ctx)?;
-        // In real impl, would apply causal mask to attention
-        let attn = self.self_attn.forward(normed, ctx)?;
+        let attn = self.self_attn.forward_causal(normed, ctx)?;
         let hidden = ops.add(&input, &attn)?;
 
         // Pre-norm: LN → FF → Residual
@@ -1317,8 +1316,8 @@ mod tests {
         let config = TransformerDecoderConfig::new(16, 4, 1, 64).with_max_seq_len(128);
         let layer = TransformerDecoderLayer::new(&backend, &config, 42).unwrap();
         let params = layer.parameters();
-        // self_attn (4) + ff1 (2) + ff2 (2) + norm1 (2) + norm2 (2) = 12
-        assert_eq!(params.len(), 12);
+        // self_attn (8: four Linear weight+bias) + ff1 (2) + ff2 (2) + norm1 (2) + norm2 (2) = 16
+        assert_eq!(params.len(), 16);
     }
 
     #[test]

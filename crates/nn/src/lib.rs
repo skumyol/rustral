@@ -9,6 +9,7 @@
 //! - [`TransformerEncoder`]: BERT-style bidirectional encoder
 //! - [`TransformerDecoder`]: GPT-style autoregressive decoder
 //! - [`TransformerEncoderDecoder`]: T5/BART-style seq2seq
+//! - [`LlamaDecoder`]: LLaMA-style causal stack (RMSNorm, RoPE, SwiGLU)
 //!
 //! See `TRANSFORMERS.md` for detailed documentation and examples.
 
@@ -20,6 +21,7 @@ mod embedding;
 mod expert_choice;
 mod fusion_helper;
 mod kv_cache;
+mod llama;
 mod linear;
 mod loss;
 mod lstm;
@@ -55,6 +57,7 @@ pub use expert_choice::{
     TokenAssignment,
 };
 pub use fusion_helper::FusionHelper;
+pub use llama::{LlamaAttention, LlamaDecoder, LlamaDecoderConfig, LlamaDecoderLayer, LlamaMlp};
 pub use kv_cache::{
     BatchedCache, CacheConfig, CacheMemoryStats, CacheQuantization, KVCache, PagedCache, SlidingWindowCache,
 };
@@ -68,7 +71,7 @@ pub use moe::{
     Expert, ExpertLayer, ExpertParallel, GatingOutput, MoEConfig, MoEOutput, MoEStats, TopKGating,
 };
 pub use multi_readout::{BinaryPrediction, BinaryReadout, LabelBinaryPrediction, MultiReadout};
-pub use normalization::{BatchNorm, BatchNormConfig, LayerNorm, LayerNormConfig};
+pub use normalization::{BatchNorm, BatchNormConfig, LayerNorm, LayerNormConfig, RmsNorm, RmsNormConfig};
 pub use quantization::{
     quantize_model, DynamicQuantizer, GPTQLinear, QATTrainer, QuantConfig, QuantParams, QuantizationScheme,
     QuantizationStats, QuantizedLinear,

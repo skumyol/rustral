@@ -164,6 +164,130 @@ impl<B: Backend> Trainable<B> for LayerNorm<B> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// RMSNorm (used by LLaMA-style decoders)
+// ---------------------------------------------------------------------------
+
+/// Root Mean Square Layer Normalization (no bias).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RmsNormConfig {
+    /// Hidden size / feature dimension.
+    pub hidden_size: usize,
+    pub eps: f32,
+}
+
+impl RmsNormConfig {
+    pub fn new(hidden_size: usize) -> Self {
+        Self { hidden_size, eps: 1e-6 }
+    }
+
+    pub fn with_eps(mut self, eps: f32) -> Self {
+        self.eps = eps;
+        self
+    }
+}
+
+/// RMSNorm layer (weights only; HF-style `weight`)
+///
+/// Normalizes the last dimension: `output = input / sqrt(mean(input^2) + eps) * weight`.
+pub struct RmsNorm<B: Backend> {
+    config: RmsNormConfig,
+    weight: Parameter<B>,
+}
+
+impl<B: Backend> RmsNorm<B> {
+    pub fn from_parameters(config: RmsNormConfig, weight: Parameter<B>) -> Self {
+        Self { config, weight }
+    }
+
+    pub fn new(backend: &B, config: RmsNormConfig, seed: u64) -> Result<Self> {
+        let d = config.hidden_size;
+        let _ = seed;
+        let t = backend.ops().tensor_from_vec(vec![1.0f32; d], &[d])?;
+        let weight = Parameter::new("weight", t);
+        Ok(Self::from_parameters(config, weight))
+    }
+
+    pub fn config(&self) -> &RmsNormConfig {
+        &self.config
+    }
+
+    pub fn weight_param(&self) -> &Parameter<B> {
+        &self.weight
+    }
+}
+
+impl<B: Backend> NamedParameters<B> for RmsNorm<B> {
+    fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
+        f("weight", &self.weight);
+    }
+
+    fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
+        f("weight", &mut self.weight);
+    }
+}
+
+impl<B: Backend> Module<B> for RmsNorm<B> {
+    type Input = B::Tensor;
+    type Output = B::Tensor;
+
+    fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
+        let ops = ctx.backend().ops();
+        let input_shape = ops.shape(&input);
+        let ndim = input_shape.len();
+        if ndim == 0 {
+            return Err(rustral_core::CoreError::InvalidShape {
+                shape: input_shape,
+                reason: "RmsNorm expects rank >= 1".into(),
+            });
+        }
+        let d = *input_shape.last().expect("rank checked");
+        if d != self.config.hidden_size {
+            return Err(rustral_core::CoreError::ShapeMismatch {
+                expected: vec![self.config.hidden_size],
+                actual: vec![d],
+            });
+        }
+        let norm_dim = d;
+        let total_elems = input_shape.elem_count();
+        let num_groups = total_elems / norm_dim;
+        if num_groups * norm_dim != total_elems {
+            return Err(rustral_core::CoreError::InvalidShape {
+                shape: input_shape.clone(),
+                reason: "RmsNorm last dimension must equal hidden_size".into(),
+            });
+        }
+
+        let input_values = ops.tensor_to_vec(&input)?;
+        let w = ops.tensor_to_vec(self.weight.tensor())?;
+        let eps = self.config.eps;
+
+        let mut out = vec![0f32; total_elems];
+        for g in 0..num_groups {
+            let base = g * norm_dim;
+            let mut ms = 0f32;
+            for i in 0..norm_dim {
+                let x = input_values[base + i];
+                ms += x * x;
+            }
+            ms /= norm_dim as f32;
+            let inv_rms = (ms + eps).sqrt().recip();
+            for i in 0..norm_dim {
+                let gamma = w.get(i).copied().unwrap_or(1.0);
+                out[base + i] = input_values[base + i] * inv_rms * gamma;
+            }
+        }
+
+        ops.tensor_from_vec(out, &input_shape)
+    }
+}
+
+impl<B: Backend> Trainable<B> for RmsNorm<B> {
+    fn parameters(&self) -> Vec<ParameterRef> {
+        vec![ParameterRef { id: self.weight.id() }]
+    }
+}
+
 /// Configuration for batch normalization.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BatchNormConfig {
@@ -321,6 +445,22 @@ mod tests {
     use super::*;
     use rustral_core::Parameter;
     use rustral_ndarray_backend::CpuBackend;
+
+    #[test]
+    fn test_rms_norm_forward_unity_weight() {
+        let backend = CpuBackend::default();
+        let mut ctx = rustral_core::ForwardCtx::new(&backend, rustral_core::Mode::Inference);
+        let t = backend.ops().tensor_from_vec(vec![3.0f32, 4.0f32], &[1, 2]).unwrap();
+        let w = backend.ops().tensor_from_vec(vec![1.0f32, 1.0f32], &[2]).unwrap();
+        let weight = Parameter::new("weight", w);
+        let rn = RmsNorm::from_parameters(RmsNormConfig::new(2), weight);
+        let out = rn.forward(t, &mut ctx).unwrap();
+        let v: Vec<f32> = (0..2).map(|i| backend.ops().tensor_element(&out, i).unwrap()).collect();
+        let rms = (3.0f32 * 3.0 + 4.0 * 4.0) / 2.0;
+        let inv = (rms + 1e-6).sqrt().recip();
+        assert!((v[0] - 3.0 * inv).abs() < 1e-5);
+        assert!((v[1] - 4.0 * inv).abs() < 1e-5);
+    }
 
     #[test]
     fn test_layer_norm_config() {
