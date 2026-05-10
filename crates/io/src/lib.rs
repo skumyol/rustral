@@ -7,6 +7,7 @@
 //! [Safetensors]: https://huggingface.co/docs/safetensors/index
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use rustral_core::{Backend, Parameter, TensorShape};
 use safetensors::{serialize, SafeTensors, View};
@@ -34,6 +35,22 @@ pub enum IoError {
     /// Duplicate tensor name encountered while merging shards.
     #[error("duplicate tensor '{0}' in checkpoint")]
     DuplicateTensor(String),
+
+    /// Failed to read a file from disk (e.g. sharded safetensors paths).
+    #[error("failed to read '{path}': {source}")]
+    FileRead {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// Failed to parse `model.safetensors.index.json`.
+    #[error("safetensors index json at '{path}': {source}")]
+    IndexJson {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
 }
 
 /// A loaded tensor entry from a safetensors state dict.
@@ -236,6 +253,54 @@ pub fn merge_meta_state_dicts(dicts: impl IntoIterator<Item = MetaStateDict>) ->
     Ok(merged)
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct SafetensorsIndexJson {
+    weight_map: HashMap<String, String>,
+}
+
+/// Load each path as a SafeTensors file and merge into one [`MetaStateDict`].
+///
+/// Duplicate tensor names across files return [`IoError::DuplicateTensor`]. An empty
+/// slice yields an empty dict.
+pub fn load_meta_state_dict_from_paths(paths: &[impl AsRef<Path>]) -> Result<MetaStateDict, IoError> {
+    if paths.is_empty() {
+        return Ok(MetaStateDict::default());
+    }
+    let dicts: Vec<MetaStateDict> = paths
+        .iter()
+        .map(|p| {
+            let p = p.as_ref();
+            let bytes = std::fs::read(p).map_err(|e| IoError::FileRead {
+                path: p.display().to_string(),
+                source: e,
+            })?;
+            load_state_dict_meta(&bytes)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    merge_meta_state_dicts(dicts)
+}
+
+/// Load sharded Hugging Face weights using `model.safetensors.index.json`.
+///
+/// Shard filenames from `weight_map` are resolved under `root` (the snapshot directory).
+pub fn load_meta_state_dict_from_hub_index(index_path: impl AsRef<Path>, root: impl AsRef<Path>) -> Result<MetaStateDict, IoError> {
+    let index_path = index_path.as_ref();
+    let root = root.as_ref();
+    let idx_bytes = std::fs::read(index_path).map_err(|e| IoError::FileRead {
+        path: index_path.display().to_string(),
+        source: e,
+    })?;
+    let idx: SafetensorsIndexJson = serde_json::from_slice(&idx_bytes).map_err(|e| IoError::IndexJson {
+        path: index_path.display().to_string(),
+        source: e,
+    })?;
+    let mut shard_names: Vec<String> = idx.weight_map.values().cloned().collect();
+    shard_names.sort();
+    shard_names.dedup();
+    let paths: Vec<std::path::PathBuf> = shard_names.into_iter().map(|s| root.join(&s)).collect();
+    load_meta_state_dict_from_paths(&paths)
+}
+
 /// Save a state dictionary (name -> flat f32 values) to a Safetensors byte buffer.
 ///
 /// Since the state dictionary does not carry shape information, each tensor
@@ -331,5 +396,46 @@ mod tests {
                 data: vec![1.0, 2.0, 3.0, 4.0]
             }
         );
+    }
+
+    #[test]
+    fn test_load_meta_from_paths_merges_shards() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let mut d1 = HashMap::new();
+        d1.insert("a".to_string(), vec![1.0f32]);
+        let mut d2 = HashMap::new();
+        d2.insert("b".to_string(), vec![2.0f32]);
+        let p1 = root.join("s1.safetensors");
+        let p2 = root.join("s2.safetensors");
+        std::fs::write(&p1, save_state_dict(&d1).unwrap()).unwrap();
+        std::fs::write(&p2, save_state_dict(&d2).unwrap()).unwrap();
+
+        let merged = load_meta_state_dict_from_paths(&[p1, p2]).unwrap();
+        assert_eq!(merged.tensors.len(), 2);
+        assert!(merged.tensors.contains_key("a"));
+        assert!(merged.tensors.contains_key("b"));
+    }
+
+    #[test]
+    fn test_load_meta_from_hub_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let idx = serde_json::json!({
+            "weight_map": {
+                "x": "shard1.safetensors",
+                "y": "shard2.safetensors"
+            }
+        });
+        std::fs::write(root.join("model.safetensors.index.json"), serde_json::to_vec(&idx).unwrap()).unwrap();
+        let mut d1 = HashMap::new();
+        d1.insert("x".to_string(), vec![3.0f32]);
+        let mut d2 = HashMap::new();
+        d2.insert("y".to_string(), vec![4.0f32]);
+        std::fs::write(root.join("shard1.safetensors"), save_state_dict(&d1).unwrap()).unwrap();
+        std::fs::write(root.join("shard2.safetensors"), save_state_dict(&d2).unwrap()).unwrap();
+
+        let merged = load_meta_state_dict_from_hub_index(root.join("model.safetensors.index.json"), root).unwrap();
+        assert_eq!(merged.tensors.len(), 2);
     }
 }

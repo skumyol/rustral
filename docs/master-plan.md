@@ -178,7 +178,7 @@ Maintainer-only detail may live in local `IMPROVEMENT_PLAN.md` (gitignored). Thi
 |------|-------------|--------|
 | 01 | `rustral-hf::scan_local_model_dir` | Done |
 | 02 | `snapshot_model_at` Hub revision pinning | Done |
-| 03 | `rustral-io` sharded `MetaStateDict` load (`load_meta_state_dict_from_paths`, `load_meta_state_dict_from_hub_index`) | |
+| 03 | `rustral-io` sharded `MetaStateDict` load (`load_meta_state_dict_from_paths`, `load_meta_state_dict_from_hub_index`) | Done |
 | 04 | `rustral-llm` re-export `HubModelSnapshot` / `HubModelFiles` | Done |
 
 ---
