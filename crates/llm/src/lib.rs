@@ -10,10 +10,17 @@ use std::path::Path;
 
 use thiserror::Error;
 
+mod checkpoint_f32;
+
 pub mod causal_lm;
 pub mod gpt2;
+pub mod llama;
 
 pub use causal_lm::CausalLm;
+pub use llama::{
+    build_llama_flat_map, detect_llama_state_dict_root, load_hf_llama_weights_into_decoder, HfLlamaConfig,
+    LlamaCausalLm, LlamaWeightLoadReport,
+};
 
 /// Canonical Hub snapshot types from [`rustral_hf`] (avoid duplicating paths in this crate).
 pub use rustral_hf::{HubModelFiles, HubModelSnapshot};
@@ -33,11 +40,11 @@ pub enum LlmError {
     #[error(transparent)]
     Anyhow(#[from] anyhow::Error),
 
-    #[error("checkpoint tensor '{name}' has unsupported dtype '{dtype}' (load GPT-2 path expects F32)")]
+    #[error("checkpoint tensor '{name}' has unsupported dtype '{dtype}' (this loader expects F32)")]
     UnsupportedCheckpointDtype { name: String, dtype: String },
 
-    #[error("shape mismatch loading '{name}': model expects {expected:?}, checkpoint has {got:?}")]
-    Gpt2ShapeMismatch { name: String, expected: Vec<usize>, got: Vec<usize> },
+    #[error("checkpoint tensor '{name}': expected shape {expected:?}, got {got:?}")]
+    CheckpointShapeMismatch { name: String, expected: Vec<usize>, got: Vec<usize> },
 }
 
 /// Minimal tokenizer abstraction for LLM workflows.

@@ -75,8 +75,6 @@ impl Gpt2Decoder {
     }
 
     /// Load compatible Hugging Face GPT-2 tensors from a merged [`MetaStateDict`] (see `gpt2::hf_weights`).
-    ///
-    /// Attention weights are **not** mapped yet; they remain at initialization values.
     pub fn load_hf_weights_from_meta(
         &mut self,
         meta: &MetaStateDict,

@@ -1,4 +1,4 @@
-//! Backend-agnostic causal language modeling surface for [`crate::gpt2::Gpt2Decoder`] and future families.
+//! Backend-agnostic causal language modeling surface for [`crate::gpt2::Gpt2Decoder`], [`crate::LlamaCausalLm`], and future families.
 //!
 //! Generation runs through an explicit [`ForwardCtx`] so callers control inference vs train mode,
 //! attach profilers, and reuse context across steps.
