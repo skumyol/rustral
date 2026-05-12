@@ -240,7 +240,9 @@ pub fn load_state_dict_meta(data: &[u8]) -> Result<MetaStateDict, IoError> {
 /// Merge multiple metadata-preserving state dicts.
 ///
 /// Returns an error if any tensor name appears more than once.
-pub fn merge_meta_state_dicts(dicts: impl IntoIterator<Item = MetaStateDict>) -> Result<MetaStateDict, IoError> {
+pub fn merge_meta_state_dicts(
+    dicts: impl IntoIterator<Item = MetaStateDict>,
+) -> Result<MetaStateDict, IoError> {
     let mut merged = MetaStateDict::default();
     for d in dicts {
         for (k, v) in d.tensors {
@@ -270,10 +272,8 @@ pub fn load_meta_state_dict_from_paths(paths: &[impl AsRef<Path>]) -> Result<Met
         .iter()
         .map(|p| {
             let p = p.as_ref();
-            let bytes = std::fs::read(p).map_err(|e| IoError::FileRead {
-                path: p.display().to_string(),
-                source: e,
-            })?;
+            let bytes = std::fs::read(p)
+                .map_err(|e| IoError::FileRead { path: p.display().to_string(), source: e })?;
             load_state_dict_meta(&bytes)
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -283,17 +283,16 @@ pub fn load_meta_state_dict_from_paths(paths: &[impl AsRef<Path>]) -> Result<Met
 /// Load sharded Hugging Face weights using `model.safetensors.index.json`.
 ///
 /// Shard filenames from `weight_map` are resolved under `root` (the snapshot directory).
-pub fn load_meta_state_dict_from_hub_index(index_path: impl AsRef<Path>, root: impl AsRef<Path>) -> Result<MetaStateDict, IoError> {
+pub fn load_meta_state_dict_from_hub_index(
+    index_path: impl AsRef<Path>,
+    root: impl AsRef<Path>,
+) -> Result<MetaStateDict, IoError> {
     let index_path = index_path.as_ref();
     let root = root.as_ref();
-    let idx_bytes = std::fs::read(index_path).map_err(|e| IoError::FileRead {
-        path: index_path.display().to_string(),
-        source: e,
-    })?;
-    let idx: SafetensorsIndexJson = serde_json::from_slice(&idx_bytes).map_err(|e| IoError::IndexJson {
-        path: index_path.display().to_string(),
-        source: e,
-    })?;
+    let idx_bytes = std::fs::read(index_path)
+        .map_err(|e| IoError::FileRead { path: index_path.display().to_string(), source: e })?;
+    let idx: SafetensorsIndexJson = serde_json::from_slice(&idx_bytes)
+        .map_err(|e| IoError::IndexJson { path: index_path.display().to_string(), source: e })?;
     let mut shard_names: Vec<String> = idx.weight_map.values().cloned().collect();
     shard_names.sort();
     shard_names.dedup();
@@ -435,7 +434,8 @@ mod tests {
         std::fs::write(root.join("shard1.safetensors"), save_state_dict(&d1).unwrap()).unwrap();
         std::fs::write(root.join("shard2.safetensors"), save_state_dict(&d2).unwrap()).unwrap();
 
-        let merged = load_meta_state_dict_from_hub_index(root.join("model.safetensors.index.json"), root).unwrap();
+        let merged =
+            load_meta_state_dict_from_hub_index(root.join("model.safetensors.index.json"), root).unwrap();
         assert_eq!(merged.tensors.len(), 2);
     }
 }

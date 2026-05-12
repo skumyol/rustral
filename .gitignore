@@ -132,3 +132,4 @@ benchmarks/runs/*/manifest.json
 docs/site/
 out/
 
+.venv-golden/

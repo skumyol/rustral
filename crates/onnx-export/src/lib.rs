@@ -36,16 +36,10 @@ pub fn export_linear_f32(
 ) -> Result<Vec<u8>, OnnxExportError> {
     let w_el = (in_features * out_features) as usize;
     if weight_row_major.len() != w_el {
-        return Err(OnnxExportError::WeightLen {
-            expected: w_el,
-            got: weight_row_major.len(),
-        });
+        return Err(OnnxExportError::WeightLen { expected: w_el, got: weight_row_major.len() });
     }
     if bias.len() != out_features as usize {
-        return Err(OnnxExportError::BiasLen {
-            expected: out_features as usize,
-            got: bias.len(),
-        });
+        return Err(OnnxExportError::BiasLen { expected: out_features as usize, got: bias.len() });
     }
 
     let mut w_bytes = Vec::with_capacity(weight_row_major.len() * 4);
@@ -86,10 +80,7 @@ pub fn export_linear_f32(
 
     let model = ModelProto {
         ir_version: Some(9),
-        opset_import: vec![OperatorSetIdProto {
-            domain: Some(String::new()),
-            version: Some(17),
-        }],
+        opset_import: vec![OperatorSetIdProto { domain: Some(String::new()), version: Some(17) }],
         producer_name: Some("rustral-onnx-export".into()),
         producer_version: Some(env!("CARGO_PKG_VERSION").into()),
         graph: Some(graph),
