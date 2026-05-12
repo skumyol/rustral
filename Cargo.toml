@@ -62,6 +62,7 @@ members = [
     "crates/model-zoo",
     "crates/inference-server",
     "crates/onnx-export",
+    "crates/gguf",
 ]
 resolver = "2"
 
