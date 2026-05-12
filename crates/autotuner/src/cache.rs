@@ -81,7 +81,12 @@ pub struct ConfigCache {
 }
 
 /// Create a cache key from kernel key, device, dtype, and shape bucket.
-fn make_cache_key(kernel_key: &str, device_id: &str, dtype: &str, shape_bucket: Option<&MatmulShapeBucket>) -> String {
+fn make_cache_key(
+    kernel_key: &str,
+    device_id: &str,
+    dtype: &str,
+    shape_bucket: Option<&MatmulShapeBucket>,
+) -> String {
     match shape_bucket {
         Some(bucket) => format!("{}:{}:{}:{}", kernel_key, device_id, dtype, bucket.cache_key()),
         None => format!("{}:{}:{}:generic", kernel_key, device_id, dtype),
@@ -139,7 +144,9 @@ impl ConfigCache {
     ) -> Option<&CacheEntry> {
         let key = make_cache_key(kernel_key, device_id, dtype, shape_bucket);
 
-        self.entries.get(&key).filter(|e| e.is_fresh(self.max_age_days) && e.device_id == device_id && e.dtype == dtype)
+        self.entries
+            .get(&key)
+            .filter(|e| e.is_fresh(self.max_age_days) && e.device_id == device_id && e.dtype == dtype)
     }
 
     /// Insert or update a cache entry.
@@ -304,7 +311,8 @@ impl TuningCache {
         config: KernelConfig,
         time_us: f64,
     ) {
-        let entry = CacheEntry::new(config, time_us, device_id.to_string(), dtype.to_string(), shape_bucket.cloned());
+        let entry =
+            CacheEntry::new(config, time_us, device_id.to_string(), dtype.to_string(), shape_bucket.cloned());
         self.cache.insert(kernel, device_id, dtype, shape_bucket, entry);
     }
 

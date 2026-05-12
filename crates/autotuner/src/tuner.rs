@@ -441,7 +441,9 @@ impl AutoTuner {
                 None
             };
 
-            if let Some(config) = self.cache.get_config(kernel.kernel_id(), device_id, dtype, shape_bucket.as_ref()) {
+            if let Some(config) =
+                self.cache.get_config(kernel.kernel_id(), device_id, dtype, shape_bucket.as_ref())
+            {
                 if self.config.verbose {
                     println!("Using cached configuration for {}", key);
                 }
@@ -480,10 +482,12 @@ impl AutoTuner {
                 } else {
                     None
                 };
-                return self.cache.get_config(kernel, device_id, dtype, shape_bucket.as_ref()).map(|kc| OpConfig::Elementwise {
-                    block_size: kc.workgroup.x as usize,
-                    items_per_thread: 4,
-                    vector_width: kc.memory.vector_width,
+                return self.cache.get_config(kernel, device_id, dtype, shape_bucket.as_ref()).map(|kc| {
+                    OpConfig::Elementwise {
+                        block_size: kc.workgroup.x as usize,
+                        items_per_thread: 4,
+                        vector_width: kc.memory.vector_width,
+                    }
                 });
             }
         }
@@ -514,11 +518,8 @@ impl AutoTuner {
     /// Benchmark a cached configuration to get realistic metrics.
     fn benchmark_cached_config<K: TunableKernel>(&self, kernel: &K, config: &KernelConfig) -> f64 {
         let mut bench_kernel = kernel.with_config(config);
-        let duration = benchmark_kernel(
-            || bench_kernel(),
-            self.config.warmup_iterations,
-            self.config.timing_iterations,
-        );
+        let duration =
+            benchmark_kernel(|| bench_kernel(), self.config.warmup_iterations, self.config.timing_iterations);
         duration.as_micros() as f64
     }
 
@@ -731,9 +732,8 @@ mod tests {
 
     #[test]
     fn test_tuner_config_device_dtype() {
-        let config = TunerConfig::default()
-            .with_device_id("cuda:0".to_string())
-            .with_dtype("f16".to_string());
+        let config =
+            TunerConfig::default().with_device_id("cuda:0".to_string()).with_dtype("f16".to_string());
         assert_eq!(config.device_id, "cuda:0");
         assert_eq!(config.dtype, "f16");
     }
