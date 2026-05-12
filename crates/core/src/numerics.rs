@@ -56,36 +56,36 @@ impl Tolerance {
     pub fn is_close(&self, a: f64, b: f64) -> bool {
         let diff = (a - b).abs();
         let max_abs = a.abs().max(b.abs());
-        
+
         // Check absolute tolerance
         if diff <= self.atol {
             return true;
         }
-        
+
         // Check relative tolerance
         if diff <= self.rtol * max_abs {
             return true;
         }
-        
+
         // Check ULP distance if specified
         if let Some(max_ulps) = self.max_ulps {
             if self.ulp_distance(a, b) <= max_ulps {
                 return true;
             }
         }
-        
+
         false
     }
-    
+
     /// Calculate ULP (Unit in the Last Place) distance between two floats.
     fn ulp_distance(&self, a: f64, b: f64) -> u32 {
         if a == b {
             return 0;
         }
-        
+
         let a_bits = a.to_bits();
         let b_bits = b.to_bits();
-        
+
         // Handle different signs
         if (a_bits >> 63) != (b_bits >> 63) {
             return u32::MAX; // Infinite distance
@@ -159,7 +159,7 @@ impl NumericsConfig {
     /// Validate that two values are within tolerance for a given dtype.
     pub fn validate(&self, a: f64, b: f64, dtype: DType) -> Result<(), NumericsError> {
         let tolerance = self.tolerance_for(dtype);
-        
+
         if tolerance.is_close(a, b) {
             Ok(())
         } else {
@@ -180,19 +180,9 @@ impl NumericsConfig {
 #[derive(Debug, Clone)]
 pub enum NumericsError {
     /// Tolerance exceeded for value comparison.
-    ToleranceExceeded {
-        dtype: DType,
-        value_a: f64,
-        value_b: f64,
-        diff: f64,
-        rtol: f64,
-        atol: f64,
-    },
+    ToleranceExceeded { dtype: DType, value_a: f64, value_b: f64, diff: f64, rtol: f64, atol: f64 },
     /// Shape mismatch in tensor comparison.
-    ShapeMismatch {
-        expected: Vec<usize>,
-        actual: Vec<usize>,
-    },
+    ShapeMismatch { expected: Vec<usize>, actual: Vec<usize> },
     /// Validation failed in strict mode.
     StrictModeViolation(String),
 }
@@ -208,11 +198,7 @@ impl fmt::Display for NumericsError {
                 )
             }
             NumericsError::ShapeMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "Shape mismatch: expected {:?}, got {:?}",
-                    expected, actual
-                )
+                write!(f, "Shape mismatch: expected {:?}, got {:?}", expected, actual)
             }
             NumericsError::StrictModeViolation(msg) => {
                 write!(f, "Strict mode violation: {}", msg)
@@ -247,13 +233,7 @@ impl ValidationResult {
         num_violations: usize,
         total_elements: usize,
     ) -> Self {
-        Self {
-            passed,
-            max_abs_diff,
-            max_rel_diff,
-            num_violations,
-            total_elements,
-        }
+        Self { passed, max_abs_diff, max_rel_diff, num_violations, total_elements }
     }
 
     /// Get violation rate as a percentage.
@@ -326,15 +306,10 @@ impl NumericsValidator {
             }
         }
 
-        let passed = num_violations == 0 || (!self.config.strict_mode && num_violations < reference.len() / 100); // Allow < 1% violations in non-strict mode
+        let passed =
+            num_violations == 0 || (!self.config.strict_mode && num_violations < reference.len() / 100); // Allow < 1% violations in non-strict mode
 
-        Ok(ValidationResult::new(
-            passed,
-            max_abs_diff,
-            max_rel_diff,
-            num_violations,
-            reference.len(),
-        ))
+        Ok(ValidationResult::new(passed, max_abs_diff, max_rel_diff, num_violations, reference.len()))
     }
 
     /// Get the numerics configuration.
@@ -361,11 +336,11 @@ mod tests {
     #[test]
     fn test_tolerance_is_close() {
         let tol = Tolerance::new(1e-5, 1e-8);
-        
+
         // Values within tolerance
         assert!(tol.is_close(1.0, 1.000001));
         assert!(tol.is_close(0.0, 1e-9));
-        
+
         // Values outside tolerance
         assert!(!tol.is_close(1.0, 1.01));
         assert!(!tol.is_close(0.0, 1e-5));
@@ -395,10 +370,10 @@ mod tests {
     #[test]
     fn test_tolerance_for_dtype() {
         let config = NumericsConfig::default();
-        
+
         let f32_tol = config.tolerance_for(DType::F32);
         let f16_tol = config.tolerance_for(DType::F16);
-        
+
         // F16 should have looser tolerances
         assert!(f16_tol.rtol > f32_tol.rtol);
         assert!(f16_tol.atol > f32_tol.atol);
@@ -427,7 +402,7 @@ mod tests {
         let validator = NumericsValidator::new();
         let reference = vec![1.0f32, 2.0, 3.0];
         let test = vec![1.0f32, 2.0, 3.0];
-        
+
         let result = validator.validate_arrays(&reference, &test, DType::F32).unwrap();
         assert!(result.passed);
         assert_eq!(result.num_violations, 0);
@@ -438,7 +413,7 @@ mod tests {
         let validator = NumericsValidator::new();
         let reference = vec![1.0f32, 2.0, 3.0];
         let test = vec![1.000001f32, 2.000001, 3.000001];
-        
+
         let result = validator.validate_arrays(&reference, &test, DType::F32).unwrap();
         assert!(result.passed);
     }
@@ -448,7 +423,7 @@ mod tests {
         let validator = NumericsValidator::new();
         let reference = vec![1.0f32, 2.0, 3.0];
         let test = vec![1.0f32, 2.0];
-        
+
         let result = validator.validate_arrays(&reference, &test, DType::F32);
         assert!(result.is_err());
     }
@@ -457,10 +432,10 @@ mod tests {
     fn test_numerics_validator_strict_mode() {
         let config = NumericsConfig::new().with_strict_mode(true);
         let validator = NumericsValidator::with_config(config);
-        
+
         let reference = vec![1.0f32, 2.0, 3.0];
         let test = vec![1.01f32, 2.0, 3.0]; // First element outside tolerance
-        
+
         let result = validator.validate_arrays(&reference, &test, DType::F32);
         assert!(result.is_err());
     }

@@ -757,14 +757,8 @@ mod tests {
             supports_strided_layouts: true,
             supports_packed_layouts: false,
         };
-        assert_eq!(
-            caps_fp32.recommended_dtype_for_operation(OperationType::Matmul),
-            TrainingDtype::F32
-        );
-        assert_eq!(
-            caps_fp32.recommended_dtype_for_operation(OperationType::Convolution),
-            TrainingDtype::F32
-        );
+        assert_eq!(caps_fp32.recommended_dtype_for_operation(OperationType::Matmul), TrainingDtype::F32);
+        assert_eq!(caps_fp32.recommended_dtype_for_operation(OperationType::Convolution), TrainingDtype::F32);
 
         // Test with BF16 and tensor cores
         let caps_bf16 = BackendCapabilities {
@@ -783,10 +777,7 @@ mod tests {
             supports_strided_layouts: true,
             supports_packed_layouts: true,
         };
-        assert_eq!(
-            caps_bf16.recommended_dtype_for_operation(OperationType::Matmul),
-            TrainingDtype::Bf16
-        );
+        assert_eq!(caps_bf16.recommended_dtype_for_operation(OperationType::Matmul), TrainingDtype::Bf16);
         assert_eq!(
             caps_bf16.recommended_dtype_for_operation(OperationType::Convolution),
             TrainingDtype::Bf16
@@ -809,13 +800,7 @@ mod tests {
             supports_strided_layouts: true,
             supports_packed_layouts: true,
         };
-        assert_eq!(
-            caps_fp16.recommended_dtype_for_operation(OperationType::Matmul),
-            TrainingDtype::F16
-        );
-        assert_eq!(
-            caps_fp16.recommended_dtype_for_operation(OperationType::Convolution),
-            TrainingDtype::F16
-        );
+        assert_eq!(caps_fp16.recommended_dtype_for_operation(OperationType::Matmul), TrainingDtype::F16);
+        assert_eq!(caps_fp16.recommended_dtype_for_operation(OperationType::Convolution), TrainingDtype::F16);
     }
 }

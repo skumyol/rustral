@@ -359,12 +359,7 @@ impl OperationProfiler {
 
     /// Create a new operation profiler with custom hooks.
     pub fn with_hooks(hooks: ProfilingHooks) -> Self {
-        Self {
-            stats: HashMap::new(),
-            enabled: true,
-            start_time: Instant::now(),
-            hooks,
-        }
+        Self { stats: HashMap::new(), enabled: true, start_time: Instant::now(), hooks }
     }
 
     /// Profiler preset for CI / automation: [`ProfilingHooks::ci_safe`].
@@ -411,10 +406,8 @@ impl OperationProfiler {
             return;
         }
 
-        let stats = self
-            .stats
-            .entry(operation_name.to_string())
-            .or_insert_with(|| OperationStats::new(device_type));
+        let stats =
+            self.stats.entry(operation_name.to_string()).or_insert_with(|| OperationStats::new(device_type));
         stats.record(duration, cpu_time, gpu_time);
 
         if let Some(bucket) = shape_bucket {
@@ -457,11 +450,13 @@ impl OperationProfiler {
         println!("Profiling Duration: {:.2}s", elapsed.as_secs_f64());
         println!("Total Operations: {}", self.stats.len());
         println!("Total Calls: {}", self.stats.values().map(|s| s.count).sum::<usize>());
-        println!("Profiling Hooks: cpu_gpu={} per_op={} memory={} shapes={}",
-                 self.hooks.cpu_gpu_breakdown,
-                 self.hooks.per_op_timing,
-                 self.hooks.memory_tracking,
-                 self.hooks.shape_bucket_recording);
+        println!(
+            "Profiling Hooks: cpu_gpu={} per_op={} memory={} shapes={}",
+            self.hooks.cpu_gpu_breakdown,
+            self.hooks.per_op_timing,
+            self.hooks.memory_tracking,
+            self.hooks.shape_bucket_recording
+        );
 
         if !self.stats.is_empty() {
             println!("\nMost Expensive Operations (by avg time):");
@@ -469,10 +464,14 @@ impl OperationProfiler {
             for (name, avg) in expensive {
                 let stats = self.stats.get(&name).unwrap();
                 let device_info = format!("{:?}", stats.device_type);
-                let cpu_gpu_info = if self.hooks.cpu_gpu_breakdown && (stats.cpu_duration > Duration::ZERO || stats.gpu_duration > Duration::ZERO) {
-                    format!(" | CPU: {:.2}ms GPU: {:.2}ms",
-                            stats.cpu_duration.as_secs_f64() * 1000.0,
-                            stats.gpu_duration.as_secs_f64() * 1000.0)
+                let cpu_gpu_info = if self.hooks.cpu_gpu_breakdown
+                    && (stats.cpu_duration > Duration::ZERO || stats.gpu_duration > Duration::ZERO)
+                {
+                    format!(
+                        " | CPU: {:.2}ms GPU: {:.2}ms",
+                        stats.cpu_duration.as_secs_f64() * 1000.0,
+                        stats.gpu_duration.as_secs_f64() * 1000.0
+                    )
                 } else {
                     String::new()
                 };
@@ -615,9 +614,8 @@ impl OperationProfiler {
         limit: usize,
     ) -> std::io::Result<()> {
         let snap = self.snapshot(limit);
-        let json = serde_json::to_string_pretty(&snap).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("serde_json: {e}"))
-        })?;
+        let json = serde_json::to_string_pretty(&snap)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("serde_json: {e}")))?;
         std::fs::write(path.as_ref(), json)
     }
 }
@@ -692,8 +690,22 @@ mod tests {
     #[test]
     fn test_most_expensive_ops() {
         let mut profiler = OperationProfiler::new();
-        profiler.record_operation_internal("fast", Duration::from_millis(1), None, None, DeviceType::Cpu, None);
-        profiler.record_operation_internal("slow", Duration::from_millis(100), None, None, DeviceType::Cpu, None);
+        profiler.record_operation_internal(
+            "fast",
+            Duration::from_millis(1),
+            None,
+            None,
+            DeviceType::Cpu,
+            None,
+        );
+        profiler.record_operation_internal(
+            "slow",
+            Duration::from_millis(100),
+            None,
+            None,
+            DeviceType::Cpu,
+            None,
+        );
 
         let expensive = profiler.most_expensive_ops(10);
         assert_eq!(expensive.len(), 2);
@@ -705,9 +717,23 @@ mod tests {
     fn test_most_frequent_ops() {
         let mut profiler = OperationProfiler::new();
         for _ in 0..10 {
-            profiler.record_operation_internal("frequent", Duration::from_millis(1), None, None, DeviceType::Cpu, None);
+            profiler.record_operation_internal(
+                "frequent",
+                Duration::from_millis(1),
+                None,
+                None,
+                DeviceType::Cpu,
+                None,
+            );
         }
-        profiler.record_operation_internal("rare", Duration::from_millis(1), None, None, DeviceType::Cpu, None);
+        profiler.record_operation_internal(
+            "rare",
+            Duration::from_millis(1),
+            None,
+            None,
+            DeviceType::Cpu,
+            None,
+        );
 
         let frequent = profiler.most_frequent_ops(10);
         assert_eq!(frequent.len(), 2);
@@ -718,7 +744,14 @@ mod tests {
     #[test]
     fn test_clear() {
         let mut profiler = OperationProfiler::new();
-        profiler.record_operation_internal("test", Duration::from_millis(1), None, None, DeviceType::Cpu, None);
+        profiler.record_operation_internal(
+            "test",
+            Duration::from_millis(1),
+            None,
+            None,
+            DeviceType::Cpu,
+            None,
+        );
         assert!(!profiler.stats.is_empty());
         profiler.clear();
         assert!(profiler.stats.is_empty());
@@ -727,10 +760,24 @@ mod tests {
     #[test]
     fn test_check_regression() {
         let mut baseline = OperationProfiler::new();
-        baseline.record_operation_internal("test", Duration::from_millis(100), None, None, DeviceType::Cpu, None);
+        baseline.record_operation_internal(
+            "test",
+            Duration::from_millis(100),
+            None,
+            None,
+            DeviceType::Cpu,
+            None,
+        );
 
         let mut current = OperationProfiler::new();
-        current.record_operation_internal("test", Duration::from_millis(150), None, None, DeviceType::Cpu, None);
+        current.record_operation_internal(
+            "test",
+            Duration::from_millis(150),
+            None,
+            None,
+            DeviceType::Cpu,
+            None,
+        );
 
         let regressions = current.check_regression(&baseline, 0.4); // 40% threshold
         assert_eq!(regressions.len(), 1);
@@ -740,7 +787,14 @@ mod tests {
     #[test]
     fn test_export_json() {
         let mut profiler = OperationProfiler::new();
-        profiler.record_operation_internal("test", Duration::from_millis(100), None, None, DeviceType::Cpu, None);
+        profiler.record_operation_internal(
+            "test",
+            Duration::from_millis(100),
+            None,
+            None,
+            DeviceType::Cpu,
+            None,
+        );
         let tmpfile = std::env::temp_dir().join("rustral_op_profile_test.json");
         profiler.export_json(tmpfile.to_str().unwrap()).unwrap();
         std::fs::remove_file(&tmpfile).ok();
@@ -749,14 +803,28 @@ mod tests {
     #[test]
     fn test_print_report() {
         let mut profiler = OperationProfiler::new();
-        profiler.record_operation_internal("test", Duration::from_millis(100), None, None, DeviceType::Cpu, None);
+        profiler.record_operation_internal(
+            "test",
+            Duration::from_millis(100),
+            None,
+            None,
+            DeviceType::Cpu,
+            None,
+        );
         profiler.print_report();
     }
 
     #[test]
     fn test_clone() {
         let mut profiler = OperationProfiler::new();
-        profiler.record_operation_internal("test", Duration::from_millis(100), None, None, DeviceType::Cpu, None);
+        profiler.record_operation_internal(
+            "test",
+            Duration::from_millis(100),
+            None,
+            None,
+            DeviceType::Cpu,
+            None,
+        );
         let cloned = profiler.clone();
         assert_eq!(cloned.stats.len(), profiler.stats.len());
     }
@@ -867,8 +935,8 @@ mod tests {
             shape_bucket_recording: true,
         })));
         {
-            let _guard = OperationGuard::new(profiler.clone(), "test_op")
-                .with_shape_bucket(ShapeBucket::Medium);
+            let _guard =
+                OperationGuard::new(profiler.clone(), "test_op").with_shape_bucket(ShapeBucket::Medium);
             thread::sleep(Duration::from_millis(10));
         }
 

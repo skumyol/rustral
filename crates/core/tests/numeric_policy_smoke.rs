@@ -9,4 +9,3 @@ fn tolerance_smoke_allclose_passes_for_identical() {
     let b = vec![1.0f32, 2.0, 3.0];
     assert_allclose("identical", &a, &b, tol);
 }
-

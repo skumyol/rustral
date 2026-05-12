@@ -106,11 +106,7 @@ pub struct Op {
 impl Op {
     /// Create a new operation.
     pub fn new(op_type: OpType, input_shapes: Vec<Vec<usize>>, output_shape: Vec<usize>) -> Self {
-        Self {
-            op_type,
-            input_shapes,
-            output_shape,
-        }
+        Self { op_type, input_shapes, output_shape }
     }
 
     /// Get the operation type.
@@ -209,10 +205,7 @@ pub struct FusionOptimizer<B: Backend> {
 impl<B: Backend> FusionOptimizer<B> {
     /// Create a new fusion optimizer.
     pub fn new(backend: B) -> Self {
-        Self {
-            backend,
-            enable_fusion: true,
-        }
+        Self { backend, enable_fusion: true }
     }
 
     /// [`Self::matmul_bias_relu`] using a borrowed backend (clones the handle for the call).

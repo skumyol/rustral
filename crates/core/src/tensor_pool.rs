@@ -84,12 +84,7 @@ impl<B: Backend> TensorPool<B> {
         max_total_tensors: usize,
         strategy: PoolStrategy,
     ) -> Self {
-        Self {
-            strategy,
-            pool: HashMap::new(),
-            max_size_per_shape,
-            max_total_tensors,
-        }
+        Self { strategy, pool: HashMap::new(), max_size_per_shape, max_total_tensors }
     }
 
     pub fn strategy(&self) -> PoolStrategy {
