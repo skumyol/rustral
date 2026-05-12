@@ -512,7 +512,12 @@ where
         self.scheduler.add_request(prompt, max_tokens)
     }
 
-    /// Run one iteration
+    /// Run one scheduling iteration.
+    ///
+    /// **Placeholder decode:** emits dummy token `1` per request. Real Llama (or GPT) serving should
+    /// run model forwards here using a **per-request** KV cache such as [`crate::LlamaDecodeCache`]
+    /// (prefill + per-token steps). Reference HTTP wiring: `rustral-llama-server` in
+    /// `crates/inference-server` (`/v1/generate`, `/v1/generate/stream`).
     pub fn step(&mut self) -> Result<()> {
         if let Some(batch) = self.scheduler.schedule(1) {
             // In real impl, would run model forward here

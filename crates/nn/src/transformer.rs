@@ -1042,11 +1042,8 @@ where
             let vocab_size = shape[2];
 
             let flat = ops.tensor_to_vec(&logits)?;
-            let last_logits: Vec<f32> = flat
-                .into_iter()
-                .skip((tokens.len() - 1) * vocab_size)
-                .take(vocab_size)
-                .collect();
+            let last_logits: Vec<f32> =
+                flat.into_iter().skip((tokens.len() - 1) * vocab_size).take(vocab_size).collect();
 
             // Greedy decode
             let next_token = last_logits

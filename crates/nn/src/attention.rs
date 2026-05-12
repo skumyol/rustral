@@ -465,10 +465,85 @@ impl<B: Backend> TapeModule<B> for SelfAttention<B>
 where
     B::Tensor: Clone,
 {
-    fn forward_tape(&self, _: TensorId, _: &mut Tape<B>, _: &mut ForwardCtx<B>) -> Result<TensorId> {
-        Err(rustral_core::CoreError::InvalidArgument(
-            "SelfAttention tape forward is not yet implemented for GPT-2-aligned multi-head attention".into(),
-        ))
+    /// Causal multi-head SDPA on the tape (GPT-2-style projections), **batch size 1** only.
+    ///
+    /// Input tensor id must be rank-3 `[1, seq_len, d_model]` matching eager [`SelfAttention::forward_causal`].
+    fn forward_tape(&self, input: TensorId, tape: &mut Tape<B>, ctx: &mut ForwardCtx<B>) -> Result<TensorId> {
+        let ops = ctx.backend().ops();
+        let shape = ops.shape(
+            tape.value(input)
+                .ok_or_else(|| rustral_core::CoreError::InvalidArgument("SelfAttention::forward_tape: bad tensor id".into()))?,
+        );
+        if shape.len() != 3 {
+            return Err(rustral_core::CoreError::InvalidArgument(format!(
+                "SelfAttention::forward_tape expects [batch, seq, d_model], got {:?}",
+                shape
+            )));
+        }
+        let batch = shape[0];
+        let seq_len = shape[1];
+        let d_model = shape[2];
+        if batch != 1 {
+            return Err(rustral_core::CoreError::InvalidArgument(
+                "SelfAttention::forward_tape currently supports batch size 1 only".into(),
+            ));
+        }
+        if d_model != self.config.d_model {
+            return Err(rustral_core::CoreError::ShapeMismatch {
+                expected: vec![self.config.d_model],
+                actual: vec![d_model],
+            });
+        }
+
+        let x2 = tape.reshape_tape(input, &[seq_len, d_model], ctx)?;
+        let q = self.q_proj.forward_tape(x2, tape, ctx)?;
+        let k = self.k_proj.forward_tape(x2, tape, ctx)?;
+        let v = self.v_proj.forward_tape(x2, tape, ctx)?;
+
+        let q_t = tape.transpose_tape(q, ctx)?;
+        let k_t = tape.transpose_tape(k, ctx)?;
+        let v_t = tape.transpose_tape(v, ctx)?;
+
+        let mut mask_v = vec![0f32; seq_len * seq_len];
+        for i in 0..seq_len {
+            for j in 0..seq_len {
+                if j > i {
+                    mask_v[i * seq_len + j] = -1e9f32;
+                }
+            }
+        }
+        let mask_tensor = ops.tensor_from_vec(mask_v, &[seq_len, seq_len])?;
+        let mask_id = tape.watch(mask_tensor);
+
+        let num_heads = self.config.num_heads;
+        let head_dim = self.config.head_dim;
+        let mut head_outs_t: Vec<TensorId> = Vec::with_capacity(num_heads);
+        for h in 0..num_heads {
+            let lo = h * head_dim;
+            let hi = lo + head_dim;
+            let qh_t = tape.slice_tape(q_t, lo, hi, ctx)?;
+            let kh_t = tape.slice_tape(k_t, lo, hi, ctx)?;
+            let vh_t = tape.slice_tape(v_t, lo, hi, ctx)?;
+            let qh = tape.transpose_tape(qh_t, ctx)?;
+            let kh = tape.transpose_tape(kh_t, ctx)?;
+            let vh = tape.transpose_tape(vh_t, ctx)?;
+            let kh_tt = tape.transpose_tape(kh, ctx)?;
+            let scores = tape.matmul(qh, kh_tt, ctx)?;
+            let scores = tape.mul_scalar(scores, self.scale, ctx)?;
+            let scores = tape.add(scores, mask_id, ctx)?;
+            let weights = tape.softmax(scores, ctx)?;
+            let out_h = tape.matmul(weights, vh, ctx)?;
+            let out_h_t = tape.transpose_tape(out_h, ctx)?;
+            head_outs_t.push(out_h_t);
+        }
+        let concat_t = if num_heads == 1 {
+            head_outs_t[0]
+        } else {
+            tape.concat_tape(&head_outs_t, 0, ctx)?
+        };
+        let concat = tape.transpose_tape(concat_t, ctx)?;
+        let out_2d = self.out_proj.forward_tape(concat, tape, ctx)?;
+        tape.reshape_tape(out_2d, &[1, seq_len, d_model], ctx)
     }
 }
 

@@ -51,6 +51,21 @@ pub struct LstmCell<B: Backend> {
 }
 
 impl<B: Backend> LstmCell<B> {
+    /// Input projection weights `[4 * hidden_dim, input_dim]`.
+    pub fn wx(&self) -> &Parameter<B> {
+        &self.wx
+    }
+
+    /// Hidden projection weights `[4 * hidden_dim, hidden_dim]`.
+    pub fn wh(&self) -> &Parameter<B> {
+        &self.wh
+    }
+
+    /// Combined gate bias `[4 * hidden_dim]`.
+    pub fn b(&self) -> &Parameter<B> {
+        &self.b
+    }
+
     /// Create an LSTM cell with randomly initialized parameters.
     pub fn new(backend: &B, config: LstmConfig) -> Result<Self> {
         let four_h = config.hidden_dim * 4;
