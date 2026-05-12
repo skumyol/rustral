@@ -20,10 +20,7 @@ fn hf_tiny_random_gpt2_meta_load_smoke() {
 
     let cfg = HfGpt2Config::from_json_file(cfg_path).expect("parse HF GPT-2 config");
 
-    assert!(
-        !snap.files.safetensors_files.is_empty(),
-        "expected at least one safetensors shard"
-    );
+    assert!(!snap.files.safetensors_files.is_empty(), "expected at least one safetensors shard");
     let meta: MetaStateDict =
         load_meta_state_dict_from_paths(&snap.files.safetensors_files).expect("merge safetensors meta");
 
@@ -35,9 +32,7 @@ fn hf_tiny_random_gpt2_meta_load_smoke() {
         report.loaded_rustral_keys
     );
     assert!(
-        report.loaded_rustral_keys
-            .iter()
-            .any(|k| k == "token_embedding.embed"),
+        report.loaded_rustral_keys.iter().any(|k| k == "token_embedding.embed"),
         "expected wte→token_embedding.embed in {:?}",
         report.loaded_rustral_keys
     );

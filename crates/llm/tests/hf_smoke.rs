@@ -26,4 +26,3 @@ mod hf_smoke {
         assert!(out.len() >= 2);
     }
 }
-

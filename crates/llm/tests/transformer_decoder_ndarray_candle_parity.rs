@@ -70,7 +70,8 @@ fn transformer_decoder_forward_matches_cpu_on_candle_cpu() {
     let cpu_dec = TransformerDecoder::new(&cpu_backend, cfg.clone(), vocab, seed).expect("cpu decoder");
     let snap = snapshot_decoder_params(&cpu_dec, &cpu_backend);
 
-    let mut candle_dec = TransformerDecoder::new(&candle_backend, cfg, vocab, seed.wrapping_add(999)).expect("candle decoder");
+    let mut candle_dec =
+        TransformerDecoder::new(&candle_backend, cfg, vocab, seed.wrapping_add(999)).expect("candle decoder");
     load_decoder_params(&mut candle_dec, &candle_backend, &snap);
 
     let candle_snap = snapshot_decoder_params(&candle_dec, &candle_backend);

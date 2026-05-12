@@ -113,10 +113,9 @@ impl Gpt2Decoder {
         steps: usize,
     ) -> Result<Vec<usize>, LlmError> {
         for _ in 0..steps {
-            let next = self
-                .model
-                .generate_token(input_ids.clone(), ctx)
-                .map_err(|e| anyhow::anyhow!("{e}"))? as usize;
+            let next =
+                self.model.generate_token(input_ids.clone(), ctx).map_err(|e| anyhow::anyhow!("{e}"))?
+                    as usize;
             input_ids.push(next);
         }
         Ok(input_ids)
@@ -131,31 +130,18 @@ impl Gpt2Decoder {
         let mut ctx = ForwardCtx::new(&self.backend, Mode::Inference);
         let decode_start = Instant::now();
         if max_new_tokens == 0 {
-            return Ok((
-                input_ids,
-                GreedyDecodeTiming {
-                    first_token_ms: 0.0,
-                    decode_wall_ms: 0.0,
-                },
-            ));
+            return Ok((input_ids, GreedyDecodeTiming { first_token_ms: 0.0, decode_wall_ms: 0.0 }));
         }
 
         let t_first = Instant::now();
-        let next = self
-            .model
-            .generate_token(input_ids.clone(), &mut ctx)
-            .map_err(|e| anyhow::anyhow!("{e}"))? as usize;
+        let next =
+            self.model.generate_token(input_ids.clone(), &mut ctx).map_err(|e| anyhow::anyhow!("{e}"))?
+                as usize;
         let first_token_ms = t_first.elapsed().as_secs_f64() * 1000.0;
         input_ids.push(next);
         input_ids = self.greedy_steps(&mut ctx, input_ids, max_new_tokens.saturating_sub(1))?;
         let decode_wall_ms = decode_start.elapsed().as_secs_f64() * 1000.0;
-        Ok((
-            input_ids,
-            GreedyDecodeTiming {
-                first_token_ms,
-                decode_wall_ms,
-            },
-        ))
+        Ok((input_ids, GreedyDecodeTiming { first_token_ms, decode_wall_ms }))
     }
 
     /// Greedy generation with a fresh inference [`ForwardCtx`].

@@ -3,8 +3,8 @@
 mod hf_weights;
 
 pub use hf_weights::{
-    build_llama_flat_map, detect_llama_state_dict_root, load_hf_llama_weights_into_decoder,
-    LlamaWeightLoadReport,
+    apply_llama_flat_map_to_decoder, build_llama_flat_map, detect_llama_state_dict_root,
+    load_hf_llama_weights_into_decoder, LlamaWeightLoadReport,
 };
 
 use std::path::Path;
@@ -202,6 +202,34 @@ impl LlamaCausalLm {
     ) -> Result<Vec<usize>, LlmError> {
         let mut ctx = ForwardCtx::new(&self.backend, Mode::Inference);
         self.greedy_steps(&mut ctx, input_ids, max_new_tokens)
+    }
+
+    /// Prompt prefill into a fresh `cache`, then greedy-argmax of the last prefill logits (first new token).
+    pub fn greedy_first_token_after_prefill(
+        &self,
+        ctx: &mut ForwardCtx<'_, CpuBackend>,
+        prompt_ids: Vec<usize>,
+        cache: &mut LlamaDecodeCache,
+    ) -> Result<usize, LlmError> {
+        let logits = self
+            .model
+            .forward_prompt_cache(prompt_ids, ctx, cache)
+            .map_err(|e| LlmError::InvalidArg(format!("Llama KV prefill: {e:?}")))?;
+        argmax_last_timestep(&logits, self.backend().ops())
+    }
+
+    /// One greedy decode step: extend KV with `prev_generated_token`, return next token id.
+    pub fn greedy_step_from_cache(
+        &self,
+        ctx: &mut ForwardCtx<'_, CpuBackend>,
+        cache: &mut LlamaDecodeCache,
+        prev_generated_token: usize,
+    ) -> Result<usize, LlmError> {
+        let logits = self
+            .model
+            .forward_token_cache(prev_generated_token, ctx, cache)
+            .map_err(|e| LlmError::InvalidArg(format!("Llama KV decode step: {e:?}")))?;
+        argmax_single_token_logits(&logits, self.backend().ops())
     }
 }
 

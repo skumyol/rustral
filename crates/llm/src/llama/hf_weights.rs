@@ -160,16 +160,69 @@ fn insert_or_track(
     insert_hf_tensor_if_present(out, meta, rustral, hf)
 }
 
-fn collect_llama_param_shapes(
-    model: &LlamaDecoder<CpuBackend>,
-    backend: &CpuBackend,
+fn collect_llama_param_shapes<B: Backend>(
+    model: &LlamaDecoder<B>,
+    backend: &B,
 ) -> HashMap<String, Vec<usize>> {
     let ops = backend.ops();
     let mut m = HashMap::new();
-    model.visit_parameters(&mut |name, p: &Parameter<CpuBackend>| {
+    model.visit_parameters(&mut |name, p: &Parameter<B>| {
         m.insert(name.to_string(), ops.shape(p.tensor()));
     });
     m
+}
+
+/// Apply a pre-built Llama `(data, shape)` map (from [`build_llama_flat_map`]) onto any decoder
+/// instance. Used for tests (e.g. Candle parity) and advanced loaders.
+pub fn apply_llama_flat_map_to_decoder<B: Backend>(
+    model: &mut LlamaDecoder<B>,
+    backend: &B,
+    flat: &HashMap<String, (Vec<f32>, Vec<usize>)>,
+) -> Result<(), LlmError>
+where
+    B::Tensor: Clone,
+{
+    let model_shapes = collect_llama_param_shapes(model, backend);
+    let ops = backend.ops();
+
+    for (name, (data, shape)) in flat {
+        let expected = model_shapes.get(name).ok_or_else(|| {
+            LlmError::InvalidArg(format!(
+                "checkpoint has unexpected parameter name '{name}' for this Llama model"
+            ))
+        })?;
+        if expected != shape {
+            return Err(LlmError::CheckpointShapeMismatch {
+                name: name.clone(),
+                expected: expected.clone(),
+                got: shape.clone(),
+            });
+        }
+        let expected_elems: usize = shape.iter().product();
+        if data.len() != expected_elems {
+            return Err(LlmError::InvalidArg(format!(
+                "checkpoint '{name}': len {} does not match shape {:?}",
+                data.len(),
+                shape
+            )));
+        }
+    }
+
+    let mut materialized: HashMap<String, B::Tensor> = HashMap::new();
+    for (name, (data, shape)) in flat {
+        let t = ops
+            .tensor_from_vec(data.clone(), shape)
+            .map_err(|e| LlmError::InvalidArg(format!("tensor_from_vec failed for '{name}': {e:?}")))?;
+        materialized.insert(name.clone(), t);
+    }
+
+    model.visit_parameters_mut(&mut |name, p: &mut Parameter<B>| {
+        if let Some(t) = materialized.get(name) {
+            *p = p.clone().with_tensor(t.clone());
+        }
+    });
+
+    Ok(())
 }
 
 fn all_expected_parameter_names(n_layer: usize) -> Vec<String> {
@@ -200,47 +253,9 @@ pub fn load_hf_llama_weights_into_decoder(
     let root = detect_llama_state_dict_root(meta)?;
     let (flat, consumed_hf) = build_llama_flat_map(meta, cfg, root)?;
 
-    let model_shapes = collect_llama_param_shapes(model, backend);
-    let ops = backend.ops();
+    apply_llama_flat_map_to_decoder(model, backend, &flat)?;
 
-    for (name, (data, shape)) in &flat {
-        let expected = model_shapes.get(name).ok_or_else(|| {
-            LlmError::InvalidArg(format!(
-                "checkpoint has unexpected parameter name '{name}' for this Llama model"
-            ))
-        })?;
-        if expected != shape {
-            return Err(LlmError::CheckpointShapeMismatch {
-                name: name.clone(),
-                expected: expected.clone(),
-                got: shape.clone(),
-            });
-        }
-        let expected_elems: usize = shape.iter().product();
-        if data.len() != expected_elems {
-            return Err(LlmError::InvalidArg(format!(
-                "checkpoint '{name}': len {} does not match shape {:?}",
-                data.len(),
-                shape
-            )));
-        }
-    }
-
-    let mut materialized: HashMap<String, <CpuBackend as Backend>::Tensor> = HashMap::new();
-    for (name, (data, shape)) in &flat {
-        let t = ops
-            .tensor_from_vec(data.clone(), shape)
-            .map_err(|e| LlmError::InvalidArg(format!("tensor_from_vec failed for '{name}': {e:?}")))?;
-        materialized.insert(name.clone(), t);
-    }
-
-    let mut loaded = Vec::new();
-    model.visit_parameters_mut(&mut |name, p: &mut Parameter<CpuBackend>| {
-        if let Some(t) = materialized.get(name) {
-            *p = p.clone().with_tensor(t.clone());
-            loaded.push(name.to_string());
-        }
-    });
+    let mut loaded: Vec<String> = flat.keys().cloned().collect();
     loaded.sort();
 
     let loaded_set: HashSet<String> = loaded.iter().cloned().collect();

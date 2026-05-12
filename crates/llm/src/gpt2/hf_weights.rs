@@ -47,7 +47,8 @@ pub struct Gpt2WeightLoadReport {
 
 /// Detect `transformer` vs `gpt2` root prefix used in Hugging Face `state_dict` keys.
 pub fn detect_gpt2_state_dict_prefix(meta: &MetaStateDict) -> Result<&'static str, LlmError> {
-    let has_transformer = meta.tensors.keys().any(|k| k.starts_with("transformer.wte.") || k.starts_with("transformer.h."));
+    let has_transformer =
+        meta.tensors.keys().any(|k| k.starts_with("transformer.wte.") || k.starts_with("transformer.h."));
     let has_gpt2 = meta.tensors.keys().any(|k| k.starts_with("gpt2.wte.") || k.starts_with("gpt2.h."));
     match (has_transformer, has_gpt2) {
         (true, false) => Ok("transformer"),
@@ -75,25 +76,29 @@ fn hf_square_block_to_linear_weight(
 /// Split HF `attn.c_attn.weight` into Q/K/V matrices (each `[d_model, d_model]` in HF row-major storage).
 ///
 /// Accepted layouts: **`[3*d_model, d_model]`** (Q/K/V row blocks) or **`[d_model, 3*d_model]`** (column blocks).
-fn split_gpt2_c_attn_weight(entry: &TensorEntry, d_model: usize) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>), LlmError> {
+fn split_gpt2_c_attn_weight(
+    entry: &TensorEntry,
+    d_model: usize,
+) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>), LlmError> {
     let data = tensor_entry_f32(entry)?;
     let shape = entry.shape.as_slice();
     let nf = 3 * d_model;
     let nx = d_model;
 
-    let block = |rows: std::ops::Range<usize>, cols: std::ops::Range<usize>, stride_cols: usize| -> Vec<f32> {
-        let nrows = rows.end - rows.start;
-        let ncols = cols.end - cols.start;
-        let mut out = vec![0f32; nrows * ncols];
-        for i in 0..nrows {
-            for j in 0..ncols {
-                let r = rows.start + i;
-                let c = cols.start + j;
-                out[i * ncols + j] = data[r * stride_cols + c];
+    let block =
+        |rows: std::ops::Range<usize>, cols: std::ops::Range<usize>, stride_cols: usize| -> Vec<f32> {
+            let nrows = rows.end - rows.start;
+            let ncols = cols.end - cols.start;
+            let mut out = vec![0f32; nrows * ncols];
+            for i in 0..nrows {
+                for j in 0..ncols {
+                    let r = rows.start + i;
+                    let c = cols.start + j;
+                    out[i * ncols + j] = data[r * stride_cols + c];
+                }
             }
-        }
-        out
-    };
+            out
+        };
 
     if shape == [nf, nx] {
         let q = block(0..d_model, 0..nx, nx);
@@ -121,17 +126,9 @@ fn split_gpt2_c_attn_weight(entry: &TensorEntry, d_model: usize) -> Result<(Vec<
 fn split_gpt2_c_attn_bias(data: &[f32], d_model: usize) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>), LlmError> {
     let n = 3 * d_model;
     if data.len() != n {
-        return Err(LlmError::InvalidArg(format!(
-            "expected c_attn.bias length {}, got {}",
-            n,
-            data.len()
-        )));
+        return Err(LlmError::InvalidArg(format!("expected c_attn.bias length {}, got {}", n, data.len())));
     }
-    Ok((
-        data[0..d_model].to_vec(),
-        data[d_model..2 * d_model].to_vec(),
-        data[2 * d_model..n].to_vec(),
-    ))
+    Ok((data[0..d_model].to_vec(), data[d_model..2 * d_model].to_vec(), data[2 * d_model..n].to_vec()))
 }
 
 /// Build `(rustral_name -> data, shape)` for every parameter we can take verbatim from HF GPT-2 dumps.
@@ -155,24 +152,54 @@ pub fn build_gpt2_flat_map(
 
     for i in 0..cfg.n_layer {
         let h = format!("{prefix}.h.{i}");
-        insert_hf_tensor_if_present(&mut out, meta, &format!("layers.{i}.norm1.weight"), &format!("{h}.ln_1.weight"))?;
-        insert_hf_tensor_if_present(&mut out, meta, &format!("layers.{i}.norm1.bias"), &format!("{h}.ln_1.bias"))?;
-        insert_hf_tensor_if_present(&mut out, meta, &format!("layers.{i}.norm2.weight"), &format!("{h}.ln_2.weight"))?;
-        insert_hf_tensor_if_present(&mut out, meta, &format!("layers.{i}.norm2.bias"), &format!("{h}.ln_2.bias"))?;
+        insert_hf_tensor_if_present(
+            &mut out,
+            meta,
+            &format!("layers.{i}.norm1.weight"),
+            &format!("{h}.ln_1.weight"),
+        )?;
+        insert_hf_tensor_if_present(
+            &mut out,
+            meta,
+            &format!("layers.{i}.norm1.bias"),
+            &format!("{h}.ln_1.bias"),
+        )?;
+        insert_hf_tensor_if_present(
+            &mut out,
+            meta,
+            &format!("layers.{i}.norm2.weight"),
+            &format!("{h}.ln_2.weight"),
+        )?;
+        insert_hf_tensor_if_present(
+            &mut out,
+            meta,
+            &format!("layers.{i}.norm2.bias"),
+            &format!("{h}.ln_2.bias"),
+        )?;
 
         let k_fc_w = format!("{h}.mlp.c_fc.weight");
         if let Some(e) = meta.tensors.get(&k_fc_w) {
             let (data, sh) = tensor_entry_f32_rustral_matrix(e, [ff_dim, d_model])?;
             out.insert(format!("layers.{i}.ff_linear1.weight"), (data, sh));
         }
-        insert_hf_tensor_if_present(&mut out, meta, &format!("layers.{i}.ff_linear1.bias"), &format!("{h}.mlp.c_fc.bias"))?;
+        insert_hf_tensor_if_present(
+            &mut out,
+            meta,
+            &format!("layers.{i}.ff_linear1.bias"),
+            &format!("{h}.mlp.c_fc.bias"),
+        )?;
 
         let k_proj_w = format!("{h}.mlp.c_proj.weight");
         if let Some(e) = meta.tensors.get(&k_proj_w) {
             let (data, sh) = tensor_entry_f32_rustral_matrix(e, [d_model, ff_dim])?;
             out.insert(format!("layers.{i}.ff_linear2.weight"), (data, sh));
         }
-        insert_hf_tensor_if_present(&mut out, meta, &format!("layers.{i}.ff_linear2.bias"), &format!("{h}.mlp.c_proj.bias"))?;
+        insert_hf_tensor_if_present(
+            &mut out,
+            meta,
+            &format!("layers.{i}.ff_linear2.bias"),
+            &format!("{h}.mlp.c_proj.bias"),
+        )?;
 
         let k_c_attn_w = format!("{h}.attn.c_attn.weight");
         let k_c_attn_b = format!("{h}.attn.c_attn.bias");
@@ -235,7 +262,10 @@ pub fn build_gpt2_flat_map(
     Ok(out)
 }
 
-fn collect_model_param_shapes<B: Backend>(model: &TransformerDecoder<B>, backend: &B) -> HashMap<String, Vec<usize>>
+fn collect_model_param_shapes<B: Backend>(
+    model: &TransformerDecoder<B>,
+    backend: &B,
+) -> HashMap<String, Vec<usize>>
 where
     B::Tensor: Clone,
 {
@@ -294,9 +324,9 @@ pub fn load_hf_gpt2_weights_into_decoder(
 
     let mut materialized: HashMap<String, <CpuBackend as Backend>::Tensor> = HashMap::new();
     for (name, (data, shape)) in &flat {
-        let t = ops.tensor_from_vec(data.clone(), shape).map_err(|e| {
-            LlmError::InvalidArg(format!("tensor_from_vec failed for '{name}': {e:?}"))
-        })?;
+        let t = ops
+            .tensor_from_vec(data.clone(), shape)
+            .map_err(|e| LlmError::InvalidArg(format!("tensor_from_vec failed for '{name}': {e:?}")))?;
         materialized.insert(name.clone(), t);
     }
 
@@ -330,11 +360,7 @@ pub fn load_hf_gpt2_weights_into_decoder(
         .collect();
     unmapped_hf_keys.sort();
 
-    Ok(Gpt2WeightLoadReport {
-        loaded_rustral_keys: loaded,
-        skipped_attention_parameters,
-        unmapped_hf_keys,
-    })
+    Ok(Gpt2WeightLoadReport { loaded_rustral_keys: loaded, skipped_attention_parameters, unmapped_hf_keys })
 }
 
 #[cfg(test)]
@@ -348,12 +374,7 @@ mod tests {
         for x in data {
             bytes.extend_from_slice(&x.to_le_bytes());
         }
-        TensorEntry {
-            name: name.to_string(),
-            shape,
-            dtype: Dtype::F32,
-            data: bytes,
-        }
+        TensorEntry { name: name.to_string(), shape, dtype: Dtype::F32, data: bytes }
     }
 
     #[test]
@@ -366,9 +387,15 @@ mod tests {
 
         let mut tensors = HashMap::new();
         let p = "transformer";
-        tensors.insert(format!("{p}.wte.weight"), entry(&format!("{p}.wte.weight"), vec![vocab, d], vec![0.1; vocab * d]));
+        tensors.insert(
+            format!("{p}.wte.weight"),
+            entry(&format!("{p}.wte.weight"), vec![vocab, d], vec![0.1; vocab * d]),
+        );
 
-        tensors.insert("lm_head.weight".to_string(), entry("lm_head.weight", vec![vocab, d], vec![0.2; vocab * d]));
+        tensors.insert(
+            "lm_head.weight".to_string(),
+            entry("lm_head.weight", vec![vocab, d], vec![0.2; vocab * d]),
+        );
 
         let h = format!("{p}.h.0");
         tensors.insert(format!("{h}.ln_1.weight"), entry(&format!("{h}.ln_1.weight"), vec![d], vec![1.0; d]));
@@ -381,12 +408,18 @@ mod tests {
             format!("{h}.mlp.c_fc.weight"),
             entry(&format!("{h}.mlp.c_fc.weight"), vec![d, ff], vec![0.01; d * ff]),
         );
-        tensors.insert(format!("{h}.mlp.c_fc.bias"), entry(&format!("{h}.mlp.c_fc.bias"), vec![ff], vec![0.0; ff]));
+        tensors.insert(
+            format!("{h}.mlp.c_fc.bias"),
+            entry(&format!("{h}.mlp.c_fc.bias"), vec![ff], vec![0.0; ff]),
+        );
         tensors.insert(
             format!("{h}.mlp.c_proj.weight"),
             entry(&format!("{h}.mlp.c_proj.weight"), vec![ff, d], vec![0.01; ff * d]),
         );
-        tensors.insert(format!("{h}.mlp.c_proj.bias"), entry(&format!("{h}.mlp.c_proj.bias"), vec![d], vec![0.0; d]));
+        tensors.insert(
+            format!("{h}.mlp.c_proj.bias"),
+            entry(&format!("{h}.mlp.c_proj.bias"), vec![d], vec![0.0; d]),
+        );
 
         tensors.insert(format!("{p}.ln_f.weight"), entry(&format!("{p}.ln_f.weight"), vec![d], vec![1.0; d]));
         tensors.insert(format!("{p}.ln_f.bias"), entry(&format!("{p}.ln_f.bias"), vec![d], vec![0.0; d]));
@@ -447,8 +480,14 @@ mod tests {
 
         let mut tensors = HashMap::new();
         let p = "transformer";
-        tensors.insert(format!("{p}.wte.weight"), entry(&format!("{p}.wte.weight"), vec![vocab, d], vec![0.1; vocab * d]));
-        tensors.insert("lm_head.weight".to_string(), entry("lm_head.weight", vec![vocab, d], vec![0.2; vocab * d]));
+        tensors.insert(
+            format!("{p}.wte.weight"),
+            entry(&format!("{p}.wte.weight"), vec![vocab, d], vec![0.1; vocab * d]),
+        );
+        tensors.insert(
+            "lm_head.weight".to_string(),
+            entry("lm_head.weight", vec![vocab, d], vec![0.2; vocab * d]),
+        );
 
         let h = format!("{p}.h.0");
         tensors.insert(format!("{h}.ln_1.weight"), entry(&format!("{h}.ln_1.weight"), vec![d], vec![1.0; d]));
@@ -460,12 +499,18 @@ mod tests {
             format!("{h}.mlp.c_fc.weight"),
             entry(&format!("{h}.mlp.c_fc.weight"), vec![d, ff], vec![0.01; d * ff]),
         );
-        tensors.insert(format!("{h}.mlp.c_fc.bias"), entry(&format!("{h}.mlp.c_fc.bias"), vec![ff], vec![0.0; ff]));
+        tensors.insert(
+            format!("{h}.mlp.c_fc.bias"),
+            entry(&format!("{h}.mlp.c_fc.bias"), vec![ff], vec![0.0; ff]),
+        );
         tensors.insert(
             format!("{h}.mlp.c_proj.weight"),
             entry(&format!("{h}.mlp.c_proj.weight"), vec![ff, d], vec![0.01; ff * d]),
         );
-        tensors.insert(format!("{h}.mlp.c_proj.bias"), entry(&format!("{h}.mlp.c_proj.bias"), vec![d], vec![0.0; d]));
+        tensors.insert(
+            format!("{h}.mlp.c_proj.bias"),
+            entry(&format!("{h}.mlp.c_proj.bias"), vec![d], vec![0.0; d]),
+        );
 
         tensors.insert(format!("{p}.ln_f.weight"), entry(&format!("{p}.ln_f.weight"), vec![d], vec![1.0; d]));
         tensors.insert(format!("{p}.ln_f.bias"), entry(&format!("{p}.ln_f.bias"), vec![d], vec![0.0; d]));

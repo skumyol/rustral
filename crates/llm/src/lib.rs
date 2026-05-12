@@ -18,8 +18,8 @@ pub mod llama;
 
 pub use causal_lm::CausalLm;
 pub use llama::{
-    build_llama_flat_map, detect_llama_state_dict_root, load_hf_llama_weights_into_decoder, HfLlamaConfig,
-    LlamaCausalLm, LlamaWeightLoadReport,
+    apply_llama_flat_map_to_decoder, build_llama_flat_map, detect_llama_state_dict_root,
+    load_hf_llama_weights_into_decoder, HfLlamaConfig, LlamaCausalLm, LlamaWeightLoadReport,
 };
 
 /// Canonical Hub snapshot types from [`rustral_hf`] (avoid duplicating paths in this crate).

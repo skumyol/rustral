@@ -24,11 +24,7 @@ pub(crate) fn tensor_entry_f32(entry: &TensorEntry) -> Result<Vec<f32>, LlmError
             entry.data.len()
         )));
     }
-    Ok(entry
-        .data
-        .chunks_exact(4)
-        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-        .collect())
+    Ok(entry.data.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
 }
 
 /// Row-major `[rows, cols]` → row-major `[cols, rows]`.
@@ -63,17 +59,16 @@ pub(crate) fn tensor_entry_f32_rustral_matrix(
     })
 }
 
-pub(crate) fn vec_f32_to_tensor_entry(name: impl Into<String>, shape: Vec<usize>, data: Vec<f32>) -> TensorEntry {
+pub(crate) fn vec_f32_to_tensor_entry(
+    name: impl Into<String>,
+    shape: Vec<usize>,
+    data: Vec<f32>,
+) -> TensorEntry {
     let mut bytes = Vec::with_capacity(data.len() * 4);
     for x in data {
         bytes.extend_from_slice(&x.to_le_bytes());
     }
-    TensorEntry {
-        name: name.into(),
-        shape,
-        dtype: Dtype::F32,
-        data: bytes,
-    }
+    TensorEntry { name: name.into(), shape, dtype: Dtype::F32, data: bytes }
 }
 
 pub(crate) fn insert_hf_tensor_if_present(

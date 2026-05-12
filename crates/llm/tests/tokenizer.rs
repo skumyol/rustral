@@ -32,4 +32,3 @@ mod hf_tokenizers_tests {
         assert_eq!(text, "Rust is fast");
     }
 }
-
