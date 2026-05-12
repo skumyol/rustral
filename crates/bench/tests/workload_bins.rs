@@ -67,6 +67,7 @@ fn rustral_workloads_emits_schema_and_expected_workloads() {
         "matmul",
         "attention.small",
         "conv2d.small",
+        "lstm_lm_train_step",
         "mlp_train_step",
         "optimizer_step.sgd",
         "optimizer_step.adam",

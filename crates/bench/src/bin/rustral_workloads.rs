@@ -1,6 +1,6 @@
 //! Rustral workload runner.
 //!
-//! Runs a fixed set of workloads (matmul, attention, conv2d, lstm_forward, mlp_train_step,
+//! Runs a fixed set of workloads (matmul, attention, conv2d, lstm_forward, lstm_lm_train_step, mlp_train_step,
 //! optimizer_step, transformer encoder forward, decoder prefill+decode, kv-cache
 //! prefill+decode, model save/load throughput) with a controlled number of repeats,
 //! then prints a single JSON document to stdout in the unified benchmark schema
@@ -19,8 +19,9 @@ use rustral_bench::{samples_to_json, time_runs, time_train_step, Sample};
 use rustral_core::{Backend, ForwardCtx, Mode, Module, NamedParameters, Parameter};
 use rustral_ndarray_backend::CpuBackend;
 use rustral_nn::{
-    CacheConfig, Conv2d, Conv2dConfig, KVCache, LstmCell, LstmConfig, MultiHeadAttention, SelfAttentionConfig,
-    TransformerDecoder, TransformerDecoderConfig, TransformerEncoder, TransformerEncoderConfig,
+    CacheConfig, Conv2d, Conv2dConfig, KVCache, LstmCell, LstmConfig, MultiHeadAttention,
+    SelfAttentionConfig, TransformerDecoder, TransformerDecoderConfig, TransformerEncoder,
+    TransformerEncoderConfig,
 };
 use rustral_optim::{Adam, Gradient, Optimizer, Sgd};
 use rustral_runtime::{load_model, save_model};
@@ -67,6 +68,7 @@ fn main() {
     bench_attention(&backend, repeats, warmup, &mut samples);
     bench_conv2d(&backend, repeats, warmup, &mut samples);
     bench_lstm_forward(&backend, repeats, warmup, &mut samples);
+    bench_lstm_lm_train_step(&backend, repeats, warmup, &mut samples);
     bench_mlp_train_step(&backend, repeats, warmup, &mut samples);
     bench_optimizer_step(&backend, repeats, warmup, heavy, &mut samples);
     bench_transformer_encoder_forward(&backend, repeats, warmup, &mut samples);
@@ -101,9 +103,7 @@ fn bench_matmul(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut V
 fn bench_softmax_dim(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
     let ops = backend.ops();
     for &(batch, features) in &[(32usize, 64usize), (32, 256), (64, 1024)] {
-        let x = backend
-            .tensor_from_vec(vec![0.01f32; batch * features], &[batch, features])
-            .unwrap();
+        let x = backend.tensor_from_vec(vec![0.01f32; batch * features], &[batch, features]).unwrap();
         let runs = time_runs(
             || {
                 let _ = ops.softmax_dim(&x, 1).unwrap();
@@ -227,9 +227,9 @@ fn bench_conv2d(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut V
 /// Matches the criterion bench configuration (small/medium/large).
 fn bench_lstm_forward(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
     let configs = vec![
-        ("small", 128usize, 10usize),  // 128 hidden, 10 steps
-        ("medium", 256, 50),            // 256 hidden, 50 steps
-        ("large", 512, 100),            // 512 hidden, 100 steps
+        ("small", 128usize, 10usize), // 128 hidden, 10 steps
+        ("medium", 256, 50),          // 256 hidden, 50 steps
+        ("large", 512, 100),          // 512 hidden, 100 steps
     ];
 
     for &(name, hidden_size, seq_len) in &configs {
@@ -266,6 +266,103 @@ fn bench_lstm_forward(backend: &CpuBackend, repeats: usize, warmup: usize, out: 
             .with_model_params(total_params),
         );
     }
+}
+
+/// Single-step LSTM LM-style train micro-benchmark: tape forward (gates + sigmoid/tanh) + backward + Adam.
+fn bench_lstm_lm_train_step(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
+    let hidden = 32usize;
+    let input_dim = 32usize;
+    let cfg = LstmConfig::new_with_dims(input_dim, hidden);
+    let four_h = hidden * 4;
+    let seed_cell = LstmCell::new(backend, cfg.clone()).unwrap();
+    let mut params = vec![
+        Parameter::new("lstm.wx", seed_cell.wx().tensor().clone()),
+        Parameter::new("lstm.wh", seed_cell.wh().tensor().clone()),
+        Parameter::new("lstm.b", seed_cell.b().tensor().clone()),
+    ];
+    let total_params: u64 = (four_h * input_dim + four_h * hidden + four_h) as u64;
+
+    let ops = backend.ops();
+    let x = backend.tensor_from_vec(vec![0.1f32; input_dim], &[input_dim]).unwrap();
+    let h = ops.zeros(&[hidden]).unwrap();
+    let c = ops.zeros(&[hidden]).unwrap();
+    let target = backend.tensor_from_vec(vec![0.05f32; hidden], &[1, hidden]).unwrap();
+
+    let mut adam = Adam::<CpuBackend>::new(1e-3);
+
+    let runs = time_train_step(
+        || {
+            let mut ctx = ForwardCtx::new(backend, Mode::Train);
+            let mut tape = Tape::<CpuBackend>::new();
+            let x_id = tape.watch(x.clone());
+            let h_id = tape.watch(h.clone());
+            let c_id = tape.watch(c.clone());
+            let tgt_id = tape.watch(target.clone());
+
+            let x1 = tape.reshape_tape(x_id, &[1, input_dim], &mut ctx).unwrap();
+            let wx_tid = tape.watch_parameter(&params[0]);
+            let wx_t = tape.transpose_tape(wx_tid, &mut ctx).unwrap();
+            let gx = tape.matmul(x1, wx_t, &mut ctx).unwrap();
+
+            let h1 = tape.reshape_tape(h_id, &[1, hidden], &mut ctx).unwrap();
+            let wh_tid = tape.watch_parameter(&params[1]);
+            let wh_t = tape.transpose_tape(wh_tid, &mut ctx).unwrap();
+            let gh = tape.matmul(h1, wh_t, &mut ctx).unwrap();
+
+            let gates_sum = tape.add(gx, gh, &mut ctx).unwrap();
+            let b_tid = tape.watch_parameter(&params[2]);
+            let gates = tape.add_row_vector_tape(gates_sum, b_tid, &mut ctx).unwrap();
+            let gates1 = tape.reshape_tape(gates, &[four_h], &mut ctx).unwrap();
+
+            let i_raw = tape.slice_tape(gates1, 0, hidden, &mut ctx).unwrap();
+            let f_raw = tape.slice_tape(gates1, hidden, hidden * 2, &mut ctx).unwrap();
+            let o_raw = tape.slice_tape(gates1, hidden * 2, hidden * 3, &mut ctx).unwrap();
+            let g_raw = tape.slice_tape(gates1, hidden * 3, four_h, &mut ctx).unwrap();
+
+            let i = tape.sigmoid_tape(i_raw, &mut ctx).unwrap();
+            let f = tape.sigmoid_tape(f_raw, &mut ctx).unwrap();
+            let o = tape.sigmoid_tape(o_raw, &mut ctx).unwrap();
+            let g = tape.tanh_tape(g_raw, &mut ctx).unwrap();
+
+            let f_c = tape.mul(f, c_id, &mut ctx).unwrap();
+            let i_g = tape.mul(i, g, &mut ctx).unwrap();
+            let c_new = tape.add(f_c, i_g, &mut ctx).unwrap();
+            let tanh_c = tape.tanh_tape(c_new, &mut ctx).unwrap();
+            let h_new = tape.mul(o, tanh_c, &mut ctx).unwrap();
+            let h_pred = tape.reshape_tape(h_new, &[1, hidden], &mut ctx).unwrap();
+            let loss = tape.mse_loss(h_pred, tgt_id, &mut ctx).unwrap();
+
+            let param_map = tape.param_map().clone();
+            let make_ones = |data: Vec<f32>, shape: &[usize]| ops.tensor_from_vec(data, shape);
+            let grads_store = tape.backward(loss, make_ones, ops).unwrap();
+
+            let mut grads: Vec<Gradient<CpuBackend>> = Vec::with_capacity(params.len());
+            for p in params.iter() {
+                if let Some(tid) = param_map.get(&p.id()) {
+                    if let Some(g) = grads_store.get(tid) {
+                        grads.push(Gradient { param_id: p.id(), tensor: g.clone() });
+                    }
+                }
+            }
+            adam.step(&mut params, &grads, &mut ctx).unwrap();
+        },
+        warmup,
+        repeats,
+    );
+
+    out.push(
+        Sample::cpu_f32(
+            "lstm_lm_train_step",
+            BACKEND,
+            vec![
+                ("hidden_size".into(), hidden.to_string()),
+                ("input_dim".into(), input_dim.to_string()),
+                ("optimizer".into(), "adam".into()),
+            ],
+            runs,
+        )
+        .with_model_params(total_params),
+    );
 }
 
 /// MLP train-step micro-benchmark: forward + backward + Adam step on a 2-layer MLP.

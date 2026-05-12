@@ -163,13 +163,13 @@ Every Rust binary tags each sample with `device` (e.g. `cpu`, `cuda:0`, `metal:0
 | `decoder.{prefill,decode_step.no_cache}` | yes (no KV cache; baseline for K3) | n/a | n/a |
 | `kv_cache.{prefill,decode_step}` | yes (`KVCache::append` micro) | n/a | n/a |
 | `model_io.{save,load}` | yes (~50M f32 params, ~200 MB) | n/a | n/a |
-| `lstm_lm_train_step` | tracked but skipped (gated on tape-integrated LSTM) | n/a | n/a |
+| `lstm_lm_train_step` | yes (tape: gates + sigmoid/tanh + MSE + Adam) | skipped | skipped |
 
 For GPU workloads, the timed path stays on-device. Any loss or accuracy probe belongs outside the hot loop.
 
-> Note on `transformer_encoder.forward`: this is forward-only for now. A full encoder train step needs tape support for `MultiHeadAttention` and `TransformerEncoderLayer`. Today only `Linear`, `Embedding`, and `LayerNorm` implement `TapeModule`. The forward benchmark still gives us a useful trend line for encoder cost. The `mlp_train_step` workload already covers forward, backward, and optimizer cost on a simple model.
+> Note on `transformer_encoder.forward`: this is forward-only for now. A full encoder **train step** still needs `TransformerEncoderLayer` to compose `TapeModule` layers end-to-end (attention + FFN). `SelfAttention` / `MultiHeadAttention` now implement causal `forward_tape` for **batch size 1** (decoder-aligned). The forward benchmark still gives a useful trend line for encoder cost. The `mlp_train_step` workload covers forward, backward, and optimizer cost on a simple model.
 
-> Note on `lstm_forward` / `lstm_lm_train_step`: `lstm_forward` is now implemented in the JSON harness following the `LstmCell` weight layout fix (weights now use `[4*hidden_dim, input_dim]` to match the `linear` operation). `lstm_lm_train_step` remains gated on tape-integrated LSTM support.
+> Note on `lstm_forward` / `lstm_lm_train_step`: `lstm_forward` is in the JSON harness with the corrected `LstmCell` weight layout. `lstm_lm_train_step` runs a single LSTM step through the tape (`sigmoid_tape` / `tanh_tape`) with MSE + Adam.
 
 > Note on `decoder.decode_step.no_cache`: this is the no-cache baseline. It runs a full-context forward pass for a decoded token. `kv_cache.decode_step` measures the cache append path separately. Wiring that cache into decoder forward is future work.
 

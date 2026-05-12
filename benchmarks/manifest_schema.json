@@ -120,6 +120,61 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": { "task": { "const": "llm_generate" } }
+      },
+      "then": {
+        "properties": {
+          "runs": {
+            "items": {
+              "properties": {
+                "manifest": {
+                  "type": "object",
+                  "required": [
+                    "framework",
+                    "task",
+                    "git_sha",
+                    "model_id",
+                    "seed",
+                    "hub_snapshot_ms",
+                    "model_init_ms",
+                    "tokenizer_load_ms",
+                    "tokenizer_hash_fnv1a",
+                    "prompt_fnv1a",
+                    "prompt_tokens",
+                    "max_new_tokens",
+                    "first_token_ms",
+                    "decode_wall_ms"
+                  ],
+                  "properties": {
+                    "framework": { "const": "rustral_llm" },
+                    "task": { "const": "llm_generate" },
+                    "git_sha": { "type": "string", "minLength": 4 },
+                    "model_id": { "type": "string", "minLength": 1 },
+                    "backend": { "type": "string" },
+                    "dtype": { "type": "string" },
+                    "seed": { "type": "integer", "minimum": 0 },
+                    "hub_snapshot_ms": { "type": "number" },
+                    "model_init_ms": { "type": "number" },
+                    "tokenizer_load_ms": { "type": "number" },
+                    "tokenizer_hash_fnv1a": { "type": "string", "minLength": 4 },
+                    "prompt_fnv1a": { "type": "string", "minLength": 4 },
+                    "prompt_tokens": { "type": "integer", "minimum": 1 },
+                    "max_new_tokens": { "type": "integer", "minimum": 0 },
+                    "generated_new_tokens": { "type": "integer", "minimum": 0 },
+                    "first_token_ms": { "type": "number" },
+                    "decode_wall_ms": { "type": "number" },
+                    "tokens_per_sec": { "type": ["number", "null"] }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "additionalProperties": true

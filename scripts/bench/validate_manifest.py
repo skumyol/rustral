@@ -62,7 +62,8 @@ def _fallback_validate_one(obj: Dict[str, Any], path: Path) -> List[str]:
             manifest = r.get("manifest")
             if not isinstance(manifest, dict):
                 continue
-            if obj.get("task") == "sst2_classifier":
+            task = obj.get("task")
+            if task == "sst2_classifier":
                 # Allow PyTorch manifests (they won't have diagnostics).
                 if manifest.get("framework") == "pytorch":
                     continue
@@ -80,6 +81,27 @@ def _fallback_validate_one(obj: Dict[str, Any], path: Path) -> List[str]:
                         "dev_positive_prob_hist",
                     ],
                     f"runs[{i}].manifest.diagnostics",
+                )
+            elif task == "llm_generate":
+                req_keys(
+                    manifest,
+                    [
+                        "framework",
+                        "task",
+                        "git_sha",
+                        "model_id",
+                        "seed",
+                        "hub_snapshot_ms",
+                        "model_init_ms",
+                        "tokenizer_load_ms",
+                        "tokenizer_hash_fnv1a",
+                        "prompt_fnv1a",
+                        "prompt_tokens",
+                        "max_new_tokens",
+                        "first_token_ms",
+                        "decode_wall_ms",
+                    ],
+                    f"runs[{i}].manifest",
                 )
     else:
         errs.append(f"{path}: runs must be a non-empty array")
@@ -102,7 +124,7 @@ def _default_targets() -> List[Path]:
     runs_root = REPO_ROOT / "benchmarks" / "runs"
     if not runs_root.exists():
         return []
-    return sorted(runs_root.glob("v*/nlp/*.json"))
+    return sorted(list(runs_root.glob("v*/nlp/*.json")) + list(runs_root.glob("v*/llm/*.json")))
 
 
 def main() -> int:
