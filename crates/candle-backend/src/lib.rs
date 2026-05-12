@@ -580,13 +580,14 @@ impl TensorOps<CandleBackend> for CandleOps {
     }
 
     fn sigmoid(&self, x: &Tensor) -> Result<Tensor> {
-        // 1 / (1 + exp(-x))
+        // 1 / (1 + exp(-x)), shape-preserving (must match `x` for SiLU: sigmoid(x) * x).
         let neg_x = x.neg().map_err(|e| CoreError::Backend(e.to_string()))?;
         let exp_neg = neg_x.exp().map_err(|e| CoreError::Backend(e.to_string()))?;
-        let one = Tensor::from_vec(vec![1.0f32], &[1], &self.device)
+        let one = Tensor::from_vec(vec![1.0f32], &[], &self.device)
             .map_err(|e| CoreError::Backend(e.to_string()))?;
-        let one_plus = (&one + exp_neg).map_err(|e| CoreError::Backend(e.to_string()))?;
-        (one / one_plus).map_err(|e| CoreError::Backend(e.to_string()))
+        let one_b = one.broadcast_as(x.dims()).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let one_plus = (one_b.clone() + exp_neg).map_err(|e| CoreError::Backend(e.to_string()))?;
+        (one_b / one_plus).map_err(|e| CoreError::Backend(e.to_string()))
     }
 
     fn tanh(&self, x: &Tensor) -> Result<Tensor> {
