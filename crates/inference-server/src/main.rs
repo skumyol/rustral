@@ -12,7 +12,7 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::Parser;
-use rustral_core::{Backend, ForwardCtx, Module, Mode, NamedParameters};
+use rustral_core::{Backend, ForwardCtx, Mode, Module, NamedParameters};
 use rustral_ndarray_backend::CpuBackend;
 use rustral_nn::{Linear, LinearBuilder};
 use rustral_runtime::load_model_from_path;
@@ -234,10 +234,7 @@ fn infer_inner(state: &AppState, req: InferRequest) -> Result<Json<InferResponse
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("tensor_to_vec: {e:?}")))?;
 
     if flat_out.len() != batch * state.out_features {
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "unexpected output length".into(),
-        ));
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, "unexpected output length".into()));
     }
 
     let mut output = Vec::with_capacity(batch);

@@ -27,6 +27,17 @@ cargo run -p rustral-runtime --features training --example save_linear_artifact 
   --bias
 ```
 
+## Llama-class HTTP server (local SafeTensors)
+
+The **`rustral-llama-server`** binary (same crate; default features) loads a **local** model directory (`config.json`, `tokenizer.json`, sharded or single `model.safetensors`) and serves greedy generation with a **fresh [`LlamaDecodeCache`](../../nn/src/llama.rs) per request** (KV prefill + per-token decode).
+
+```bash
+cargo build -p rustral-inference-server --release --bin rustral-llama-server
+./target/release/rustral-llama-server --model-dir /path/to/snapshot --bind 127.0.0.1:8081
+# JSON: POST /v1/generate  body: {"prompt":"Hello","max_new_tokens":16}
+# SSE:  POST /v1/generate/stream (events: token_id lines, final done + text)
+```
+
 ## Production notes
 
 See [`DEPLOYMENT.md`](DEPLOYMENT.md) for nginx, Kubernetes probes, Prometheus `/metrics`, Docker, and graceful shutdown.
