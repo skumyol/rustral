@@ -40,7 +40,12 @@ fn device_type_for_backend<B: Backend>() -> DeviceType {
     }
 }
 
-fn record_profile<B: Backend>(ctx: &ForwardCtx<B>, op: &'static str, elapsed: std::time::Duration, out: &B::Tensor) {
+fn record_profile<B: Backend>(
+    ctx: &ForwardCtx<B>,
+    op: &'static str,
+    elapsed: std::time::Duration,
+    out: &B::Tensor,
+) {
     let Some(prof) = ctx.profiler() else { return };
     let Ok(mut p) = prof.lock() else { return };
     let shape = ctx.backend().ops().shape(out);
@@ -274,6 +279,40 @@ impl<B: Backend> Tape<B> {
         }))
     }
 
+    /// Element-wise sigmoid (records gradient).
+    pub fn sigmoid_tape(&mut self, a: TensorId, ctx: &mut ForwardCtx<B>) -> Result<TensorId>
+    where
+        B::Tensor: Clone,
+    {
+        let a_val = self.get_value(a)?.clone();
+        let t0 = Instant::now();
+        let y = ctx.backend().ops().sigmoid(&a_val)?;
+        record_profile(ctx, "sigmoid_tape", t0.elapsed(), &y);
+        Ok(self.record(&[a], y.clone(), move |grad_out, _store, ops| {
+            let one_minus_y = ops.add_scalar(&ops.neg(&y)?, 1.0)?;
+            let s_prime = ops.mul(&y, &one_minus_y)?;
+            let grad = ops.mul(grad_out, &s_prime)?;
+            Ok(vec![grad])
+        }))
+    }
+
+    /// Element-wise tanh (records gradient).
+    pub fn tanh_tape(&mut self, a: TensorId, ctx: &mut ForwardCtx<B>) -> Result<TensorId>
+    where
+        B::Tensor: Clone,
+    {
+        let a_val = self.get_value(a)?.clone();
+        let t0 = Instant::now();
+        let y = ctx.backend().ops().tanh(&a_val)?;
+        record_profile(ctx, "tanh_tape", t0.elapsed(), &y);
+        Ok(self.record(&[a], y.clone(), move |grad_out, _store, ops| {
+            let y2 = ops.mul(&y, &y)?;
+            let t_prime = ops.add_scalar(&ops.neg(&y2)?, 1.0)?;
+            let grad = ops.mul(grad_out, &t_prime)?;
+            Ok(vec![grad])
+        }))
+    }
+
     /// GELU activation (tanh approximation; matches [`rustral_core::TensorOps::gelu`]).
     pub fn gelu(&mut self, a: TensorId, ctx: &mut ForwardCtx<B>) -> Result<TensorId>
     where
@@ -284,9 +323,7 @@ impl<B: Backend> Tape<B> {
         let out = ctx.backend().ops().gelu(&a_val)?;
         record_profile(ctx, "gelu", t0.elapsed(), &out);
 
-        Ok(self.record(&[a], out, move |grad_out, _store, ops| {
-            gelu_backward_chain(ops, &a_val, grad_out)
-        }))
+        Ok(self.record(&[a], out, move |grad_out, _store, ops| gelu_backward_chain(ops, &a_val, grad_out)))
     }
 
     /// Matrix multiplication.
