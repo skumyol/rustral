@@ -254,7 +254,6 @@ impl<O> MixedPrecisionOptimizer<O> {
             })
             .collect()
     }
-
 }
 
 impl<B: Backend, O: Optimizer<B>> Optimizer<B> for MixedPrecisionOptimizer<O>

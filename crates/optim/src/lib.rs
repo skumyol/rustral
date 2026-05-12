@@ -5,7 +5,9 @@
 
 use std::collections::HashMap;
 
-use rustral_core::{Backend, CoreError, ForwardCtx, NamedParameters, Parameter, ParameterId, TensorOps, TensorShape};
+use rustral_core::{
+    Backend, CoreError, ForwardCtx, NamedParameters, Parameter, ParameterId, TensorOps, TensorShape,
+};
 use thiserror::Error;
 
 pub mod lr_scheduler;
@@ -133,7 +135,9 @@ pub trait Optimizer<B: Backend> {
         // Convert gradient map to Gradient array
         let grad_array: Vec<Gradient<B>> = param_ids
             .iter()
-            .filter_map(|param_id| gradients.get(param_id).map(|tensor| Gradient { param_id: *param_id, tensor: tensor.clone() }))
+            .filter_map(|param_id| {
+                gradients.get(param_id).map(|tensor| Gradient { param_id: *param_id, tensor: tensor.clone() })
+            })
             .collect();
 
         // Call the existing step method
@@ -892,7 +896,8 @@ mod tests {
 
         // Use the default implementation by calling through the trait
         let mut sgd = Sgd::new(0.1);
-        let result = Optimizer::<CpuBackend>::step_named_parameters(&mut sgd, &mut model, &gradients, &mut ctx);
+        let result =
+            Optimizer::<CpuBackend>::step_named_parameters(&mut sgd, &mut model, &gradients, &mut ctx);
         assert!(result.is_ok());
 
         // Verify parameter was updated
