@@ -13,10 +13,7 @@ fn tmp_path(name: &str) -> PathBuf {
     let unique = format!(
         "rustral_{name}_{}_{}.safetensors",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
     );
     p.push(unique);
     p
@@ -53,4 +50,3 @@ fn save_load_path_roundtrip_preserves_outputs() {
 
     assert_eq!(out_a_vec, out_b_vec);
 }
-

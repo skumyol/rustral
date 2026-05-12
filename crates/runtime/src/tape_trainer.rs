@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use rustral_autodiff::{GradExtFromStore, Tape, TensorId};
-use rustral_core::{Backend, ForwardCtx, Mode, NamedParameters, OperationProfiler, Parameter, ParameterId, Result, TensorPool};
+use rustral_core::{
+    Backend, ForwardCtx, Mode, NamedParameters, OperationProfiler, Parameter, ParameterId, Result, TensorPool,
+};
 use rustral_optim::{Gradient, Optimizer};
 
 use crate::EpochStats;
@@ -481,6 +483,10 @@ where
             finish_training_profiler(p);
         }
 
-        Ok(TrainingReport { epochs, accuracy: if acc_hist.is_empty() { None } else { Some(acc_hist) }, throughput })
+        Ok(TrainingReport {
+            epochs,
+            accuracy: if acc_hist.is_empty() { None } else { Some(acc_hist) },
+            throughput,
+        })
     }
 }
