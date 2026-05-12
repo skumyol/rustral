@@ -14,8 +14,8 @@
 use rand::thread_rng;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use rustral_core::{
-    Backend, BackendCapabilities, ConvLayout, CoreError, FusionOps, Parameter, Result, ShapeExt, TensorOps,
-    TrainingDtype, parallel_reductions_enabled,
+    parallel_reductions_enabled, Backend, BackendCapabilities, ConvLayout, CoreError, FusionOps, Parameter,
+    Result, ShapeExt, TensorOps, TrainingDtype,
 };
 use serde::{Deserialize, Serialize};
 
@@ -116,10 +116,10 @@ impl Backend for CpuBackend {
             supports_bf16: false,
             tensor_cores: false,
             optimal_batch_size: 32,
-            optimal_chunk_size: 4096,  // Matches parallelization threshold in elementwise ops
+            optimal_chunk_size: 4096, // Matches parallelization threshold in elementwise ops
             max_allocation_size: usize::MAX,
             prefers_contiguous: true,
-            supports_in_place: true,  // CpuOps implements TensorInPlaceOps
+            supports_in_place: true, // CpuOps implements TensorInPlaceOps
             supports_mixed_precision: false,
             recommended_training_dtype: TrainingDtype::F32,
             supports_fast_fp16_tensor_cores: false,
@@ -658,10 +658,7 @@ impl TensorOps<CpuBackend> for CpuOps {
         let scale = 1.0 / (1.0 - p);
         let mut rng = StdRng::seed_from_u64(seed);
         CpuTensor::new(
-            x.values
-                .iter()
-                .map(|&v| if rng.gen::<f32>() < p { 0.0 } else { v * scale })
-                .collect(),
+            x.values.iter().map(|&v| if rng.gen::<f32>() < p { 0.0 } else { v * scale }).collect(),
             &x.shape,
         )
     }
@@ -1132,8 +1129,14 @@ impl TensorOps<CpuBackend> for CpuOps {
                         }
                         let vec = f32x8::new(arr);
                         let out_vec = f32x8::new([
-                            out[j], out[j + 1], out[j + 2], out[j + 3],
-                            out[j + 4], out[j + 5], out[j + 6], out[j + 7],
+                            out[j],
+                            out[j + 1],
+                            out[j + 2],
+                            out[j + 3],
+                            out[j + 4],
+                            out[j + 5],
+                            out[j + 6],
+                            out[j + 7],
                         ]);
                         let sum = out_vec + vec;
                         let sum_arr = sum.to_array();
@@ -1328,7 +1331,7 @@ impl TensorOps<CpuBackend> for CpuOps {
                                 arr[k] = x.values[idx];
                             }
                             let vec = f32x8::new(arr);
-                        sum += vec;
+                            sum += vec;
                         }
                         let sum_array = sum.to_array();
                         let mut s: f32 = sum_array.iter().sum();
@@ -1602,27 +1605,23 @@ impl rustral_core::TensorInPlaceOps<CpuBackend> for CpuOps {
         let len = tensor.values.len();
         if len > 4096 {
             use rayon::prelude::*;
-            tensor
-                .values
-                .par_chunks_mut(8)
-                .zip(other.values.par_chunks(8))
-                .for_each(|(t_chunk, o_chunk)| {
-                    if t_chunk.len() == 8 {
-                        let mut t_arr = [0.0f32; 8];
-                        let mut o_arr = [0.0f32; 8];
-                        t_arr.copy_from_slice(t_chunk);
-                        o_arr.copy_from_slice(o_chunk);
-                        let t_v = f32x8::new(t_arr);
-                        let o_v = f32x8::new(o_arr);
-                        let sum = t_v + o_v;
-                        let arr = sum.to_array();
-                        t_chunk.copy_from_slice(&arr);
-                    } else {
-                        for (t, &o) in t_chunk.iter_mut().zip(o_chunk.iter()) {
-                            *t += o;
-                        }
+            tensor.values.par_chunks_mut(8).zip(other.values.par_chunks(8)).for_each(|(t_chunk, o_chunk)| {
+                if t_chunk.len() == 8 {
+                    let mut t_arr = [0.0f32; 8];
+                    let mut o_arr = [0.0f32; 8];
+                    t_arr.copy_from_slice(t_chunk);
+                    o_arr.copy_from_slice(o_chunk);
+                    let t_v = f32x8::new(t_arr);
+                    let o_v = f32x8::new(o_arr);
+                    let sum = t_v + o_v;
+                    let arr = sum.to_array();
+                    t_chunk.copy_from_slice(&arr);
+                } else {
+                    for (t, &o) in t_chunk.iter_mut().zip(o_chunk.iter()) {
+                        *t += o;
                     }
-                });
+                }
+            });
         } else {
             let mut t_chunks = tensor.values.chunks_exact_mut(8);
             let mut o_chunks = other.values.chunks_exact(8);
@@ -1698,26 +1697,23 @@ impl rustral_core::TensorInPlaceOps<CpuBackend> for CpuOps {
         if len > 4096 {
             use rayon::prelude::*;
             let a_v = f32x8::splat(a);
-            y.values
-                .par_chunks_mut(8)
-                .zip(x.values.par_chunks(8))
-                .for_each(|(y_chunk, x_chunk)| {
-                    if y_chunk.len() == 8 {
-                        let mut y_arr = [0.0f32; 8];
-                        let mut x_arr = [0.0f32; 8];
-                        y_arr.copy_from_slice(y_chunk);
-                        x_arr.copy_from_slice(x_chunk);
-                        let y_v = f32x8::new(y_arr);
-                        let x_v = f32x8::new(x_arr);
-                        let out = y_v + a_v * x_v;
-                        let arr = out.to_array();
-                        y_chunk.copy_from_slice(&arr);
-                    } else {
-                        for (yi, &xi) in y_chunk.iter_mut().zip(x_chunk.iter()) {
-                            *yi += a * xi;
-                        }
+            y.values.par_chunks_mut(8).zip(x.values.par_chunks(8)).for_each(|(y_chunk, x_chunk)| {
+                if y_chunk.len() == 8 {
+                    let mut y_arr = [0.0f32; 8];
+                    let mut x_arr = [0.0f32; 8];
+                    y_arr.copy_from_slice(y_chunk);
+                    x_arr.copy_from_slice(x_chunk);
+                    let y_v = f32x8::new(y_arr);
+                    let x_v = f32x8::new(x_arr);
+                    let out = y_v + a_v * x_v;
+                    let arr = out.to_array();
+                    y_chunk.copy_from_slice(&arr);
+                } else {
+                    for (yi, &xi) in y_chunk.iter_mut().zip(x_chunk.iter()) {
+                        *yi += a * xi;
                     }
-                });
+                }
+            });
         } else {
             let a_v = f32x8::splat(a);
             let mut y_chunks = y.values.chunks_exact_mut(8);
