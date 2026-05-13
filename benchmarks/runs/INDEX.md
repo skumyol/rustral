@@ -28,5 +28,4 @@ mkdir -p benchmarks/runs/${VERSION}
 
 | Version | Date | Hardware | Suites | Notes |
 |---|---|---|---|---|
-| v0.1.0 | 2026-05-07 | ? | nlp | Curated NLP parity snapshots (SST-2, WikiText-2) under nlp/. Files under nlp/: sst2.json, sst2_pytorch.json, wikitext2.json, wikitext2_pytorch.json |
-| v0.2.0 | 2026-05-09 | ? | nlp | Paper-profile NLP parity (SST-2 / WikiText-2). Populate nlp/*.json after running Rustral + PyTorch baselines with --paper. |
+| v0.1.0 | ? | ? | nlp | Found nlp snapshots: sst2.json, sst2_pytorch.json, wikitext2.json, wikitext2_pytorch.json Files under nlp/: sst2.json, sst2_pytorch.json, wikitext2.json, wikitext2_pytorch.json |

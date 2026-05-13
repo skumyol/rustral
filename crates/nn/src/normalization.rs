@@ -98,9 +98,24 @@ impl<B: Backend> Module<B> for LayerNorm<B> {
             });
         }
 
-        // Use backend's native or default layer_norm implementation.
-        // This is much faster on GPU backends that provide a fused kernel.
-        ops.layer_norm(&input, self.weight.tensor(), self.bias.tensor(), self.config.eps)
+        // Standard layer_norm in trait handles normalization over the last dimension.
+        // If we have multi-dim normalized_shape, we reshape to [prefix, product(normalized_shape)]
+        let norm_elem_count: usize = self.config.normalized_shape.iter().product();
+        if norm_elem_count == 0 {
+            return Ok(input);
+        }
+
+        let prefix_len = input_shape.len() - ndim;
+        let prefix_shape = &input_shape[..prefix_len];
+        let prefix_prod: usize = prefix_shape.iter().product();
+
+        // Reshape to [prefix_prod, norm_elem_count]
+        let flattened = ops.reshape(&input, &[prefix_prod, norm_elem_count])?;
+
+        let output = ops.layer_norm(&flattened, self.weight.tensor(), self.bias.tensor(), self.config.eps)?;
+
+        // Reshape back to original shape
+        ops.reshape(&output, &input_shape)
     }
 }
 impl<B: Backend> Trainable<B> for LayerNorm<B> {
@@ -193,14 +208,21 @@ impl<B: Backend> Module<B> for BatchNorm<B> {
         } else {
             // [N, C, H, W]
             // We want to normalize over dimensions 0, 2, 3.
-            // Sequential reduction as multi-dim reduction is not in the trait yet.
+            // Correct multi-dim variance: Var(X) = E[X^2] - (E[X])^2
+
+            // mean = E[X]
             let m0 = ops.mean_dim(&input, 0, true)?; // [1, C, H, W]
             let m02 = ops.mean_dim(&m0, 2, true)?; // [1, C, 1, W]
             let mean = ops.mean_dim(&m02, 3, true)?; // [1, C, 1, 1]
 
-            let v0 = ops.var_dim(&input, 0, false, true)?; // [1, C, H, W]
-            let v02 = ops.var_dim(&v0, 2, false, true)?; // [1, C, 1, W]
-            let var = ops.var_dim(&v02, 3, false, true)?; // [1, C, 1, 1]
+            // e_x2 = E[X^2]
+            let x2 = ops.mul(&input, &input)?;
+            let e0 = ops.mean_dim(&x2, 0, true)?;
+            let e02 = ops.mean_dim(&e0, 2, true)?;
+            let e_x2 = ops.mean_dim(&e02, 3, true)?; // [1, C, 1, 1]
+
+            let mean2 = ops.mul(&mean, &mean)?;
+            let var = ops.sub(&e_x2, &mean2)?; // [1, C, 1, 1]
 
             // Now normalize
             let mean_b = ops.broadcast_to(&mean, &input_shape)?;

@@ -1429,7 +1429,7 @@ impl TensorOps<CpuBackend> for CpuOps {
         }
         let norm_elem_count = shape[ndim - 1];
         if norm_elem_count == 0 {
-             return Ok(x.clone());
+            return Ok(x.clone());
         }
 
         let mut out = x.values.clone();
@@ -1440,19 +1440,25 @@ impl TensorOps<CpuBackend> for CpuOps {
             use rayon::prelude::*;
             out.par_chunks_exact_mut(norm_elem_count).for_each(|group| {
                 let mean = group.iter().sum::<f32>() / norm_elem_count as f32;
-                let var = group.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / norm_elem_count as f32;
+                let var =
+                    group.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / norm_elem_count as f32;
                 let inv_std = 1.0 / (var + eps).sqrt();
                 for i in 0..norm_elem_count {
-                    group[i] = (group[i] - mean) * inv_std * gamma_vec[i] + beta_vec[i];
+                    let g = if gamma_vec.len() == 1 { gamma_vec[0] } else { gamma_vec[i] };
+                    let b = if beta_vec.len() == 1 { beta_vec[0] } else { beta_vec[i] };
+                    group[i] = (group[i] - mean) * inv_std * g + b;
                 }
             });
         } else {
             for group in out.chunks_exact_mut(norm_elem_count) {
                 let mean = group.iter().sum::<f32>() / norm_elem_count as f32;
-                let var = group.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / norm_elem_count as f32;
+                let var =
+                    group.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / norm_elem_count as f32;
                 let inv_std = 1.0 / (var + eps).sqrt();
                 for i in 0..norm_elem_count {
-                    group[i] = (group[i] - mean) * inv_std * gamma_vec[i] + beta_vec[i];
+                    let g = if gamma_vec.len() == 1 { gamma_vec[0] } else { gamma_vec[i] };
+                    let b = if beta_vec.len() == 1 { beta_vec[0] } else { beta_vec[i] };
+                    group[i] = (group[i] - mean) * inv_std * g + b;
                 }
             }
         }
