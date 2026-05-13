@@ -75,7 +75,7 @@ fn bench_self_attention(backend: &CpuBackend, repeats: usize, warmup: usize, out
         let config = SelfAttentionConfig::new(d_model, 4).with_dropout(0.0);
         let attention = MultiHeadAttention::new(backend, config, 42).unwrap();
 
-        let x = backend.tensor_from_vec(vec![0.01f32; seq_len * d_model], &[seq_len, d_model]).unwrap();
+        let x = backend.tensor_from_vec(vec![0.01f32; seq_len * d_model], &[1, seq_len, d_model]).unwrap();
 
         let runs = time_runs(
             || {
@@ -108,7 +108,7 @@ fn bench_multi_head_attention(backend: &CpuBackend, repeats: usize, warmup: usiz
         let config = SelfAttentionConfig::new(d_model, num_heads).with_dropout(0.0);
         let attention = MultiHeadAttention::new(backend, config, 42).unwrap();
 
-        let x = backend.tensor_from_vec(vec![0.01f32; seq_len * d_model], &[seq_len, d_model]).unwrap();
+        let x = backend.tensor_from_vec(vec![0.01f32; seq_len * d_model], &[1, seq_len, d_model]).unwrap();
 
         let runs = time_runs(
             || {

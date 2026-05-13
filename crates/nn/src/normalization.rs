@@ -1,7 +1,7 @@
 //! Normalization layers for neural networks.
 
 use rustral_core::{
-    Backend, ForwardCtx, Module, NamedParameters, Parameter, ParameterRef, Result, ShapeExt, Trainable,
+    Backend, ForwardCtx, Module, NamedParameters, Parameter, ParameterRef, Result, Trainable,
 };
 use serde::{Deserialize, Serialize};
 
@@ -98,66 +98,11 @@ impl<B: Backend> Module<B> for LayerNorm<B> {
             });
         }
 
-        // Calculate the number of elements to normalize over
-        let norm_elem_count: usize = self.config.normalized_shape.iter().product();
-        if norm_elem_count == 0 {
-            return Ok(input);
-        }
-
-        // For each normalization group, compute mean and variance
-        // and apply: (x - mean) / sqrt(var + eps) * gamma + beta
-        let total_elems = input_shape.elem_count();
-        let num_groups = total_elems / norm_elem_count;
-
-        // Extract input, gamma and beta values in a single bulk read per tensor.
-        let input_values = match ops.tensor_to_vec(&input) {
-            Ok(v) => v,
-            Err(_) => return Ok(input),
-        };
-        if input_values.len() != total_elems {
-            return Ok(input);
-        }
-        let gamma_values = match ops.tensor_to_vec(self.weight.tensor()) {
-            Ok(v) => v,
-            Err(_) => return Ok(input),
-        };
-        let beta_values = match ops.tensor_to_vec(self.bias.tensor()) {
-            Ok(v) => v,
-            Err(_) => return Ok(input),
-        };
-
-        let mut output_values = vec![0.0f32; total_elems];
-        let eps = self.config.eps;
-
-        for g in 0..num_groups {
-            let group_start = g * norm_elem_count;
-
-            // Compute mean
-            let sum: f32 = input_values[group_start..group_start + norm_elem_count].iter().sum();
-            let mean = sum / norm_elem_count as f32;
-
-            // Compute variance
-            let var_sum: f32 = input_values[group_start..group_start + norm_elem_count]
-                .iter()
-                .map(|&x| (x - mean).powi(2))
-                .sum();
-            let var = var_sum / norm_elem_count as f32;
-            let std = (var + eps).sqrt();
-
-            // Normalize and apply affine transform
-            for i in 0..norm_elem_count {
-                let idx = group_start + i;
-                let normalized = (input_values[idx] - mean) / std;
-                let gamma = gamma_values.get(i).copied().unwrap_or(1.0);
-                let beta = beta_values.get(i).copied().unwrap_or(0.0);
-                output_values[idx] = normalized * gamma + beta;
-            }
-        }
-
-        ops.tensor_from_vec(output_values, &input_shape)
+        // Use backend's native or default layer_norm implementation.
+        // This is much faster on GPU backends that provide a fused kernel.
+        ops.layer_norm(&input, self.weight.tensor(), self.bias.tensor(), self.config.eps)
     }
 }
-
 impl<B: Backend> Trainable<B> for LayerNorm<B> {
     fn parameters(&self) -> Vec<ParameterRef> {
         vec![ParameterRef { id: self.weight.id() }, ParameterRef { id: self.bias.id() }]
@@ -221,11 +166,7 @@ impl<B: Backend> Module<B> for BatchNorm<B> {
         }
 
         let num_features = self.config.num_features;
-        let (batch, channels, spatial) = if input_shape.len() == 2 {
-            (input_shape[0], input_shape[1], 1)
-        } else {
-            (input_shape[0], input_shape[1], input_shape[2] * input_shape[3])
-        };
+        let channels = input_shape[1];
 
         if channels != num_features {
             return Err(rustral_core::CoreError::ShapeMismatch {
@@ -234,82 +175,54 @@ impl<B: Backend> Module<B> for BatchNorm<B> {
             });
         }
 
-        let total_elems = input_shape.elem_count();
-        let elems_per_channel = batch * spatial;
+        if input_shape.len() == 2 {
+            // [N, C] -> Normalize over dim 0
+            let mean = ops.mean_dim(&input, 0, true)?; // [1, C]
+            let var = ops.var_dim(&input, 0, false, true)?; // [1, C]
 
-        // Extract input, gamma and beta values in a single bulk read per tensor.
-        let input_values = match ops.tensor_to_vec(&input) {
-            Ok(v) => v,
-            Err(_) => return Ok(input),
-        };
-        if input_values.len() != total_elems {
-            return Ok(input);
+            let x_centered = ops.sub(&input, &ops.broadcast_to(&mean, &input_shape)?)?;
+            let std = ops.sqrt(&ops.add_scalar(&var, self.config.eps)?)?;
+            let x_hat = ops.div(&x_centered, &ops.broadcast_to(&std, &input_shape)?)?;
+
+            // Apply learnable parameters: x_hat * weight + bias
+            let weight_b = ops.broadcast_to(self.weight.tensor(), &input_shape)?;
+            let bias_b = ops.broadcast_to(self.bias.tensor(), &input_shape)?;
+
+            let y = ops.mul(&x_hat, &weight_b)?;
+            ops.add(&y, &bias_b)
+        } else {
+            // [N, C, H, W]
+            // We want to normalize over dimensions 0, 2, 3.
+            // Sequential reduction as multi-dim reduction is not in the trait yet.
+            let m0 = ops.mean_dim(&input, 0, true)?; // [1, C, H, W]
+            let m02 = ops.mean_dim(&m0, 2, true)?; // [1, C, 1, W]
+            let mean = ops.mean_dim(&m02, 3, true)?; // [1, C, 1, 1]
+
+            let v0 = ops.var_dim(&input, 0, false, true)?; // [1, C, H, W]
+            let v02 = ops.var_dim(&v0, 2, false, true)?; // [1, C, 1, W]
+            let var = ops.var_dim(&v02, 3, false, true)?; // [1, C, 1, 1]
+
+            // Now normalize
+            let mean_b = ops.broadcast_to(&mean, &input_shape)?;
+            let x_centered = ops.sub(&input, &mean_b)?;
+            let var_eps = ops.add_scalar(&var, self.config.eps)?;
+            let std = ops.sqrt(&var_eps)?;
+            let std_b = ops.broadcast_to(&std, &input_shape)?;
+            let x_hat = ops.div(&x_centered, &std_b)?;
+
+            // Apply weight and bias
+            // weight is [C]. Reshape to [1, C, 1, 1] then broadcast.
+            let weight_4d = ops.reshape(self.weight.tensor(), &[1, channels, 1, 1])?;
+            let bias_4d = ops.reshape(self.bias.tensor(), &[1, channels, 1, 1])?;
+
+            let weight_b = ops.broadcast_to(&weight_4d, &input_shape)?;
+            let bias_b = ops.broadcast_to(&bias_4d, &input_shape)?;
+
+            let y = ops.mul(&x_hat, &weight_b)?;
+            ops.add(&y, &bias_b)
         }
-        let gamma_values = match ops.tensor_to_vec(self.weight.tensor()) {
-            Ok(v) => v,
-            Err(_) => return Ok(input),
-        };
-        let beta_values = match ops.tensor_to_vec(self.bias.tensor()) {
-            Ok(v) => v,
-            Err(_) => return Ok(input),
-        };
-
-        let mut output_values = vec![0.0f32; total_elems];
-        let eps = self.config.eps;
-
-        // Process each channel independently
-        for c in 0..channels {
-            // Collect all values for this channel across batch and spatial dims
-            let mut channel_values = Vec::with_capacity(elems_per_channel);
-            for n in 0..batch {
-                for s in 0..spatial {
-                    let idx = if input_shape.len() == 2 {
-                        n * channels + c
-                    } else {
-                        let h = input_shape[2];
-                        let w = input_shape[3];
-                        n * channels * h * w + c * h * w + s
-                    };
-                    if idx < input_values.len() {
-                        channel_values.push(input_values[idx]);
-                    }
-                }
-            }
-
-            // Compute mean and variance for this channel
-            let sum: f32 = channel_values.iter().sum();
-            let mean = sum / channel_values.len() as f32;
-
-            let var_sum: f32 = channel_values.iter().map(|&x| (x - mean).powi(2)).sum();
-            let var = var_sum / channel_values.len() as f32;
-            let std = (var + eps).sqrt();
-
-            // Normalize and apply affine transform
-            let gamma = gamma_values.get(c).copied().unwrap_or(1.0);
-            let beta = beta_values.get(c).copied().unwrap_or(0.0);
-
-            for n in 0..batch {
-                for s in 0..spatial {
-                    let input_idx = if input_shape.len() == 2 {
-                        n * channels + c
-                    } else {
-                        let h = input_shape[2];
-                        let w = input_shape[3];
-                        n * channels * h * w + c * h * w + s
-                    };
-
-                    if input_idx < input_values.len() {
-                        let normalized = (input_values[input_idx] - mean) / std;
-                        output_values[input_idx] = normalized * gamma + beta;
-                    }
-                }
-            }
-        }
-
-        ops.tensor_from_vec(output_values, &input_shape)
     }
 }
-
 impl<B: Backend> Trainable<B> for BatchNorm<B> {
     fn parameters(&self) -> Vec<ParameterRef> {
         vec![ParameterRef { id: self.weight.id() }, ParameterRef { id: self.bias.id() }]

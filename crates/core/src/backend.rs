@@ -279,6 +279,40 @@ pub trait TensorOps<B: Backend>: Send + Sync {
         Err(CoreError::Other("var_dim not supported by this backend".into()))
     }
 
+    /// Layer normalization: `(x - mean) / sqrt(var + eps) * gamma + beta`
+    ///
+    /// This method allows backends to provide a highly optimized fused kernel
+    /// for layer normalization, which is a critical operation in transformer models.
+    /// Default implementation uses standard trait operations.
+    fn layer_norm(
+        &self,
+        x: &B::Tensor,
+        gamma: &B::Tensor,
+        beta: &B::Tensor,
+        eps: f32,
+    ) -> Result<B::Tensor> {
+        let shape = self.shape(x);
+        let ndim = shape.len();
+        if ndim == 0 {
+            return Ok(x.clone());
+        }
+
+        // Default implementation using mean and variance
+        let last_dim = ndim - 1;
+        let mean = self.mean_dim(x, last_dim, true)?;
+        let var = self.var_dim(x, last_dim, false, true)?;
+
+        let x_centered = self.sub(x, &self.broadcast_to(&mean, &shape)?)?;
+        let std = self.sqrt(&self.add_scalar(&var, eps)?)?;
+        let x_hat = self.div(&x_centered, &self.broadcast_to(&std, &shape)?)?;
+
+        let gamma_b = self.broadcast_to(gamma, &shape)?;
+        let beta_b = self.broadcast_to(beta, &shape)?;
+
+        let y = self.mul(&x_hat, &gamma_b)?;
+        self.add(&y, &beta_b)
+    }
+
     /// Broadcast to a target shape (numpy-style).
     fn broadcast_to(&self, _x: &B::Tensor, _shape: &[usize]) -> Result<B::Tensor> {
         Err(CoreError::Other("broadcast_to not supported by this backend".into()))

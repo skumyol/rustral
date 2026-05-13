@@ -365,6 +365,8 @@ dependencies = [
 [[package]]
 name = "candle-kernels"
 version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "742e2ac226b777134436e9e692f44e77c278b8a7abb1554dc10e44dc911b349f"
 dependencies = [
  "cudaforge",
 ]
@@ -382,6 +384,24 @@ dependencies = [
  "once_cell",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "candle-nn"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9317a09d6530b758990ed7f625ac69ff43653bc9ee28b0464644ad1169ada87"
+dependencies = [
+ "candle-core",
+ "candle-metal-kernels",
+ "half",
+ "libc",
+ "num-traits",
+ "objc2-metal",
+ "rayon",
+ "safetensors 0.7.0",
+ "serde",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -3453,6 +3473,7 @@ name = "rustral-candle-backend"
 version = "0.1.0"
 dependencies = [
  "candle-core",
+ "candle-nn",
  "rand 0.8.6",
  "rustral-core",
  "rustral-ndarray-backend",

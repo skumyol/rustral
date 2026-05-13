@@ -126,12 +126,8 @@ impl<B: Backend> SelfAttention<B> {
         // Q @ K^T: [batch*seq, d_k] @ [d_k, batch*seq] -> [batch*seq, batch*seq]
         let scores = ops.matmul(&q_flat, &k_t)?;
 
-        // Scale by 1/sqrt(d_k) - broadcast scale to full score matrix
-        let scale_tensor = ops.tensor_from_vec(
-            vec![self.scale; batch * seq_len * batch * seq_len],
-            &[batch * seq_len, batch * seq_len],
-        )?;
-        let scaled_scores = ops.mul(&scores, &scale_tensor)?;
+        // Scale by 1/sqrt(d_k)
+        let scaled_scores = ops.mul_scalar(&scores, self.scale)?;
 
         // Apply softmax to get attention weights
         let attn_weights = ops.softmax(&scaled_scores)?;
@@ -817,10 +813,7 @@ where
 
     /// Scale tensor element-wise.
     fn scale_tensor(&self, x: B::Tensor, ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
-        let shape = ops.shape(&x);
-        let scale_tensor = ops.tensor_from_vec(vec![self.scale], &[1, 1])?;
-        let scale_broadcasted = ops.broadcast(&scale_tensor, &shape)?;
-        ops.mul(&x, &scale_broadcasted)
+        ops.mul_scalar(&x, self.scale)
     }
 
     /// Causal softmax (only attends to previous positions).

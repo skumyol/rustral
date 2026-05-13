@@ -1415,6 +1415,51 @@ impl TensorOps<CpuBackend> for CpuOps {
         Ok(var)
     }
 
+        fn layer_norm(
+        &self,
+        x: &CpuTensor,
+        gamma: &CpuTensor,
+        beta: &CpuTensor,
+        eps: f32,
+    ) -> Result<CpuTensor> {
+        let shape = &x.shape;
+        let ndim = shape.len();
+        if ndim == 0 {
+            return Ok(x.clone());
+        }
+        let norm_elem_count = shape[ndim - 1];
+        if norm_elem_count == 0 {
+             return Ok(x.clone());
+        }
+
+        let mut out = x.values.clone();
+        let gamma_vec = &gamma.values;
+        let beta_vec = &beta.values;
+
+        if out.len() > 4096 {
+            use rayon::prelude::*;
+            out.par_chunks_exact_mut(norm_elem_count).for_each(|group| {
+                let mean = group.iter().sum::<f32>() / norm_elem_count as f32;
+                let var = group.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / norm_elem_count as f32;
+                let inv_std = 1.0 / (var + eps).sqrt();
+                for i in 0..norm_elem_count {
+                    group[i] = (group[i] - mean) * inv_std * gamma_vec[i] + beta_vec[i];
+                }
+            });
+        } else {
+            for group in out.chunks_exact_mut(norm_elem_count) {
+                let mean = group.iter().sum::<f32>() / norm_elem_count as f32;
+                let var = group.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / norm_elem_count as f32;
+                let inv_std = 1.0 / (var + eps).sqrt();
+                for i in 0..norm_elem_count {
+                    group[i] = (group[i] - mean) * inv_std * gamma_vec[i] + beta_vec[i];
+                }
+            }
+        }
+
+        CpuTensor::new(out, shape)
+    }
+
     fn broadcast_to(&self, x: &CpuTensor, shape: &[usize]) -> Result<CpuTensor> {
         self.broadcast(x, shape)
     }
