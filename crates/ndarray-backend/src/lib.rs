@@ -1461,6 +1461,60 @@ impl TensorOps<CpuBackend> for CpuOps {
         CpuTensor::new(out, shape)
     }
 
+    fn cross_entropy_with_indices(&self, logits: &CpuTensor, targets: &[usize]) -> Result<CpuTensor> {
+        let shape = self.shape(logits);
+        let num_classes = shape[1];
+        let batch_size = targets.len();
+
+        // LogSoftmax calculation
+        let log_probs = self.log_softmax(logits)?;
+        let lp_values = log_probs.values();
+
+        let mut nll_sum = 0.0f32;
+        for (i, &target) in targets.iter().enumerate() {
+            if target < num_classes {
+                nll_sum -= lp_values[i * num_classes + target];
+            }
+        }
+
+        Ok(CpuTensor::new(vec![nll_sum / batch_size as f32], &[1])?)
+    }
+
+    fn transpose_axes(&self, x: &CpuTensor, dim0: usize, dim1: usize) -> Result<CpuTensor> {
+        let shape = self.shape(x);
+        if shape.len() == 4 {
+            // Basic 4D transpose [B, S, H, D] -> [B, H, S, D]
+            if dim0 == 1 && dim1 == 2 {
+                let b = shape[0];
+                let s = shape[1];
+                let h = shape[2];
+                let d = shape[3];
+                let mut out = vec![0.0f32; b * s * h * d];
+                let val = x.values();
+                for i in 0..b {
+                    for j in 0..s {
+                        for k in 0..h {
+                            for l in 0..d {
+                                let old_idx = ((i * s + j) * h + k) * d + l;
+                                let new_idx = ((i * h + k) * s + j) * d + l;
+                                out[new_idx] = val[old_idx];
+                            }
+                        }
+                    }
+                }
+                return Ok(CpuTensor::new(out, &[b, h, s, d])?);
+            }
+        }
+        // Fallback or Error
+        if dim0 == 0 && dim1 == 1 && shape.len() == 2 {
+            return self.transpose(x);
+        }
+        Err(CoreError::Other(format!(
+            "transpose_axes not implemented for dims {}/{} on shape {:?}",
+            dim0, dim1, shape
+        )))
+    }
+
     fn broadcast_to(&self, x: &CpuTensor, shape: &[usize]) -> Result<CpuTensor> {
         self.broadcast(x, shape)
     }

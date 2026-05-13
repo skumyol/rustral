@@ -37,7 +37,7 @@ use rustral_core::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig, SelfAttention,
+    Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig, MultiHeadAttention,
     SelfAttentionConfig,
 };
 
@@ -201,7 +201,7 @@ impl TransformerEncoderConfig {
 ///   Input → LayerNorm → SelfAttention → Add → LayerNorm → FeedForward → Add → Output
 pub struct TransformerEncoderLayer<B: Backend> {
     /// Self-attention
-    self_attn: SelfAttention<B>,
+    self_attn: MultiHeadAttention<B>,
     /// Feed-forward network
     ff_linear1: Linear<B>,
     ff_linear2: Linear<B>,
@@ -223,7 +223,7 @@ where
         let attn_config =
             SelfAttentionConfig::new(config.d_model, config.num_heads).with_dropout(config.dropout);
 
-        let self_attn = SelfAttention::new(backend, attn_config, seed)?;
+        let self_attn = MultiHeadAttention::new(backend, attn_config, seed)?;
 
         let ff_linear1 =
             Linear::new(backend, LinearConfig::new(config.d_model, config.ff_dim).with_bias(true))?;
@@ -606,7 +606,7 @@ impl TransformerDecoderConfig {
 ///   Input → LN → MaskedSelfAttention → Add → LN → FeedForward → Add → Output
 pub struct TransformerDecoderLayer<B: Backend> {
     /// Masked self-attention
-    self_attn: SelfAttention<B>,
+    self_attn: MultiHeadAttention<B>,
     /// Feed-forward
     ff_linear1: Linear<B>,
     ff_linear2: Linear<B>,
@@ -625,7 +625,7 @@ where
         let attn_config =
             SelfAttentionConfig::new(config.d_model, config.num_heads).with_dropout(config.dropout);
 
-        let self_attn = SelfAttention::new(backend, attn_config, seed)?;
+        let self_attn = MultiHeadAttention::new(backend, attn_config, seed)?;
 
         let ff_linear1 =
             Linear::new(backend, LinearConfig::new(config.d_model, config.ff_dim).with_bias(true))?;

@@ -424,6 +424,64 @@ pub trait TensorOps<B: Backend>: Send + Sync {
     /// This is useful for retrieving specific values from 1D tensors,
     /// such as probability scores or logits at particular indices.
     fn tensor_element(&self, x: &B::Tensor, index: usize) -> Result<f32>;
+    /// Batched matrix multiplication: `[B, M, K] x [B, K, N] -> [B, M, N]`.
+    ///
+    /// Default implementation uses a loop over the batch dimension.
+    fn matmul_batched(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor> {
+        let a_shape = self.shape(a);
+        let b_shape = self.shape(b);
+        if a_shape.len() != 3 || b_shape.len() != 3 {
+            return Err(CoreError::InvalidShape {
+                shape: a_shape,
+                reason: "matmul_batched expects rank-3 tensors".into(),
+            });
+        }
+        let batch = a_shape[0];
+        let mut results = Vec::with_capacity(batch);
+        for i in 0..batch {
+            let ai = self.slice(a, i, i + 1)?;
+            let bi = self.slice(b, i, i + 1)?;
+            let ai_2d = self.reshape(&ai, &[a_shape[1], a_shape[2]])?;
+            let bi_2d = self.reshape(&bi, &[b_shape[1], b_shape[2]])?;
+            let res = self.matmul(&ai_2d, &bi_2d)?;
+            results.push(self.reshape(&res, &[1, a_shape[1], b_shape[2]])?);
+        }
+        let refs: Vec<&B::Tensor> = results.iter().collect();
+        self.concat(&refs, 0)
+    }
+
+    /// Transpose arbitrary axes.
+    fn transpose_axes(&self, x: &B::Tensor, dim0: usize, dim1: usize) -> Result<B::Tensor> {
+        if dim0 == 0 && dim1 == 1 && self.shape(x).len() == 2 {
+            self.transpose(x)
+        } else {
+            Err(CoreError::Other("transpose_axes not supported by this backend".into()))
+        }
+    }
+
+    /// Optimized CrossEntropy loss with indices.
+    ///
+    /// Computes CE loss directly from logits [N, C] and target indices [N].
+    /// This avoids creating a large one-hot tensor on the GPU.
+    fn cross_entropy_with_indices(&self, logits: &B::Tensor, targets: &[usize]) -> Result<B::Tensor> {
+        // Default implementation uses one-hot as fallback
+        let shape = self.shape(logits);
+        let num_classes = shape[1];
+        let batch_size = targets.len();
+        let mut target_values = vec![0.0f32; batch_size * num_classes];
+        for (i, &class_idx) in targets.iter().enumerate() {
+            if class_idx < num_classes {
+                target_values[i * num_classes + class_idx] = 1.0;
+            }
+        }
+        let target_tensor = self.tensor_from_vec(target_values, &[batch_size, num_classes])?;
+
+        let log_probs = self.log_softmax(logits)?;
+        let target_log_probs = self.mul(&target_tensor, &log_probs)?;
+        let sum = self.sum_all(&target_log_probs)?;
+        let neg_sum = self.neg(&sum)?;
+        self.mul_scalar(&neg_sum, 1.0 / batch_size as f32)
+    }
 }
 
 /// Extension trait for efficient tensor view operations.

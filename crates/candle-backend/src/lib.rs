@@ -742,6 +742,22 @@ impl TensorOps<CandleBackend> for CandleOps {
         self.mul_scalar(&s, scale)
     }
 
+    fn cross_entropy_with_indices(&self, logits: &Tensor, targets: &[usize]) -> Result<Tensor> {
+        let targets_i64: Vec<i64> = targets.iter().map(|&t| t as i64).collect();
+        let targets_tensor = Tensor::from_vec(targets_i64, &[targets.len()], &self.device)
+            .map_err(|e| CoreError::Backend(e.to_string()))?;
+
+        candle_nn::loss::cross_entropy(logits, &targets_tensor).map_err(|e| CoreError::Backend(e.to_string()))
+    }
+
+    fn transpose_axes(&self, x: &Tensor, dim0: usize, dim1: usize) -> Result<Tensor> {
+        x.transpose(dim0, dim1).map_err(|e| CoreError::Backend(e.to_string()))
+    }
+
+    fn matmul_batched(&self, a: &Tensor, b: &Tensor) -> Result<Tensor> {
+        a.matmul(b).map_err(|e| CoreError::Backend(e.to_string()))
+    }
+
     fn broadcast_to(&self, x: &Tensor, shape: &[usize]) -> Result<Tensor> {
         x.broadcast_as(shape).map_err(|e| CoreError::Backend(e.to_string()))
     }
