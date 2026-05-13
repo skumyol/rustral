@@ -49,9 +49,7 @@ mod tests {
         let r = registry().unwrap();
         let has_demo = r.entries.iter().any(|e| {
             e.id == "local_tiny_linear_regression"
-                && e.local_artifact_workflow
-                    .as_ref()
-                    .is_some_and(|s| s.contains("save_linear_artifact"))
+                && e.local_artifact_workflow.as_ref().is_some_and(|s| s.contains("save_linear_artifact"))
         });
         assert!(has_demo, "expected local_tiny_linear_regression with save_linear_artifact workflow");
     }

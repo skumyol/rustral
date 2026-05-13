@@ -7,8 +7,8 @@ use rustral_core::{generate_random_data, DType, FusionTestHarness};
 
 #[test]
 fn test_fusion_matmul_bias_relu_validation() {
-    use rustral_ndarray_backend::CpuBackend;
     use rustral_core::Backend;
+    use rustral_ndarray_backend::CpuBackend;
 
     let backend = CpuBackend::default();
     let harness = FusionTestHarness::new();
@@ -43,7 +43,7 @@ fn test_fusion_matmul_bias_relu_validation() {
     };
 
     let result = harness.run_test("matmul_bias_relu", unfused_fn, fused_fn, DType::F32);
-    
+
     // The fused implementation should produce identical results to unfused
     // (since the current implementation is just a sequence fallback)
     assert!(result.passed);
@@ -52,8 +52,8 @@ fn test_fusion_matmul_bias_relu_validation() {
 
 #[test]
 fn test_fusion_matmul_bias_gelu_validation() {
-    use rustral_ndarray_backend::CpuBackend;
     use rustral_core::Backend;
+    use rustral_ndarray_backend::CpuBackend;
 
     let backend = CpuBackend::default();
     let harness = FusionTestHarness::new();
@@ -88,7 +88,7 @@ fn test_fusion_matmul_bias_gelu_validation() {
     };
 
     let result = harness.run_test("matmul_bias_gelu", unfused_fn, fused_fn, DType::F32);
-    
+
     // The fused implementation should produce identical results to unfused
     assert!(result.passed);
     println!("Matmul+Bias+GELU fusion test: speedup={:.2}x", result.speedup);
@@ -96,8 +96,8 @@ fn test_fusion_matmul_bias_gelu_validation() {
 
 #[test]
 fn test_fusion_matmul_bias_validation() {
-    use rustral_ndarray_backend::CpuBackend;
     use rustral_core::Backend;
+    use rustral_ndarray_backend::CpuBackend;
 
     let backend = CpuBackend::default();
     let harness = FusionTestHarness::new();
@@ -131,7 +131,7 @@ fn test_fusion_matmul_bias_validation() {
     };
 
     let result = harness.run_test("matmul_bias", unfused_fn, fused_fn, DType::F32);
-    
+
     // The fused implementation should produce identical results to unfused
     assert!(result.passed);
     println!("Matmul+Bias fusion test: speedup={:.2}x", result.speedup);

@@ -58,10 +58,8 @@ pub fn assert_allclose(name: &str, got: &[f32], expected: &[f32], tol: Tolerance
         if !ok {
             panic!(
                 "{name}: mismatch at idx={i} got={g} expected={e} diff={diff} (rtol={} atol={})",
-                tol.rtol,
-                tol.atol
+                tol.rtol, tol.atol
             );
         }
     }
 }
-

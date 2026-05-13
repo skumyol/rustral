@@ -19,8 +19,9 @@ use rustral_bench::{samples_to_json, time_runs, time_train_step, Sample};
 use rustral_core::{Backend, ForwardCtx, Mode, Module, NamedParameters, Parameter};
 use rustral_ndarray_backend::CpuBackend;
 use rustral_nn::{
-    CacheConfig, Conv2d, Conv2dConfig, KVCache, LstmCell, LstmConfig, MultiHeadAttention, SelfAttentionConfig,
-    TransformerDecoder, TransformerDecoderConfig, TransformerEncoder, TransformerEncoderConfig,
+    CacheConfig, Conv2d, Conv2dConfig, KVCache, LstmCell, LstmConfig, MultiHeadAttention,
+    SelfAttentionConfig, TransformerDecoder, TransformerDecoderConfig, TransformerEncoder,
+    TransformerEncoderConfig,
 };
 use rustral_optim::{Adam, Gradient, Optimizer, Sgd};
 use rustral_runtime::{load_model, save_model};
@@ -101,9 +102,7 @@ fn bench_matmul(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut V
 fn bench_softmax_dim(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
     let ops = backend.ops();
     for &(batch, features) in &[(32usize, 64usize), (32, 256), (64, 1024)] {
-        let x = backend
-            .tensor_from_vec(vec![0.01f32; batch * features], &[batch, features])
-            .unwrap();
+        let x = backend.tensor_from_vec(vec![0.01f32; batch * features], &[batch, features]).unwrap();
         let runs = time_runs(
             || {
                 let _ = ops.softmax_dim(&x, 1).unwrap();
@@ -227,9 +226,9 @@ fn bench_conv2d(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut V
 /// Matches the criterion bench configuration (small/medium/large).
 fn bench_lstm_forward(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
     let configs = vec![
-        ("small", 128usize, 10usize),  // 128 hidden, 10 steps
-        ("medium", 256, 50),            // 256 hidden, 50 steps
-        ("large", 512, 100),            // 512 hidden, 100 steps
+        ("small", 128usize, 10usize), // 128 hidden, 10 steps
+        ("medium", 256, 50),          // 256 hidden, 50 steps
+        ("large", 512, 100),          // 512 hidden, 100 steps
     ];
 
     for &(name, hidden_size, seq_len) in &configs {

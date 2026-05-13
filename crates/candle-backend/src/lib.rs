@@ -510,12 +510,14 @@ impl TensorOps<CandleBackend> for CandleOps {
 
     fn softmax(&self, x: &Tensor) -> Result<Tensor> {
         let last_dim = x.dims().len().saturating_sub(1);
-        candle_nn::ops::softmax(x, last_dim).map_err(|e: candle_core::Error| CoreError::Backend(e.to_string()))
+        candle_nn::ops::softmax(x, last_dim)
+            .map_err(|e: candle_core::Error| CoreError::Backend(e.to_string()))
     }
 
     fn log_softmax(&self, x: &Tensor) -> Result<Tensor> {
         let last_dim = x.dims().len().saturating_sub(1);
-        candle_nn::ops::log_softmax(x, last_dim).map_err(|e: candle_core::Error| CoreError::Backend(e.to_string()))
+        candle_nn::ops::log_softmax(x, last_dim)
+            .map_err(|e: candle_core::Error| CoreError::Backend(e.to_string()))
     }
 
     fn argmax(&self, x: &Tensor) -> Result<usize> {
@@ -557,19 +559,17 @@ impl TensorOps<CandleBackend> for CandleOps {
         }
     }
 
-    fn layer_norm(
-        &self,
-        x: &Tensor,
-        gamma: &Tensor,
-        beta: &Tensor,
-        eps: f32,
-    ) -> Result<Tensor> {
+    fn layer_norm(&self, x: &Tensor, gamma: &Tensor, beta: &Tensor, eps: f32) -> Result<Tensor> {
         candle_nn::ops::layer_norm(x, gamma, beta, eps)
             .map_err(|e: candle_core::Error| CoreError::Backend(e.to_string()))
     }
 
     fn sigmoid(&self, x: &Tensor) -> Result<Tensor> {
-        (x.neg().map_err(|e| CoreError::Backend(e.to_string()))?.exp().map_err(|e| CoreError::Backend(e.to_string()))? + 1.0)
+        (x.neg()
+            .map_err(|e| CoreError::Backend(e.to_string()))?
+            .exp()
+            .map_err(|e| CoreError::Backend(e.to_string()))?
+            + 1.0)
             .map_err(|e| CoreError::Backend(e.to_string()))?
             .recip()
             .map_err(|e| CoreError::Backend(e.to_string()))

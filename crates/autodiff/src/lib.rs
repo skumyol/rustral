@@ -40,7 +40,12 @@ fn device_type_for_backend<B: Backend>() -> DeviceType {
     }
 }
 
-fn record_profile<B: Backend>(ctx: &ForwardCtx<B>, op: &'static str, elapsed: std::time::Duration, out: &B::Tensor) {
+fn record_profile<B: Backend>(
+    ctx: &ForwardCtx<B>,
+    op: &'static str,
+    elapsed: std::time::Duration,
+    out: &B::Tensor,
+) {
     let Some(prof) = ctx.profiler() else { return };
     let Ok(mut p) = prof.lock() else { return };
     let shape = ctx.backend().ops().shape(out);
@@ -284,9 +289,7 @@ impl<B: Backend> Tape<B> {
         let out = ctx.backend().ops().gelu(&a_val)?;
         record_profile(ctx, "gelu", t0.elapsed(), &out);
 
-        Ok(self.record(&[a], out, move |grad_out, _store, ops| {
-            gelu_backward_chain(ops, &a_val, grad_out)
-        }))
+        Ok(self.record(&[a], out, move |grad_out, _store, ops| gelu_backward_chain(ops, &a_val, grad_out)))
     }
 
     /// Matrix multiplication.

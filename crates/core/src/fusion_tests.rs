@@ -21,12 +21,7 @@ pub struct FusionTestConfig {
 
 impl Default for FusionTestConfig {
     fn default() -> Self {
-        Self {
-            strict_numerics: false,
-            use_float64_reference: false,
-            num_random_cases: 10,
-            verbose: false,
-        }
+        Self { strict_numerics: false, use_float64_reference: false, num_random_cases: 10, verbose: false }
     }
 }
 
@@ -56,20 +51,9 @@ impl FusionTestResult {
         unfused_time_us: f64,
         fused_time_us: f64,
     ) -> Self {
-        let speedup = if fused_time_us > 0.0 {
-            unfused_time_us / fused_time_us
-        } else {
-            1.0
-        };
-        
-        Self {
-            test_name,
-            passed,
-            validation_result,
-            unfused_time_us,
-            fused_time_us,
-            speedup,
-        }
+        let speedup = if fused_time_us > 0.0 { unfused_time_us / fused_time_us } else { 1.0 };
+
+        Self { test_name, passed, validation_result, unfused_time_us, fused_time_us, speedup }
     }
 
     /// Print a summary of the test result.
@@ -96,10 +80,7 @@ pub struct FusionTestHarness {
 impl FusionTestHarness {
     /// Create a new fusion test harness with default configuration.
     pub fn new() -> Self {
-        Self {
-            config: FusionTestConfig::default(),
-            validator: NumericsValidator::new(),
-        }
+        Self { config: FusionTestConfig::default(), validator: NumericsValidator::new() }
     }
 
     /// Create a new fusion test harness with custom configuration.
@@ -205,11 +186,7 @@ impl FusionTestHarness {
                 });
 
             let test_passed = validation_result.passed;
-            let speedup = if fused_time_us > 0.0 {
-                unfused_time_us / fused_time_us
-            } else {
-                1.0
-            };
+            let speedup = if fused_time_us > 0.0 { unfused_time_us / fused_time_us } else { 1.0 };
 
             if test_passed {
                 passed += 1;
@@ -225,11 +202,7 @@ impl FusionTestHarness {
             ));
         }
 
-        let avg_speedup = if !results.is_empty() {
-            total_speedup / results.len() as f64
-        } else {
-            1.0
-        };
+        let avg_speedup = if !results.is_empty() { total_speedup / results.len() as f64 } else { 1.0 };
 
         FusionTestSuiteResult {
             suite_name: suite_name.to_string(),
@@ -278,7 +251,7 @@ impl FusionTestSuiteResult {
         println!("\n=== Fusion Test Suite: {} ===", self.suite_name);
         println!("Passed: {}/{}", self.passed_tests, self.total_tests);
         println!("Average speedup: {:.2}x", self.avg_speedup);
-        
+
         if !self.results.is_empty() {
             println!("\nIndividual test results:");
             for result in &self.results {
@@ -359,12 +332,7 @@ mod tests {
         let harness = FusionTestHarness::new();
         let data = vec![1.0f32, 2.0, 3.0, 4.0];
 
-        let result = harness.run_test(
-            "identical_test",
-            || data.clone(),
-            || data.clone(),
-            DType::F32,
-        );
+        let result = harness.run_test("identical_test", || data.clone(), || data.clone(), DType::F32);
 
         assert!(result.passed);
         assert_eq!(result.validation_result.num_violations, 0);
@@ -376,12 +344,7 @@ mod tests {
         let data1 = vec![1.0f32, 2.0, 3.0, 4.0];
         let data2 = vec![1.0f32, 2.0, 3.0, 5.0]; // Last element different
 
-        let result = harness.run_test(
-            "different_test",
-            || data1.clone(),
-            || data2.clone(),
-            DType::F32,
-        );
+        let result = harness.run_test("different_test", || data1.clone(), || data2.clone(), DType::F32);
 
         // Should fail due to difference outside tolerance
         assert!(!result.passed);
@@ -391,12 +354,20 @@ mod tests {
     fn test_fusion_test_harness_suite() {
         let harness = FusionTestHarness::new();
         let test_cases = vec![
-            ("test1", Box::new(|| vec![1.0f32, 2.0]) as Box<dyn FnOnce() -> Vec<f32>>, Box::new(|| vec![1.0f32, 2.0]) as Box<dyn FnOnce() -> Vec<f32>>),
-            ("test2", Box::new(|| vec![3.0f32, 4.0]) as Box<dyn FnOnce() -> Vec<f32>>, Box::new(|| vec![3.0f32, 4.0]) as Box<dyn FnOnce() -> Vec<f32>>),
+            (
+                "test1",
+                Box::new(|| vec![1.0f32, 2.0]) as Box<dyn FnOnce() -> Vec<f32>>,
+                Box::new(|| vec![1.0f32, 2.0]) as Box<dyn FnOnce() -> Vec<f32>>,
+            ),
+            (
+                "test2",
+                Box::new(|| vec![3.0f32, 4.0]) as Box<dyn FnOnce() -> Vec<f32>>,
+                Box::new(|| vec![3.0f32, 4.0]) as Box<dyn FnOnce() -> Vec<f32>>,
+            ),
         ];
 
         let suite_result = harness.run_suite("test_suite", test_cases, DType::F32);
-        
+
         assert_eq!(suite_result.total_tests, 2);
         assert_eq!(suite_result.passed_tests, 2);
         assert!(suite_result.all_passed());
@@ -427,7 +398,7 @@ mod tests {
             avg_speedup: 1.5,
             results: vec![],
         };
-        
+
         let display_str = format!("{}", result);
         assert!(display_str.contains("test_suite"));
         assert!(display_str.contains("8/10"));

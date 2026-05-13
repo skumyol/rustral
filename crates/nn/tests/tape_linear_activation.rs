@@ -20,18 +20,10 @@ fn linear_relu_tape_fused_op_produces_weight_and_bias_grads() {
     let y_id = layer.forward_tape(x_id, &mut tape, &mut ctx).unwrap();
     let loss_id = tape.sum_all_tape(y_id, &mut ctx).unwrap();
     let param_map = tape.param_map().clone();
-    let grads = tape
-        .backward(loss_id, |data, shape| ops.tensor_from_vec(data, shape), ops)
-        .unwrap();
+    let grads = tape.backward(loss_id, |data, shape| ops.tensor_from_vec(data, shape), ops).unwrap();
 
-    let gw = layer
-        .weight()
-        .gradient_from_store(&grads, &param_map)
-        .expect("missing weight grad");
-    let gb = layer
-        .bias()
-        .gradient_from_store(&grads, &param_map)
-        .expect("missing bias grad");
+    let gw = layer.weight().gradient_from_store(&grads, &param_map).expect("missing weight grad");
+    let gb = layer.bias().gradient_from_store(&grads, &param_map).expect("missing bias grad");
 
     let gwv = ops.tensor_to_vec(gw).unwrap();
     let gbv = ops.tensor_to_vec(gb).unwrap();
@@ -53,22 +45,13 @@ fn linear_gelu_tape_fused_op_produces_weight_and_bias_grads() {
     let y_id = layer.forward_tape(x_id, &mut tape, &mut ctx).unwrap();
     let loss_id = tape.sum_all_tape(y_id, &mut ctx).unwrap();
     let param_map = tape.param_map().clone();
-    let grads = tape
-        .backward(loss_id, |data, shape| ops.tensor_from_vec(data, shape), ops)
-        .unwrap();
+    let grads = tape.backward(loss_id, |data, shape| ops.tensor_from_vec(data, shape), ops).unwrap();
 
-    let gw = layer
-        .weight()
-        .gradient_from_store(&grads, &param_map)
-        .expect("missing weight grad");
-    let gb = layer
-        .bias()
-        .gradient_from_store(&grads, &param_map)
-        .expect("missing bias grad");
+    let gw = layer.weight().gradient_from_store(&grads, &param_map).expect("missing weight grad");
+    let gb = layer.bias().gradient_from_store(&grads, &param_map).expect("missing bias grad");
 
     let gwv = ops.tensor_to_vec(gw).unwrap();
     let gbv = ops.tensor_to_vec(gb).unwrap();
     assert!(gwv.iter().any(|v| v.abs() > 0.0));
     assert!(gbv.iter().any(|v| v.abs() > 0.0));
 }
-

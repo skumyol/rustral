@@ -64,7 +64,12 @@ impl<O, Task> Trainer<O, Task> {
 }
 
 impl<O> Trainer<O, Regression> {
-    pub fn fit<B, M, X, Y>(self, backend: &B, model: &mut M, train: &[(X, Y)]) -> anyhow::Result<TrainingReport>
+    pub fn fit<B, M, X, Y>(
+        self,
+        backend: &B,
+        model: &mut M,
+        train: &[(X, Y)],
+    ) -> anyhow::Result<TrainingReport>
     where
         B: Backend,
         B::Tensor: Clone,
@@ -79,7 +84,12 @@ impl<O> Trainer<O, Regression> {
 }
 
 impl<O> Trainer<O, Classification> {
-    pub fn fit<B, M, X, Y>(self, backend: &B, model: &mut M, train: &[(X, Y)]) -> anyhow::Result<TrainingReport>
+    pub fn fit<B, M, X, Y>(
+        self,
+        backend: &B,
+        model: &mut M,
+        train: &[(X, Y)],
+    ) -> anyhow::Result<TrainingReport>
     where
         B: Backend,
         B::Tensor: Clone,
@@ -92,4 +102,3 @@ impl<O> Trainer<O, Classification> {
         t.fit_classification(backend, model, train)
     }
 }
-
