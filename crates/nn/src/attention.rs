@@ -1,47 +1,30 @@
 //! Attention mechanisms for neural networks.
-//!
-//! Provides SelfAttention, MultiHeadAttention, and TransformerEncoderBlock
-//! implementations for modern NLP and vision architectures.
 
 use rustral_core::{
     Backend, ForwardCtx, Module, NamedParameters, Parameter, ParameterRef, Result, Trainable,
 };
 use serde::{Deserialize, Serialize};
 
-/// Configuration for self-attention.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SelfAttentionConfig {
-    /// Input/output dimension (d_model).
     pub d_model: usize,
-    /// Number of attention heads.
     pub num_heads: usize,
-    /// Head dimension (d_k = d_model / num_heads).
     pub head_dim: usize,
-    /// Dropout probability for attention weights.
     pub dropout: f32,
 }
 
 impl SelfAttentionConfig {
-    /// Create a new SelfAttention configuration.
     pub fn new(d_model: usize, num_heads: usize) -> Self {
-        assert_eq!(
-            d_model % num_heads,
-            0,
-            "d_model ({}) must be divisible by num_heads ({})",
-            d_model,
-            num_heads
-        );
+        assert_eq!(d_model % num_heads, 0);
         Self { d_model, num_heads, head_dim: d_model / num_heads, dropout: 0.0 }
     }
-
-    /// Set dropout probability.
     pub fn with_dropout(mut self, dropout: f32) -> Self {
         self.dropout = dropout;
         self
     }
 }
 
-/// Single-head self-attention.
+/// Simplified single-head implementation for internal use.
 pub struct SelfAttention<B: Backend> {
     config: SelfAttentionConfig,
     q_proj: Parameter<B>,
@@ -55,18 +38,11 @@ impl<B: Backend> SelfAttention<B> {
     pub fn new(backend: &B, config: SelfAttentionConfig, seed: u64) -> Result<Self> {
         let d_k = config.head_dim;
         let q_proj = backend.normal_parameter("q_proj", &[config.d_model, d_k], seed, 0.02)?;
-        let k_proj =
-            backend.normal_parameter("k_proj", &[config.d_model, d_k], seed.wrapping_add(1), 0.02)?;
-        let v_proj =
-            backend.normal_parameter("v_proj", &[config.d_model, d_k], seed.wrapping_add(2), 0.02)?;
-        let out_proj =
-            backend.normal_parameter("out_proj", &[d_k, config.d_model], seed.wrapping_add(3), 0.02)?;
+        let k_proj = backend.normal_parameter("k_proj", &[config.d_model, d_k], seed + 1, 0.02)?;
+        let v_proj = backend.normal_parameter("v_proj", &[config.d_model, d_k], seed + 2, 0.02)?;
+        let out_proj = backend.normal_parameter("out_proj", &[d_k, config.d_model], seed + 3, 0.02)?;
         let scale = 1.0 / (config.head_dim as f32).sqrt();
         Ok(Self { config, q_proj, k_proj, v_proj, out_proj, scale })
-    }
-
-    pub fn config(&self) -> &SelfAttentionConfig {
-        &self.config
     }
 }
 
@@ -101,30 +77,20 @@ impl<B: Backend> Module<B> for SelfAttention<B> {
     type Output = B::Tensor;
     fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
         let ops = ctx.backend().ops();
-        let input_shape = ops.shape(&input);
-        let batch = input_shape[0];
-        let seq_len = input_shape[1];
-        let flat_input = ops.reshape(&input, &[batch * seq_len, self.config.d_model])?;
-        let q = ops.matmul(&flat_input, self.q_proj.tensor())?;
-        let k = ops.matmul(&flat_input, self.k_proj.tensor())?;
-        let v = ops.matmul(&flat_input, self.v_proj.tensor())?;
-
-        let q = ops.reshape(&q, &[batch * seq_len, self.config.head_dim])?;
-        let k = ops.reshape(&k, &[batch * seq_len, self.config.head_dim])?;
-        let v = ops.reshape(&v, &[batch * seq_len, self.config.head_dim])?;
-
-        let kt = ops.transpose(&k)?;
-        let scores = ops.matmul(&q, &kt)?;
-        let scaled = ops.mul_scalar(&scores, self.scale)?;
-        let weights = ops.softmax(&scaled)?;
-        let attn_out = ops.matmul(&weights, &v)?;
-
-        let output = ops.matmul(&attn_out, self.out_proj.tensor())?;
-        ops.reshape(&output, &[batch, seq_len, self.config.d_model])
+        let shape = ops.shape(&input);
+        let (batch, seq_len) = (shape[0], shape[1]);
+        let flat = ops.reshape(&input, &[batch * seq_len, self.config.d_model])?;
+        let q = ops.matmul(&flat, self.q_proj.tensor())?;
+        let k = ops.matmul(&flat, self.k_proj.tensor())?;
+        let v = ops.matmul(&flat, self.v_proj.tensor())?;
+        let scores = ops.matmul(&q, &ops.transpose(&k)?)?;
+        let attn = ops.softmax(&ops.mul_scalar(&scores, self.scale)?)?;
+        let out = ops.matmul(&attn, &v)?;
+        let projected = ops.matmul(&out, self.out_proj.tensor())?;
+        ops.reshape(&projected, &[batch, seq_len, self.config.d_model])
     }
 }
 
-/// Multi-head self-attention.
 pub struct MultiHeadAttention<B: Backend> {
     config: SelfAttentionConfig,
     q_proj: Parameter<B>,
@@ -138,16 +104,45 @@ impl<B: Backend> MultiHeadAttention<B> {
     pub fn new(backend: &B, config: SelfAttentionConfig, seed: u64) -> Result<Self> {
         let d_model = config.d_model;
         let q_proj = backend.normal_parameter("q_proj", &[d_model, d_model], seed, 0.02)?;
-        let k_proj = backend.normal_parameter("k_proj", &[d_model, d_model], seed.wrapping_add(1), 0.02)?;
-        let v_proj = backend.normal_parameter("v_proj", &[d_model, d_model], seed.wrapping_add(2), 0.02)?;
-        let out_proj =
-            backend.normal_parameter("out_proj", &[d_model, d_model], seed.wrapping_add(3), 0.02)?;
+        let k_proj = backend.normal_parameter("k_proj", &[d_model, d_model], seed + 1, 0.02)?;
+        let v_proj = backend.normal_parameter("v_proj", &[d_model, d_model], seed + 2, 0.02)?;
+        let out_proj = backend.normal_parameter("out_proj", &[d_model, d_model], seed + 3, 0.02)?;
         let scale = 1.0 / (config.head_dim as f32).sqrt();
         Ok(Self { config, q_proj, k_proj, v_proj, out_proj, scale })
     }
-
     pub fn config(&self) -> &SelfAttentionConfig {
         &self.config
+    }
+}
+
+impl<B: Backend> Module<B> for MultiHeadAttention<B> {
+    type Input = B::Tensor;
+    type Output = B::Tensor;
+    fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
+        let ops = ctx.backend().ops();
+        let shape = ops.shape(&input);
+        let (batch, seq_len, d_model) = (shape[0], shape[1], shape[2]);
+        let (h, d_k) = (self.config.num_heads, self.config.head_dim);
+        let flat = ops.reshape(&input, &[batch * seq_len, d_model])?;
+        let q = ops.reshape(&ops.matmul(&flat, self.q_proj.tensor())?, &[batch, seq_len, h, d_k])?;
+        let k = ops.reshape(&ops.matmul(&flat, self.k_proj.tensor())?, &[batch, seq_len, h, d_k])?;
+        let v = ops.reshape(&ops.matmul(&flat, self.v_proj.tensor())?, &[batch, seq_len, h, d_k])?;
+        let q = ops.reshape(&ops.transpose_axes(&q, 1, 2)?, &[batch * h, seq_len, d_k])?;
+        let k = ops.reshape(&ops.transpose_axes(&k, 1, 2)?, &[batch * h, seq_len, d_k])?;
+        let v = ops.reshape(&ops.transpose_axes(&v, 1, 2)?, &[batch * h, seq_len, d_k])?;
+        let mut k_t_v = Vec::with_capacity(batch * h);
+        for i in 0..(batch * h) {
+            let ki = ops.reshape(&ops.slice(&k, i, i + 1)?, &[seq_len, d_k])?;
+            k_t_v.push(ops.reshape(&ops.transpose(&ki)?, &[1, d_k, seq_len])?);
+        }
+        let k_t = ops.concat(&k_t_v.iter().collect::<Vec<_>>(), 0)?;
+        let scores = ops.matmul_batched(&q, &k_t)?;
+        let attn = ops.softmax_dim(&ops.mul_scalar(&scores, self.scale)?, 2)?;
+        let attn_out = ops.matmul_batched(&attn, &v)?;
+        let attn_out = ops.transpose_axes(&ops.reshape(&attn_out, &[batch, h, seq_len, d_k])?, 1, 2)?;
+        let output =
+            ops.matmul(&ops.reshape(&attn_out, &[batch * seq_len, d_model])?, self.out_proj.tensor())?;
+        ops.reshape(&output, &[batch, seq_len, d_model])
     }
 }
 
@@ -177,82 +172,26 @@ impl<B: Backend> Trainable<B> for MultiHeadAttention<B> {
     }
 }
 
-impl<B: Backend> Module<B> for MultiHeadAttention<B> {
-    type Input = B::Tensor;
-    type Output = B::Tensor;
-
-    fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
-        let ops = ctx.backend().ops();
-        let input_shape = ops.shape(&input);
-        let batch = input_shape[0];
-        let seq_len = input_shape[1];
-        let h = self.config.num_heads;
-        let d_k = self.config.head_dim;
-
-        let flat_input = ops.reshape(&input, &[batch * seq_len, self.config.d_model])?;
-        let q = ops.matmul(&flat_input, self.q_proj.tensor())?;
-        let k = ops.matmul(&flat_input, self.k_proj.tensor())?;
-        let v = ops.matmul(&flat_input, self.v_proj.tensor())?;
-
-        let q = ops.reshape(&q, &[batch, seq_len, h, d_k])?;
-        let k = ops.reshape(&k, &[batch, seq_len, h, d_k])?;
-        let v = ops.reshape(&v, &[batch, seq_len, h, d_k])?;
-
-        let q = ops.transpose_axes(&q, 1, 2)?;
-        let k = ops.transpose_axes(&k, 1, 2)?;
-        let v = ops.transpose_axes(&v, 1, 2)?;
-
-        let q = ops.reshape(&q, &[batch * h, seq_len, d_k])?;
-        let k = ops.reshape(&k, &[batch * h, seq_len, d_k])?;
-        let v = ops.reshape(&v, &[batch * h, seq_len, d_k])?;
-
-        let mut k_t_results = Vec::with_capacity(batch * h);
-        for i in 0..(batch * h) {
-            let ki = ops.slice(&k, i, i + 1)?;
-            let ki_2d = ops.reshape(&ki, &[seq_len, d_k])?;
-            let ki_t = ops.transpose(&ki_2d)?;
-            k_t_results.push(ops.reshape(&ki_t, &[1, d_k, seq_len])?);
-        }
-        let k_t_refs: Vec<&B::Tensor> = k_t_results.iter().collect();
-        let k_t = ops.concat(&k_t_refs, 0)?;
-
-        let scores = ops.matmul_batched(&q, &k_t)?;
-        let scaled = ops.mul_scalar(&scores, self.scale)?;
-        let weights = ops.softmax_dim(&scaled, 2)?;
-        let attn_out = ops.matmul_batched(&weights, &v)?;
-
-        let attn_out = ops.reshape(&attn_out, &[batch, h, seq_len, d_k])?;
-        let attn_out = ops.transpose_axes(&attn_out, 1, 2)?;
-        let attn_out = ops.reshape(&attn_out, &[batch * seq_len, self.config.d_model])?;
-
-        let output = ops.matmul(&attn_out, self.out_proj.tensor())?;
-        ops.reshape(&output, &[batch, seq_len, self.config.d_model])
-    }
-}
-
-/// Placeholder for Flash Attention.
 pub struct FlashAttention<B: Backend> {
     inner: MultiHeadAttention<B>,
 }
 impl<B: Backend> FlashAttention<B> {
-    pub fn new(backend: &B, config: SelfAttentionConfig, seed: u64) -> Result<Self> {
-        Ok(Self { inner: MultiHeadAttention::new(backend, config, seed)? })
+    pub fn new(b: &B, c: SelfAttentionConfig, s: u64) -> Result<Self> {
+        Ok(Self { inner: MultiHeadAttention::new(b, c, s)? })
     }
 }
 impl<B: Backend> Module<B> for FlashAttention<B> {
     type Input = B::Tensor;
     type Output = B::Tensor;
-    fn forward(&self, input: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
-        self.inner.forward(input, ctx)
+    fn forward(&self, i: Self::Input, ctx: &mut ForwardCtx<B>) -> Result<Self::Output> {
+        self.inner.forward(i, ctx)
     }
 }
-
 impl<B: Backend> Trainable<B> for FlashAttention<B> {
     fn parameters(&self) -> Vec<ParameterRef> {
         self.inner.parameters()
     }
 }
-
 impl<B: Backend> NamedParameters<B> for FlashAttention<B> {
     fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
         self.inner.visit_parameters(f);
@@ -263,14 +202,13 @@ impl<B: Backend> NamedParameters<B> for FlashAttention<B> {
 }
 
 pub fn causal_mask<B: Backend>(backend: &B, seq_len: usize) -> Result<B::Tensor> {
-    let ops = backend.ops();
-    let mut mask_values = vec![0.0f32; seq_len * seq_len];
+    let mut v = vec![0.0f32; seq_len * seq_len];
     for i in 0..seq_len {
         for j in (i + 1)..seq_len {
-            mask_values[i * seq_len + j] = f32::NEG_INFINITY;
+            v[i * seq_len + j] = f32::NEG_INFINITY;
         }
     }
-    ops.tensor_from_vec(mask_values, &[seq_len, seq_len])
+    backend.ops().tensor_from_vec(v, &[seq_len, seq_len])
 }
 
 pub struct TransformerEncoderBlock<B: Backend> {
@@ -302,38 +240,36 @@ impl<B: Backend> Module<B> for TransformerEncoderBlock<B> {
         let attn_out = self.self_attn.forward(normed, ctx)?;
         let x = ops.add(&input, &attn_out)?;
         let normed = self.norm2.forward(x.clone(), ctx)?;
-        let ff_out = self.ff1.forward(normed, ctx)?;
-        let ff_out = ops.gelu(&ff_out)?;
-        let ff_out = self.ff2.forward(ff_out, ctx)?;
+        let ff_out = self.ff2.forward(ops.gelu(&self.ff1.forward(normed, ctx)?)?, ctx)?;
         ops.add(&x, &ff_out)
     }
 }
 
 impl<B: Backend> Trainable<B> for TransformerEncoderBlock<B> {
     fn parameters(&self) -> Vec<ParameterRef> {
-        let mut params = self.self_attn.parameters();
-        params.extend(self.norm1.parameters());
-        params.extend(self.ff1.parameters());
-        params.extend(self.ff2.parameters());
-        params.extend(self.norm2.parameters());
-        params
+        let mut p = self.self_attn.parameters();
+        p.extend(self.norm1.parameters());
+        p.extend(self.ff1.parameters());
+        p.extend(self.ff2.parameters());
+        p.extend(self.norm2.parameters());
+        p
     }
 }
 
 impl<B: Backend> NamedParameters<B> for TransformerEncoderBlock<B> {
     fn visit_parameters(&self, f: &mut dyn FnMut(&str, &Parameter<B>)) {
-        self.self_attn.visit_parameters(&mut |name, p| f(&format!("self_attn.{name}"), p));
-        self.norm1.visit_parameters(&mut |name, p| f(&format!("norm1.{name}"), p));
-        self.ff1.visit_parameters(&mut |name, p| f(&format!("ff1.{name}"), p));
-        self.ff2.visit_parameters(&mut |name, p| f(&format!("ff2.{name}"), p));
-        self.norm2.visit_parameters(&mut |name, p| f(&format!("norm2.{name}"), p));
+        self.self_attn.visit_parameters(&mut |n, p| f(&format!("self_attn.{n}"), p));
+        self.norm1.visit_parameters(&mut |n, p| f(&format!("norm1.{n}"), p));
+        self.ff1.visit_parameters(&mut |n, p| f(&format!("ff1.{n}"), p));
+        self.ff2.visit_parameters(&mut |n, p| f(&format!("ff2.{n}"), p));
+        self.norm2.visit_parameters(&mut |n, p| f(&format!("norm2.{n}"), p));
     }
     fn visit_parameters_mut(&mut self, f: &mut dyn FnMut(&str, &mut Parameter<B>)) {
-        self.self_attn.visit_parameters_mut(&mut |name, p| f(&format!("self_attn.{name}"), p));
-        self.norm1.visit_parameters_mut(&mut |name, p| f(&format!("norm1.{name}"), p));
-        self.ff1.visit_parameters_mut(&mut |name, p| f(&format!("ff1.{name}"), p));
-        self.ff2.visit_parameters_mut(&mut |name, p| f(&format!("ff2.{name}"), p));
-        self.norm2.visit_parameters_mut(&mut |name, p| f(&format!("norm2.{name}"), p));
+        self.self_attn.visit_parameters_mut(&mut |n, p| f(&format!("self_attn.{n}"), p));
+        self.norm1.visit_parameters_mut(&mut |n, p| f(&format!("norm1.{n}"), p));
+        self.ff1.visit_parameters_mut(&mut |n, p| f(&format!("ff1.{n}"), p));
+        self.ff2.visit_parameters_mut(&mut |n, p| f(&format!("ff2.{n}"), p));
+        self.norm2.visit_parameters_mut(&mut |n, p| f(&format!("norm2.{n}"), p));
     }
 }
 
@@ -341,15 +277,6 @@ impl<B: Backend> NamedParameters<B> for TransformerEncoderBlock<B> {
 pub struct FlashAttentionConfig {
     pub attention: SelfAttentionConfig,
     pub block_size: usize,
-}
-impl FlashAttentionConfig {
-    pub fn from_attention(attention: SelfAttentionConfig) -> Self {
-        Self { attention, block_size: 128 }
-    }
-    pub fn with_block_size(mut self, size: usize) -> Self {
-        self.block_size = size;
-        self
-    }
 }
 pub struct AttentionMemoryStats {
     pub seq_len: usize,
@@ -362,18 +289,16 @@ pub struct AttentionMemoryStats {
 }
 impl AttentionMemoryStats {
     pub fn calculate(seq_len: usize, batch_size: usize, num_heads: usize, head_dim: usize) -> Self {
-        let attn_matrix_size = seq_len * seq_len * batch_size * num_heads * 4;
-        let flash_size = seq_len * batch_size * num_heads * head_dim * 4;
-        let standard_total = attn_matrix_size + flash_size;
-        let flash_total = flash_size * 2;
+        let standard = seq_len * seq_len * batch_size * num_heads * 4;
+        let flash = seq_len * batch_size * num_heads * head_dim * 4;
         Self {
             seq_len,
             batch_size,
             num_heads,
             head_dim,
-            standard_memory_bytes: standard_total,
-            flash_memory_bytes: flash_total,
-            reduction_factor: standard_total as f32 / flash_total.max(1) as f32,
+            standard_memory_bytes: standard + flash,
+            flash_memory_bytes: flash * 2,
+            reduction_factor: (standard + flash) as f32 / (flash * 2) as f32,
         }
     }
 }

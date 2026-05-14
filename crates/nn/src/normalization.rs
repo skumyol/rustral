@@ -99,22 +99,18 @@ impl<B: Backend> Module<B> for LayerNorm<B> {
         }
 
         // Standard layer_norm in trait handles normalization over the last dimension.
-        // If we have multi-dim normalized_shape, we reshape to [prefix, product(normalized_shape)]
+        // We reshape to [prefix_prod, norm_elem_count]
         let norm_elem_count: usize = self.config.normalized_shape.iter().product();
         if norm_elem_count == 0 {
             return Ok(input);
         }
 
         let prefix_len = input_shape.len() - ndim;
-        let prefix_shape = &input_shape[..prefix_len];
-        let prefix_prod: usize = prefix_shape.iter().product();
+        let prefix_prod: usize = input_shape[..prefix_len].iter().product();
 
-        // Reshape to [prefix_prod, norm_elem_count]
         let flattened = ops.reshape(&input, &[prefix_prod, norm_elem_count])?;
-
         let output = ops.layer_norm(&flattened, self.weight.tensor(), self.bias.tensor(), self.config.eps)?;
 
-        // Reshape back to original shape
         ops.reshape(&output, &input_shape)
     }
 }
@@ -171,8 +167,6 @@ impl<B: Backend> Module<B> for BatchNorm<B> {
         let ops = ctx.backend().ops();
         let input_shape = ops.shape(&input);
 
-        // BatchNorm normalizes per-channel across the batch and spatial dimensions
-        // Expected input: [N, C, H, W] for 4D or [N, C] for 2D
         if input_shape.len() != 2 && input_shape.len() != 4 {
             return Err(rustral_core::CoreError::InvalidShape {
                 shape: input_shape.clone(),
@@ -191,40 +185,29 @@ impl<B: Backend> Module<B> for BatchNorm<B> {
         }
 
         if input_shape.len() == 2 {
-            // [N, C] -> Normalize over dim 0
-            let mean = ops.mean_dim(&input, 0, true)?; // [1, C]
-            let var = ops.var_dim(&input, 0, false, true)?; // [1, C]
-
+            let mean = ops.mean_dim(&input, 0, true)?;
+            let var = ops.var_dim(&input, 0, false, true)?;
             let x_centered = ops.sub(&input, &ops.broadcast_to(&mean, &input_shape)?)?;
             let std = ops.sqrt(&ops.add_scalar(&var, self.config.eps)?)?;
             let x_hat = ops.div(&x_centered, &ops.broadcast_to(&std, &input_shape)?)?;
-
-            // Apply learnable parameters: x_hat * weight + bias
             let weight_b = ops.broadcast_to(self.weight.tensor(), &input_shape)?;
             let bias_b = ops.broadcast_to(self.bias.tensor(), &input_shape)?;
-
             let y = ops.mul(&x_hat, &weight_b)?;
             ops.add(&y, &bias_b)
         } else {
-            // [N, C, H, W]
-            // We want to normalize over dimensions 0, 2, 3.
-            // Correct multi-dim variance: Var(X) = E[X^2] - (E[X])^2
+            // Correct 4D variance calculation: Var(X) = E[X^2] - (E[X])^2
+            let m0 = ops.mean_dim(&input, 0, true)?;
+            let m02 = ops.mean_dim(&m0, 2, true)?;
+            let mean = ops.mean_dim(&m02, 3, true)?;
 
-            // mean = E[X]
-            let m0 = ops.mean_dim(&input, 0, true)?; // [1, C, H, W]
-            let m02 = ops.mean_dim(&m0, 2, true)?; // [1, C, 1, W]
-            let mean = ops.mean_dim(&m02, 3, true)?; // [1, C, 1, 1]
-
-            // e_x2 = E[X^2]
             let x2 = ops.mul(&input, &input)?;
             let e0 = ops.mean_dim(&x2, 0, true)?;
             let e02 = ops.mean_dim(&e0, 2, true)?;
-            let e_x2 = ops.mean_dim(&e02, 3, true)?; // [1, C, 1, 1]
+            let e_x2 = ops.mean_dim(&e02, 3, true)?;
 
             let mean2 = ops.mul(&mean, &mean)?;
-            let var = ops.sub(&e_x2, &mean2)?; // [1, C, 1, 1]
+            let var = ops.sub(&e_x2, &mean2)?;
 
-            // Now normalize
             let mean_b = ops.broadcast_to(&mean, &input_shape)?;
             let x_centered = ops.sub(&input, &mean_b)?;
             let var_eps = ops.add_scalar(&var, self.config.eps)?;
@@ -232,11 +215,8 @@ impl<B: Backend> Module<B> for BatchNorm<B> {
             let std_b = ops.broadcast_to(&std, &input_shape)?;
             let x_hat = ops.div(&x_centered, &std_b)?;
 
-            // Apply weight and bias
-            // weight is [C]. Reshape to [1, C, 1, 1] then broadcast.
             let weight_4d = ops.reshape(self.weight.tensor(), &[1, channels, 1, 1])?;
             let bias_4d = ops.reshape(self.bias.tensor(), &[1, channels, 1, 1])?;
-
             let weight_b = ops.broadcast_to(&weight_4d, &input_shape)?;
             let bias_b = ops.broadcast_to(&bias_4d, &input_shape)?;
 

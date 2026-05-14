@@ -39,9 +39,6 @@ impl Vocabulary {
     }
 
     /// Insert a token and return its id.
-    ///
-    /// If the token already exists, returns the existing id. If the vocabulary
-    /// is frozen and the token is new, returns an error.
     pub fn insert(&mut self, token: impl Into<String>) -> Result<usize> {
         let token = token.into();
         if let Some(&id) = self.token_to_id.get(&token) {
@@ -72,8 +69,6 @@ impl Vocabulary {
     }
 
     /// Return true when there are no tokens.
-    ///
-    /// A vocabulary created with [`Vocabulary::with_specials`] is never empty.
     pub fn is_empty(&self) -> bool {
         self.id_to_token.is_empty()
     }
@@ -102,6 +97,78 @@ impl Vocabulary {
     pub fn tokens(&self) -> impl Iterator<Item = &str> {
         self.id_to_token.iter().map(String::as_str)
     }
+}
+
+/// Represents a span in a text (start and end token indices).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl Span {
+    pub fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+
+    pub fn length(&self) -> usize {
+        self.end - self.start
+    }
+
+    pub fn contains(&self, index: usize) -> bool {
+        index >= self.start && index < self.end
+    }
+}
+
+/// Represents a named entity in a text.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Entity {
+    pub span: Span,
+    pub label: String,
+    pub score: Option<f32>,
+}
+
+/// Represents a dependency relation between two tokens.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DependencyEdge {
+    pub head: usize,
+    pub dependent: usize,
+    pub relation: String,
+}
+
+/// Optimized structure for representing a dependency parse tree or graph.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DependencyGraph {
+    pub nodes: usize,
+    pub edges: Vec<DependencyEdge>,
+}
+
+impl DependencyGraph {
+    pub fn new(nodes: usize) -> Self {
+        Self { nodes, edges: Vec::new() }
+    }
+
+    pub fn add_edge(&mut self, head: usize, dependent: usize, relation: impl Into<String>) {
+        self.edges.push(DependencyEdge { head, dependent, relation: relation.into() });
+    }
+
+    /// Return children of a given head node.
+    pub fn children(&self, head: usize) -> Vec<usize> {
+        self.edges.iter().filter(|e| e.head == head).map(|e| e.dependent).collect()
+    }
+}
+
+/// Result of a label readout prediction.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LabelPrediction {
+    /// Predicted label string.
+    pub label: String,
+
+    /// Predicted label id.
+    pub id: usize,
+
+    /// Score associated with the prediction.
+    pub score: f32,
 }
 
 #[cfg(test)]
@@ -164,17 +231,23 @@ mod tests {
         let pred = LabelPrediction { label: "cat".to_string(), id: 0, score: 0.9 };
         assert_eq!(pred.label, "cat");
     }
-}
 
-/// Result of a label readout prediction.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct LabelPrediction {
-    /// Predicted label string.
-    pub label: String,
+    #[test]
+    fn test_span() {
+        let span = Span::new(5, 10);
+        assert_eq!(span.length(), 5);
+        assert!(span.contains(7));
+        assert!(!span.contains(10));
+    }
 
-    /// Predicted label id.
-    pub id: usize,
-
-    /// Score associated with the prediction.
-    pub score: f32,
+    #[test]
+    fn test_dependency_graph() {
+        let mut graph = DependencyGraph::new(5);
+        graph.add_edge(0, 1, "nsubj");
+        graph.add_edge(0, 2, "obj");
+        let children = graph.children(0);
+        assert_eq!(children.len(), 2);
+        assert!(children.contains(&1));
+        assert!(children.contains(&2));
+    }
 }
