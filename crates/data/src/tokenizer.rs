@@ -224,3 +224,41 @@ mod tests {
         assert!(tok.vocab.id_of.contains_key("y"));
     }
 }
+
+/// Simple subword tokenizer (WordPiece-style prefix matching).
+#[derive(Clone, Debug)]
+pub struct SubwordTokenizer {
+    pub vocab: Vocab,
+}
+
+impl SubwordTokenizer {
+    pub fn new(vocab: Vocab) -> Self {
+        Self { vocab }
+    }
+
+    /// Basic greedy subword encoding.
+    pub fn encode(&self, text: &str) -> Vec<usize> {
+        let mut ids = Vec::new();
+        for word in text.split_whitespace() {
+            let mut remaining = word;
+            while !remaining.is_empty() {
+                let mut best_match = None;
+                for i in (1..=remaining.len()).rev() {
+                    let sub = &remaining[..i];
+                    if self.vocab.id_of.contains_key(sub) {
+                        best_match = Some(sub);
+                        break;
+                    }
+                }
+                if let Some(m) = best_match {
+                    ids.push(self.vocab.lookup(m));
+                    remaining = &remaining[m.len()..];
+                } else {
+                    ids.push(self.vocab.unk_id);
+                    break;
+                }
+            }
+        }
+        ids
+    }
+}

@@ -158,6 +158,30 @@ impl DependencyGraph {
     }
 }
 
+/// A basic token in a document.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Token {
+    pub text: String,
+    pub id: usize,
+    pub span: Span,
+    pub pos: Option<String>,
+}
+
+/// A sentence within a document.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Sentence {
+    pub tokens: Vec<Token>,
+    pub dependency_graph: Option<DependencyGraph>,
+}
+
+/// A full document with linguistic metadata.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Document {
+    pub text: String,
+    pub sentences: Vec<Sentence>,
+    pub entities: Vec<Entity>,
+}
+
 /// Result of a label readout prediction.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LabelPrediction {
@@ -249,5 +273,32 @@ mod tests {
         assert_eq!(children.len(), 2);
         assert!(children.contains(&1));
         assert!(children.contains(&2));
+    }
+
+    #[test]
+    fn test_document_structure() {
+        let mut doc =
+            Document { text: "Bolt is fast.".to_string(), sentences: Vec::new(), entities: Vec::new() };
+
+        let mut sentence = Sentence {
+            tokens: vec![
+                Token { text: "Bolt".to_string(), id: 0, span: Span::new(0, 4), pos: Some("NNP".into()) },
+                Token { text: "is".to_string(), id: 1, span: Span::new(5, 7), pos: Some("VBZ".into()) },
+                Token { text: "fast".to_string(), id: 2, span: Span::new(8, 12), pos: Some("JJ".into()) },
+                Token { text: ".".to_string(), id: 3, span: Span::new(12, 13), pos: Some(".".into()) },
+            ],
+            dependency_graph: None,
+        };
+
+        let mut graph = DependencyGraph::new(4);
+        graph.add_edge(1, 0, "nsubj");
+        graph.add_edge(1, 2, "acomp");
+        sentence.dependency_graph = Some(graph);
+
+        doc.sentences.push(sentence);
+        doc.entities.push(Entity { span: Span::new(0, 4), label: "PER".into(), score: Some(0.99) });
+
+        assert_eq!(doc.sentences[0].tokens.len(), 4);
+        assert_eq!(doc.entities[0].label, "PER");
     }
 }

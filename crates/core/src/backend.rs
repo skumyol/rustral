@@ -284,6 +284,39 @@ pub trait TensorOps<B: Backend>: Send + Sync {
     /// This method allows backends to provide a highly optimized fused kernel
     /// for layer normalization, which is a critical operation in transformer models.
     /// Default implementation uses standard trait operations.
+    /// Batch normalization.
+    fn batch_norm(&self, x: &B::Tensor, gamma: &B::Tensor, beta: &B::Tensor, eps: f32) -> Result<B::Tensor> {
+        let shape = self.shape(x);
+        if shape.len() != 2 && shape.len() != 4 {
+            return Err(CoreError::InvalidShape { shape, reason: "BatchNorm expects 2D or 4D input".into() });
+        }
+        let channels = shape[1];
+        if shape.len() == 2 {
+            let mean = self.mean_dim(x, 0, true)?;
+            let var = self.var_dim(x, 0, false, true)?;
+            let x_centered = self.sub(x, &self.broadcast_to(&mean, &shape)?)?;
+            let std = self.sqrt(&self.add_scalar(&var, eps)?)?;
+            let x_hat = self.div(&x_centered, &self.broadcast_to(&std, &shape)?)?;
+            let y = self.mul(&x_hat, &self.broadcast_to(gamma, &shape)?)?;
+            self.add(&y, &self.broadcast_to(beta, &shape)?)
+        } else {
+            let m0 = self.mean_dim(x, 0, true)?;
+            let m02 = self.mean_dim(&m0, 2, true)?;
+            let mean = self.mean_dim(&m02, 3, true)?;
+            let x2 = self.mul(x, x)?;
+            let e0 = self.mean_dim(&x2, 0, true)?;
+            let e02 = self.mean_dim(&e0, 2, true)?;
+            let e_x2 = self.mean_dim(&e02, 3, true)?;
+            let var = self.sub(&e_x2, &self.mul(&mean, &mean)?)?;
+            let x_centered = self.sub(x, &self.broadcast_to(&mean, &shape)?)?;
+            let std = self.sqrt(&self.add_scalar(&var, eps)?)?;
+            let x_hat = self.div(&x_centered, &self.broadcast_to(&std, &shape)?)?;
+            let weight_4d = self.reshape(gamma, &[1, channels, 1, 1])?;
+            let bias_4d = self.reshape(beta, &[1, channels, 1, 1])?;
+            let y = self.mul(&x_hat, &self.broadcast_to(&weight_4d, &shape)?)?;
+            self.add(&y, &self.broadcast_to(&bias_4d, &shape)?)
+        }
+    }
     fn layer_norm(&self, x: &B::Tensor, gamma: &B::Tensor, beta: &B::Tensor, eps: f32) -> Result<B::Tensor> {
         let shape = self.shape(x);
         let ndim = shape.len();

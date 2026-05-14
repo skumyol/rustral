@@ -3456,8 +3456,11 @@ dependencies = [
 name = "rustral-bench"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "candle-core",
+ "candle-nn",
  "criterion",
+ "rand 0.8.6",
  "rustral-autodiff",
  "rustral-candle-backend",
  "rustral-core",
@@ -3465,6 +3468,7 @@ dependencies = [
  "rustral-nn",
  "rustral-optim",
  "rustral-runtime",
+ "serde",
  "serde_json",
 ]
 

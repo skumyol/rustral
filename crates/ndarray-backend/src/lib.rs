@@ -1480,6 +1480,55 @@ impl TensorOps<CpuBackend> for CpuOps {
         CpuTensor::new(vec![nll_sum / batch_size as f32], &[1])
     }
 
+    fn matmul_batched(&self, a: &CpuTensor, b: &CpuTensor) -> Result<CpuTensor> {
+        let a_shape = self.shape(a);
+        let b_shape = self.shape(b);
+        if a_shape.len() != 3 || b_shape.len() != 3 {
+            return Err(CoreError::InvalidShape {
+                shape: a_shape,
+                reason: "matmul_batched expects rank-3".into(),
+            });
+        }
+        let (batch, m, k) = (a_shape[0], a_shape[1], a_shape[2]);
+        let n = b_shape[2];
+
+        let mut out = vec![0.0f32; batch * m * n];
+
+        if batch * m * n > 4096 {
+            use rayon::prelude::*;
+            out.par_chunks_exact_mut(m * n).enumerate().for_each(|(i, chunk)| {
+                let ai = &a.values()[i * m * k..(i + 1) * m * k];
+                let bi = &b.values()[i * k * n..(i + 1) * k * n];
+
+                // sgemm for each batch item
+                for ii in 0..m {
+                    for jj in 0..n {
+                        let mut sum = 0.0f32;
+                        for kk in 0..k {
+                            sum += ai[ii * k + kk] * bi[kk * n + jj];
+                        }
+                        chunk[ii * n + jj] = sum;
+                    }
+                }
+            });
+        } else {
+            for i in 0..batch {
+                let ai = &a.values()[i * m * k..(i + 1) * m * k];
+                let bi = &b.values()[i * k * n..(i + 1) * k * n];
+                let offset = i * m * n;
+                for ii in 0..m {
+                    for jj in 0..n {
+                        let mut sum = 0.0f32;
+                        for kk in 0..k {
+                            sum += ai[ii * k + kk] * bi[kk * n + jj];
+                        }
+                        out[offset + ii * n + jj] = sum;
+                    }
+                }
+            }
+        }
+        CpuTensor::new(out, &[batch, m, n])
+    }
     fn transpose_axes(&self, x: &CpuTensor, dim0: usize, dim1: usize) -> Result<CpuTensor> {
         let shape = self.shape(x);
         if shape.len() == 4 {
