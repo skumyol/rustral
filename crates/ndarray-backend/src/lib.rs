@@ -1477,7 +1477,7 @@ impl TensorOps<CpuBackend> for CpuOps {
             }
         }
 
-        Ok(CpuTensor::new(vec![nll_sum / batch_size as f32], &[1])?)
+        CpuTensor::new(vec![nll_sum / batch_size as f32], &[1])
     }
 
     fn transpose_axes(&self, x: &CpuTensor, dim0: usize, dim1: usize) -> Result<CpuTensor> {
@@ -1502,7 +1502,7 @@ impl TensorOps<CpuBackend> for CpuOps {
                         }
                     }
                 }
-                return Ok(CpuTensor::new(out, &[b, h, s, d])?);
+                return CpuTensor::new(out, &[b, h, s, d]);
             }
         }
         // Fallback or Error

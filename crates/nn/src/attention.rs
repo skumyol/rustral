@@ -8,11 +8,6 @@ use rustral_core::{
 };
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "autodiff")]
-use crate::tape::TapeModule;
-#[cfg(feature = "autodiff")]
-use rustral_autodiff::{Tape, TensorId};
-
 /// Configuration for self-attention.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SelfAttentionConfig {
