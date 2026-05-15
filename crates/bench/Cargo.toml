@@ -20,6 +20,7 @@ cuda = ["rustral-candle-backend/cuda"]
 metal = ["rustral-candle-backend/metal"]
 
 [dependencies]
+rustral-symbolic = { path = "../symbolic", version = "0.1.0" }
 rustral-core = { path = "../core", version = "0.1.0" }
 rustral-ndarray-backend = { path = "../ndarray-backend", version = "0.1.0" }
 rustral-candle-backend = { path = "../candle-backend", version = "0.1.0" }

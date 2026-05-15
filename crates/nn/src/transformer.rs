@@ -63,7 +63,7 @@ pub struct PositionalEncoding<B: Backend> {
 
 impl<B: Backend> PositionalEncoding<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     /// Create positional encoding.
     pub fn new(backend: &B, d_model: usize, max_len: usize) -> Result<Self> {
@@ -96,16 +96,15 @@ where
             )));
         }
 
-        // Slice to [seq_len, d_model]
-        let data: Vec<f32> = self.encoding.as_ref().to_vec();
-        let sliced: Vec<f32> = data[..seq_len * self.d_model].to_vec();
-        ops.tensor_from_vec(sliced, &[seq_len, self.d_model])
+        // Use backend-agnostic slice/narrow if available, or fallback to tensor_to_vec
+        // For now, use slice if the rank is 2.
+        ops.slice(&self.encoding, 0, seq_len)
     }
 }
 
 impl<B: Backend> Module<B> for PositionalEncoding<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     type Input = B::Tensor;
     type Output = B::Tensor;
@@ -216,7 +215,7 @@ pub struct TransformerEncoderLayer<B: Backend> {
 
 impl<B: Backend> TransformerEncoderLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     /// Create encoder layer.
     pub fn new(backend: &B, config: &TransformerEncoderConfig, seed: u64) -> Result<Self> {
@@ -296,7 +295,7 @@ where
 
 impl<B: Backend> Module<B> for TransformerEncoderLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     type Input = B::Tensor;
     type Output = B::Tensor;
@@ -386,7 +385,7 @@ pub struct TransformerEncoder<B: Backend> {
 
 impl<B: Backend> TransformerEncoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     /// Create transformer encoder.
     pub fn new(backend: &B, config: TransformerEncoderConfig, vocab_size: usize, seed: u64) -> Result<Self> {
@@ -464,19 +463,22 @@ where
     }
 
     /// Get CLS token representation (first token) for classification.
-    pub fn cls_token(&self, encoded: &B::Tensor, ops: &dyn TensorOps<B>) -> Result<B::Tensor>
-    where
-        B::Tensor: AsRef<[f32]>,
-    {
+    pub fn cls_token(&self, encoded: &B::Tensor, ops: &dyn TensorOps<B>) -> Result<B::Tensor> {
         // Extract first position: [batch, seq_len, d_model] → [batch, d_model]
         let shape = ops.shape(encoded);
         let batch_size = shape[0];
+        let seq_len = shape[1];
         let d_model = shape[2];
 
-        // In real impl, would use gather/slice
-        let data: Vec<f32> = encoded.as_ref().iter().take(batch_size * d_model).copied().collect();
+        // We want indices 0, seq_len, 2*seq_len, ...
+        let indices: Vec<f32> = (0..batch_size).map(|i| (i * seq_len) as f32).collect();
+        let indices_tensor = ops.tensor_from_vec(indices, &[batch_size])?;
 
-        ops.tensor_from_vec(data, &[batch_size, d_model])
+        let flat = ops.reshape(encoded, &[batch_size * seq_len, d_model])?;
+        let gathered = ops.gather(&flat, &indices_tensor, 0)?;
+
+        // Output is [batch_size, d_model]
+        ops.reshape(&gathered, &[batch_size, d_model])
     }
 
     /// Configuration.
@@ -487,7 +489,7 @@ where
 
 impl<B: Backend> Module<B> for TransformerEncoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     type Input = Vec<usize>;
     type Output = B::Tensor;
@@ -619,7 +621,7 @@ pub struct TransformerDecoderLayer<B: Backend> {
 
 impl<B: Backend> TransformerDecoderLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     pub fn new(backend: &B, config: &TransformerDecoderConfig, seed: u64) -> Result<Self> {
         let attn_config =
@@ -679,7 +681,7 @@ where
 
 impl<B: Backend> Module<B> for TransformerDecoderLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     type Input = B::Tensor;
     type Output = B::Tensor;
@@ -763,7 +765,7 @@ pub struct TransformerDecoder<B: Backend> {
 
 impl<B: Backend> TransformerDecoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     pub fn new(backend: &B, config: TransformerDecoderConfig, vocab_size: usize, seed: u64) -> Result<Self> {
         let token_embedding =
@@ -834,25 +836,20 @@ where
     }
 
     /// Generate next token autoregressively.
-    pub fn generate_token(&self, prefix: Vec<usize>, ctx: &mut ForwardCtx<B>) -> Result<u32>
-    where
-        B::Tensor: AsRef<[f32]>,
-    {
+    pub fn generate_token(&self, prefix: Vec<usize>, ctx: &mut ForwardCtx<B>) -> Result<u32> {
         let logits = self.forward(prefix, ctx)?;
-        let shape = ctx.backend().ops().shape(&logits);
+        let ops = ctx.backend().ops();
+        let shape = ops.shape(&logits);
+        let batch = shape[0];
+        let seq_len = shape[1];
         let vocab_size = shape[2];
 
         // Get logits for last position
-        let last_logits: Vec<f32> = logits
-            .as_ref()
-            .iter()
-            .skip((shape[0] - 1) * shape[1] * vocab_size)
-            .take(vocab_size)
-            .copied()
-            .collect();
+        let data = ops.tensor_to_vec(&logits)?;
+        let last_logits = &data[(batch - 1) * seq_len * vocab_size + (seq_len - 1) * vocab_size..];
 
         // Greedy decode
-        let (idx, _) = last_logits
+        let (idx, _) = last_logits[..vocab_size]
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
@@ -864,7 +861,7 @@ where
 
 impl<B: Backend> Module<B> for TransformerDecoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     type Input = Vec<usize>;
     type Output = B::Tensor;
@@ -998,7 +995,7 @@ pub struct TransformerEncoderDecoder<B: Backend> {
 
 impl<B: Backend> TransformerEncoderDecoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     /// Create encoder-decoder model.
     pub fn new(
@@ -1040,10 +1037,7 @@ where
         bos_token: u32,
         eos_token: u32,
         ctx: &mut ForwardCtx<B>,
-    ) -> Result<Vec<u32>>
-    where
-        B::Tensor: AsRef<[f32]>,
-    {
+    ) -> Result<Vec<u32>> {
         // Start with BOS
         let mut tokens = vec![bos_token as usize];
 
@@ -1055,13 +1049,8 @@ where
             let vocab_size = shape[2];
 
             // Get last token logits
-            let last_logits: Vec<f32> = logits
-                .as_ref()
-                .iter()
-                .skip((tokens.len() - 1) * vocab_size)
-                .take(vocab_size)
-                .copied()
-                .collect();
+            let data = ops.tensor_to_vec(&logits)?;
+            let last_logits = &data[(tokens.len() - 1) * vocab_size..];
 
             // Greedy decode
             let next_token = last_logits

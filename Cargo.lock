@@ -3468,6 +3468,7 @@ dependencies = [
  "rustral-nn",
  "rustral-optim",
  "rustral-runtime",
+ "rustral-symbolic",
  "serde",
  "serde_json",
 ]

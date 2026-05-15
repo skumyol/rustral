@@ -457,6 +457,17 @@ pub trait TensorOps<B: Backend>: Send + Sync {
     /// This is useful for retrieving specific values from 1D tensors,
     /// such as probability scores or logits at particular indices.
     fn tensor_element(&self, x: &B::Tensor, index: usize) -> Result<f32>;
+    /// Gather values from a tensor along an axis using index indices.
+    ///
+    /// `input` tensor of shape `[...]`; `indices` tensor of shape `[K]`.
+    /// Currently only supports gathering along dimension 0.
+    fn gather(&self, input: &B::Tensor, indices: &B::Tensor, axis: usize) -> Result<B::Tensor> {
+        let _ = indices;
+        let _ = axis;
+        let shape = self.shape(input);
+        Err(CoreError::Other(format!("gather not supported by this backend for shape {:?}", shape)))
+    }
+
     /// Batched matrix multiplication: `[B, M, K] x [B, K, N] -> [B, M, N]`.
     ///
     /// Default implementation uses a loop over the batch dimension.

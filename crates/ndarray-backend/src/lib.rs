@@ -698,6 +698,29 @@ impl TensorOps<CpuBackend> for CpuOps {
         CpuTensor::new(values, &new_shape)
     }
 
+    fn gather(&self, input: &CpuTensor, indices: &CpuTensor, axis: usize) -> Result<CpuTensor> {
+        if axis != 0 {
+            return Err(CoreError::Other("CpuOps only supports gather on axis 0".into()));
+        }
+        let input_shape = self.shape(input);
+        let indices_vals = &indices.values;
+        let elem_per_row: usize = input_shape.iter().skip(1).product();
+        let mut out = Vec::with_capacity(indices_vals.len() * elem_per_row);
+
+        for &idx in indices_vals {
+            let i = idx as usize;
+            if i >= input_shape[0] {
+                return Err(CoreError::InvalidArgument(format!("index {} out of bounds for axis 0 size {}", i, input_shape[0])));
+            }
+            let start = i * elem_per_row;
+            out.extend_from_slice(&input.values[start..start + elem_per_row]);
+        }
+
+        let mut out_shape = input_shape;
+        out_shape[0] = indices_vals.len();
+        CpuTensor::new(out, &out_shape)
+    }
+
     /// Slice a tensor along dimension 0.
     fn slice(&self, x: &CpuTensor, start: usize, end: usize) -> Result<CpuTensor> {
         if start >= end || end > x.shape[0] {
@@ -1531,30 +1554,51 @@ impl TensorOps<CpuBackend> for CpuOps {
     }
     fn transpose_axes(&self, x: &CpuTensor, dim0: usize, dim1: usize) -> Result<CpuTensor> {
         let shape = self.shape(x);
-        if shape.len() == 4 {
-            // Basic 4D transpose [B, S, H, D] -> [B, H, S, D]
-            if dim0 == 1 && dim1 == 2 {
-                let b = shape[0];
-                let s = shape[1];
-                let h = shape[2];
-                let d = shape[3];
-                let mut out = vec![0.0f32; b * s * h * d];
-                let val = x.values();
-                for i in 0..b {
-                    for j in 0..s {
-                        for k in 0..h {
-                            for l in 0..d {
-                                let old_idx = ((i * s + j) * h + k) * d + l;
-                                let new_idx = ((i * h + k) * s + j) * d + l;
-                                out[new_idx] = val[old_idx];
-                            }
+        let mut d0 = dim0;
+        let mut d1 = dim1;
+        if d0 > d1 {
+            std::mem::swap(&mut d0, &mut d1);
+        }
+
+        if shape.len() == 4 && d0 == 1 && d1 == 2 {
+            let b = shape[0];
+            let s = shape[1];
+            let h = shape[2];
+            let d = shape[3];
+            let mut out = vec![0.0f32; b * s * h * d];
+            let val = x.values();
+            for i in 0..b {
+                for j in 0..s {
+                    for k in 0..h {
+                        for l in 0..d {
+                            let old_idx = ((i * s + j) * h + k) * d + l;
+                            let new_idx = ((i * h + k) * s + j) * d + l;
+                            out[new_idx] = val[old_idx];
                         }
                     }
                 }
-                return CpuTensor::new(out, &[b, h, s, d]);
             }
+            return CpuTensor::new(out, &[b, h, s, d]);
         }
-        // Fallback or Error
+
+        if shape.len() == 3 && d0 == 1 && d1 == 2 {
+            let b = shape[0];
+            let m = shape[1];
+            let n = shape[2];
+            let mut out = vec![0.0f32; b * m * n];
+            let val = x.values();
+            for i in 0..b {
+                for j in 0..m {
+                    for k in 0..n {
+                        let old_idx = (i * m + j) * n + k;
+                        let new_idx = (i * n + k) * m + j;
+                        out[new_idx] = val[old_idx];
+                    }
+                }
+            }
+            return CpuTensor::new(out, &[b, n, m]);
+        }
+
         if dim0 == 0 && dim1 == 1 && shape.len() == 2 {
             return self.transpose(x);
         }

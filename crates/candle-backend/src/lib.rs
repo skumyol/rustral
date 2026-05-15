@@ -41,7 +41,11 @@ impl CandleBackend {
         }
     }
     pub fn new() -> Self {
-        Self::cpu()
+        if let Ok(backend) = Self::cuda(0) {
+            backend
+        } else {
+            Self::cpu()
+        }
     }
     pub fn tensor_from_vec(&self, values: Vec<f32>, shape: &[usize]) -> Result<Tensor> {
         Tensor::from_vec(values, shape, &self.device).map_err(|e| CoreError::Backend(e.to_string()))
@@ -303,6 +307,9 @@ impl TensorOps<CandleBackend> for CandleOps {
             .to_scalar::<f32>()
             .map_err(|e| CoreError::Backend(e.to_string()))?;
         Ok(v)
+    }
+    fn gather(&self, input: &Tensor, indices: &Tensor, axis: usize) -> Result<Tensor> {
+        input.index_select(indices, axis).map_err(|e| CoreError::Backend(e.to_string()))
     }
     fn matmul_batched(&self, a: &Tensor, b: &Tensor) -> Result<Tensor> {
         a.matmul(b).map_err(|e| CoreError::Backend(e.to_string()))

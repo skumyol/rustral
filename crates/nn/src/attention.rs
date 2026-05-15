@@ -124,21 +124,27 @@ impl<B: Backend> Module<B> for MultiHeadAttention<B> {
         let (batch, seq_len, d_model) = (shape[0], shape[1], shape[2]);
         let (h, d_k) = (self.config.num_heads, self.config.head_dim);
         let flat = ops.reshape(&input, &[batch * seq_len, d_model])?;
+
         let q = ops.reshape(&ops.matmul(&flat, self.q_proj.tensor())?, &[batch, seq_len, h, d_k])?;
         let k = ops.reshape(&ops.matmul(&flat, self.k_proj.tensor())?, &[batch, seq_len, h, d_k])?;
         let v = ops.reshape(&ops.matmul(&flat, self.v_proj.tensor())?, &[batch, seq_len, h, d_k])?;
+
+        // [B, S, H, D] -> [B, H, S, D] -> [B*H, S, D]
         let q = ops.reshape(&ops.transpose_axes(&q, 1, 2)?, &[batch * h, seq_len, d_k])?;
         let k = ops.reshape(&ops.transpose_axes(&k, 1, 2)?, &[batch * h, seq_len, d_k])?;
         let v = ops.reshape(&ops.transpose_axes(&v, 1, 2)?, &[batch * h, seq_len, d_k])?;
-        let mut k_t_v = Vec::with_capacity(batch * h);
-        for i in 0..(batch * h) {
-            let ki = ops.reshape(&ops.slice(&k, i, i + 1)?, &[seq_len, d_k])?;
-            k_t_v.push(ops.reshape(&ops.transpose(&ki)?, &[1, d_k, seq_len])?);
-        }
-        let k_t = ops.concat(&k_t_v.iter().collect::<Vec<_>>(), 0)?;
+
+        // [B*H, S, D] -> [B*H, D, S] for K^T
+        let k_t = ops.transpose_axes(&k, 1, 2)?;
+
+        // Parallel dot product over all heads: [B*H, S, D] x [B*H, D, S] -> [B*H, S, S]
         let scores = ops.matmul_batched(&q, &k_t)?;
         let attn = ops.softmax_dim(&ops.mul_scalar(&scores, self.scale)?, 2)?;
+
+        // [B*H, S, S] x [B*H, S, D] -> [B*H, S, D]
         let attn_out = ops.matmul_batched(&attn, &v)?;
+
+        // [B*H, S, D] -> [B, H, S, D] -> [B, S, H, D]
         let attn_out = ops.transpose_axes(&ops.reshape(&attn_out, &[batch, h, seq_len, d_k])?, 1, 2)?;
         let output =
             ops.matmul(&ops.reshape(&attn_out, &[batch * seq_len, d_model])?, self.out_proj.tensor())?;

@@ -154,6 +154,8 @@ Every Rust binary tags each sample with `device` (e.g. `cpu`, `cuda:0`, `metal:0
 | `matmul` | yes | yes | yes |
 | `attention.{small,medium}` | yes | yes | yes |
 | `conv2d.{small,medium,large}` | yes | yes | yes |
+| `nlp.full_pipeline` | yes | yes | yes |
+| `nlp.symbolic_ops` | yes | n/a | n/a |
 | `lstm_forward.{small,medium,large}` | yes (weight layout fixed) | skipped (would need `candle-nn`) | skipped (kept to operator parity for now) |
 | `mlp_train_step` | yes (Adam, no host probes in hot loop) | skipped (training APIs) | skipped (kept to operator parity for now) |
 | `optimizer_step.{sgd,adam}` | yes (10M params default; `--profile heavy` for 100M) | n/a | n/a |
