@@ -36,7 +36,10 @@ mod search;
 mod tuner;
 
 pub use cache::{CacheEntry, ConfigCache, TuningCache};
-pub use kernel_config::{BlockSize, ConfigSpace, KernelConfig, MatmulAlgorithm, MatmulDimBucket, MatmulShapeBucket, WorkgroupConfig};
+pub use kernel_config::{
+    BlockSize, ConfigSpace, KernelConfig, MatmulAlgorithm, MatmulDimBucket, MatmulShapeBucket,
+    WorkgroupConfig,
+};
 pub use search::{BayesianSearch, GridSearch, RandomSearch, SearchStrategy};
 pub use tuner::{AutoTuner, TunerConfig, TuningResult, TuningSession};
 

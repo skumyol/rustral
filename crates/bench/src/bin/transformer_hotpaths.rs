@@ -75,7 +75,7 @@ fn bench_self_attention(backend: &CpuBackend, repeats: usize, warmup: usize, out
         let config = SelfAttentionConfig::new(d_model, 4).with_dropout(0.0);
         let attention = MultiHeadAttention::new(backend, config, 42).unwrap();
 
-        let x = backend.tensor_from_vec(vec![0.01f32; seq_len * d_model], &[seq_len, d_model]).unwrap();
+        let x = backend.tensor_from_vec(vec![0.01f32; seq_len * d_model], &[1, seq_len, d_model]).unwrap();
 
         let runs = time_runs(
             || {
@@ -108,7 +108,7 @@ fn bench_multi_head_attention(backend: &CpuBackend, repeats: usize, warmup: usiz
         let config = SelfAttentionConfig::new(d_model, num_heads).with_dropout(0.0);
         let attention = MultiHeadAttention::new(backend, config, 42).unwrap();
 
-        let x = backend.tensor_from_vec(vec![0.01f32; seq_len * d_model], &[seq_len, d_model]).unwrap();
+        let x = backend.tensor_from_vec(vec![0.01f32; seq_len * d_model], &[1, seq_len, d_model]).unwrap();
 
         let runs = time_runs(
             || {
@@ -144,7 +144,9 @@ fn bench_feed_forward_gelu(backend: &CpuBackend, repeats: usize, warmup: usize, 
         let linear1 = Linear::new(backend, config1).unwrap();
         let linear2 = Linear::new(backend, config2).unwrap();
 
-        let x = backend.tensor_from_vec(vec![0.01f32; batch * seq_len * d_model], &[batch, seq_len, d_model]).unwrap();
+        let x = backend
+            .tensor_from_vec(vec![0.01f32; batch * seq_len * d_model], &[batch, seq_len, d_model])
+            .unwrap();
 
         let runs = time_runs(
             || {
@@ -183,7 +185,9 @@ fn bench_feed_forward_relu(backend: &CpuBackend, repeats: usize, warmup: usize, 
         let linear1 = Linear::new(backend, config1).unwrap();
         let linear2 = Linear::new(backend, config2).unwrap();
 
-        let x = backend.tensor_from_vec(vec![0.01f32; batch * seq_len * d_model], &[batch, seq_len, d_model]).unwrap();
+        let x = backend
+            .tensor_from_vec(vec![0.01f32; batch * seq_len * d_model], &[batch, seq_len, d_model])
+            .unwrap();
 
         let runs = time_runs(
             || {
@@ -216,7 +220,9 @@ fn bench_layer_norm(backend: &CpuBackend, repeats: usize, warmup: usize, out: &m
         let config = LayerNormConfig::new(vec![d_model]);
         let layer_norm = LayerNorm::new(backend, config, 42).unwrap();
 
-        let x = backend.tensor_from_vec(vec![0.01f32; batch * seq_len * d_model], &[batch, seq_len, d_model]).unwrap();
+        let x = backend
+            .tensor_from_vec(vec![0.01f32; batch * seq_len * d_model], &[batch, seq_len, d_model])
+            .unwrap();
 
         let runs = time_runs(
             || {
@@ -241,12 +247,15 @@ fn bench_layer_norm(backend: &CpuBackend, repeats: usize, warmup: usize, out: &m
 }
 
 /// Benchmark complete transformer encoder layer
-fn bench_transformer_encoder_layer(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
-    for &(batch, seq_len, d_model, num_heads, d_ff) in &[
-        (4, 64, 256, 4, 1024),
-        (8, 128, 512, 8, 2048),
-        (16, 256, 768, 12, 3072),
-    ] {
+fn bench_transformer_encoder_layer(
+    backend: &CpuBackend,
+    repeats: usize,
+    warmup: usize,
+    out: &mut Vec<Sample>,
+) {
+    for &(batch, seq_len, d_model, num_heads, d_ff) in
+        &[(4, 64, 256, 4, 1024), (8, 128, 512, 8, 2048), (16, 256, 768, 12, 3072)]
+    {
         let config = TransformerEncoderConfig::new(d_model, num_heads, d_ff, 6).with_dropout(0.1);
         let encoder = TransformerEncoder::new(backend, config, 1000, 42).unwrap();
 
@@ -286,8 +295,12 @@ fn bench_residual_connection(backend: &CpuBackend, repeats: usize, warmup: usize
     let config = LayerNormConfig::new(vec![d_model]);
     let layer_norm = LayerNorm::new(backend, config, 42).unwrap();
 
-    let x = backend.tensor_from_vec(vec![0.01f32; batch * seq_len * d_model], &[batch, seq_len, d_model]).unwrap();
-    let residual = backend.tensor_from_vec(vec![0.02f32; batch * seq_len * d_model], &[batch, seq_len, d_model]).unwrap();
+    let x = backend
+        .tensor_from_vec(vec![0.01f32; batch * seq_len * d_model], &[batch, seq_len, d_model])
+        .unwrap();
+    let residual = backend
+        .tensor_from_vec(vec![0.02f32; batch * seq_len * d_model], &[batch, seq_len, d_model])
+        .unwrap();
 
     let runs = time_runs(
         || {

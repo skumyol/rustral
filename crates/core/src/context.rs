@@ -52,13 +52,7 @@ pub struct ForwardCtx<'a, B: Backend> {
 impl<'a, B: Backend> ForwardCtx<'a, B> {
     /// Create a new forward context for the given backend and mode.
     pub fn new(backend: &'a B, mode: Mode) -> Self {
-        Self {
-            backend,
-            mode,
-            run_id: RunId::fresh(),
-            profiler: None,
-            shape_policy: ShapePolicy::default(),
-        }
+        Self { backend, mode, run_id: RunId::fresh(), profiler: None, shape_policy: ShapePolicy::default() }
     }
 
     /// Attach an operation profiler for this forward pass (and any nested forwards using the same ctx).

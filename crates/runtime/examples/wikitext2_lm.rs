@@ -53,7 +53,9 @@ mod runner {
     use rustral_autodiff::{Tape, TensorId};
     #[cfg(feature = "cuda")]
     use rustral_candle_backend::CandleBackend;
-    use rustral_core::{Backend, ForwardCtx, Mode, NamedParameters, Parameter, PoolStrategy, Result, TensorPool};
+    use rustral_core::{
+        Backend, ForwardCtx, Mode, NamedParameters, Parameter, PoolStrategy, Result, TensorPool,
+    };
     use rustral_data::datasets::wikitext2::load_wikitext2;
     use rustral_data::tokenizer::{WordLevelConfig, WordLevelTokenizer};
     #[cfg(not(feature = "cuda"))]

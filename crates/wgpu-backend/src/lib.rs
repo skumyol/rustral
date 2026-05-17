@@ -476,12 +476,7 @@ impl ComputeKernelCache {
     /// Create a new kernel cache with pre-loaded shader code.
     fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
         let shader_code = include_str!("shaders.wgsl").to_string();
-        Self {
-            device,
-            queue,
-            kernels: HashMap::new(),
-            shader_code,
-        }
+        Self { device, queue, kernels: HashMap::new(), shader_code }
     }
 
     fn select_entry_point(base: &str, workgroup_size: u32, vectorized: bool) -> String {
@@ -498,7 +493,8 @@ impl ComputeKernelCache {
     /// Get or create a binary operation kernel.
     fn get_binary_kernel(&mut self, entry_point: &str, workgroup_size: u32) -> CoreResult<&ComputeKernel> {
         if !self.kernels.contains_key(entry_point) {
-            let kernel = ComputeKernel::binary_op(&self.device, &self.shader_code, entry_point, workgroup_size)?;
+            let kernel =
+                ComputeKernel::binary_op(&self.device, &self.shader_code, entry_point, workgroup_size)?;
             self.kernels.insert(entry_point.to_string(), kernel);
         }
         Ok(self.kernels.get(entry_point).unwrap())
@@ -507,7 +503,8 @@ impl ComputeKernelCache {
     /// Get or create a unary operation kernel.
     fn get_unary_kernel(&mut self, entry_point: &str, workgroup_size: u32) -> CoreResult<&ComputeKernel> {
         if !self.kernels.contains_key(entry_point) {
-            let kernel = ComputeKernel::unary_op(&self.device, &self.shader_code, entry_point, workgroup_size)?;
+            let kernel =
+                ComputeKernel::unary_op(&self.device, &self.shader_code, entry_point, workgroup_size)?;
             self.kernels.insert(entry_point.to_string(), kernel);
         }
         Ok(self.kernels.get(entry_point).unwrap())
@@ -566,7 +563,8 @@ impl ComputeKernelCache {
     /// Get or create a scalar operation kernel.
     fn get_scalar_kernel(&mut self, entry_point: &str, workgroup_size: u32) -> CoreResult<&ComputeKernel> {
         if !self.kernels.contains_key(entry_point) {
-            let kernel = ComputeKernel::scalar_op(&self.device, &self.shader_code, entry_point, workgroup_size)?;
+            let kernel =
+                ComputeKernel::scalar_op(&self.device, &self.shader_code, entry_point, workgroup_size)?;
             self.kernels.insert(entry_point.to_string(), kernel);
         }
         Ok(self.kernels.get(entry_point).unwrap())
@@ -679,8 +677,13 @@ impl ComputeKernelCache {
         let entry_point = "gather_rows";
         if !self.kernels.contains_key(entry_point) {
             let layout = create_gather_bind_group_layout(&self.device);
-            let kernel =
-                ComputeKernel::new(&self.device, &self.shader_code, entry_point, layout, wgpu_env_workgroup_size())?;
+            let kernel = ComputeKernel::new(
+                &self.device,
+                &self.shader_code,
+                entry_point,
+                layout,
+                wgpu_env_workgroup_size(),
+            )?;
             self.kernels.insert(entry_point.to_string(), kernel);
         }
         let kernel = self.kernels.get(entry_point).unwrap();
@@ -753,7 +756,11 @@ impl ComputeKernelCache {
             Some(16) => 16u32,
             _ => {
                 // Heuristic: smaller tile tends to help tiny shapes; keep default conservative.
-                if m <= 96 && n <= 96 && k <= 96 { 8u32 } else { 16u32 }
+                if m <= 96 && n <= 96 && k <= 96 {
+                    8u32
+                } else {
+                    16u32
+                }
             }
         };
 
@@ -1468,10 +1475,7 @@ impl TensorOps<WgpuBackend> for WgpuOps {
 
     fn dropout_with_seed(&self, x: &GpuTensor, p: f32, seed: u64, training: bool) -> CoreResult<GpuTensor> {
         let seed = (seed as u32) ^ ((seed >> 32) as u32);
-        self.kernel_cache
-            .write()
-            .unwrap()
-            .execute_dropout(x, p, seed, training)
+        self.kernel_cache.write().unwrap().execute_dropout(x, p, seed, training)
     }
 
     fn concat(&self, _tensors: &[&GpuTensor], _dim: usize) -> CoreResult<GpuTensor> {
@@ -1602,5 +1606,3 @@ impl TensorOps<WgpuBackend> for WgpuOps {
         Ok(result)
     }
 }
-
-

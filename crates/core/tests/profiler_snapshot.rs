@@ -26,4 +26,3 @@ fn snapshot_is_stable_and_serializable() {
     let json = serde_json::to_string(&snap).unwrap();
     assert!(json.contains("\"matmul\""));
 }
-

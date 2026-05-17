@@ -102,10 +102,10 @@ fn t_crit_975(df: usize) -> f64 {
         return 1.96;
     }
     const TABLE: [f64; 30] = [
-        12.706_204, 4.302_653, 3.182_446, 2.776_445, 2.570_582, 2.446_912, 2.364_624, 2.306_004,
-        2.262_157, 2.228_139, 2.200_985, 2.178_813, 2.160_369, 2.144_787, 2.131_450, 2.119_905,
-        2.109_816, 2.100_922, 2.093_024, 2.085_963, 2.079_614, 2.073_873, 2.068_658, 2.063_899,
-        2.059_539, 2.055_529, 2.051_831, 2.048_407, 2.045_230, 2.042_272,
+        12.706_204, 4.302_653, 3.182_446, 2.776_445, 2.570_582, 2.446_912, 2.364_624, 2.306_004, 2.262_157,
+        2.228_139, 2.200_985, 2.178_813, 2.160_369, 2.144_787, 2.131_450, 2.119_905, 2.109_816, 2.100_922,
+        2.093_024, 2.085_963, 2.079_614, 2.073_873, 2.068_658, 2.063_899, 2.059_539, 2.055_529, 2.051_831,
+        2.048_407, 2.045_230, 2.042_272,
     ];
     TABLE[df - 1]
 }
@@ -162,13 +162,7 @@ pub fn tukey_iqr_outlier_indices(runs_ms: &[f64]) -> Vec<usize> {
     let iqr = q3 - q1;
     let low = q1 - 1.5 * iqr;
     let high = q3 + 1.5 * iqr;
-    runs_ms
-        .iter()
-        .copied()
-        .enumerate()
-        .filter(|(_, v)| *v < low || *v > high)
-        .map(|(i, _)| i)
-        .collect()
+    runs_ms.iter().copied().enumerate().filter(|(_, v)| *v < low || *v > high).map(|(i, _)| i).collect()
 }
 
 /// Run a closure `repeats` times after a small warmup; collect per-run wall time in ms.
@@ -279,10 +273,7 @@ pub fn samples_to_json(suite: &str, samples: &[Sample]) -> String {
             smp.p50_ms(),
         ));
         if let Some((lo, hi)) = ci95_mean_ms(&smp.runs_ms) {
-            s.push_str(&format!(
-                ",\n      \"ci95_low_ms\": {:.6}, \"ci95_high_ms\": {:.6}",
-                lo, hi
-            ));
+            s.push_str(&format!(",\n      \"ci95_low_ms\": {:.6}, \"ci95_high_ms\": {:.6}", lo, hi));
         }
         let outliers = tukey_iqr_outlier_indices(&smp.runs_ms);
         if !outliers.is_empty() {
@@ -352,7 +343,9 @@ fn json_escape(s: &str) -> String {
 
 #[cfg(test)]
 mod stats_tests {
-    use super::{ci95_mean_ms, linear_percentile, samples_to_json, tukey_iqr_outlier_indices, Sample, t_crit_975};
+    use super::{
+        ci95_mean_ms, linear_percentile, samples_to_json, t_crit_975, tukey_iqr_outlier_indices, Sample,
+    };
 
     #[test]
     fn t_crit_df1_is_large() {
@@ -384,7 +377,8 @@ mod stats_tests {
 
     #[test]
     fn samples_to_json_includes_ci_when_n_ge_2() {
-        let smp = Sample::cpu_f32("matmul", "ndarray-cpu", vec![("m".into(), "2".into())], vec![1.0, 2.0, 3.0]);
+        let smp =
+            Sample::cpu_f32("matmul", "ndarray-cpu", vec![("m".into(), "2".into())], vec![1.0, 2.0, 3.0]);
         let j = samples_to_json("rustral", &[smp]);
         assert!(j.contains("ci95_low_ms"));
         assert!(j.contains("ci95_high_ms"));

@@ -210,6 +210,152 @@ pub trait Backend: Clone + Send + Sync + 'static {
 /// APIs in their own crates, while shared modules depend only on these stable
 /// operations.
 pub trait TensorOps<B: Backend>: Send + Sync {
+    /// Clamp tensor values to the range [min, max].
+    fn clamp(&self, x: &B::Tensor, min: f32, max: f32) -> Result<B::Tensor> {
+        let low = self.maximum(x, &self.mul_scalar(&self.ones(&self.shape(x))?, min)?)?;
+        self.neg(&self.maximum(&self.neg(&low)?, &self.mul_scalar(&self.ones(&self.shape(x))?, -max)?)?)
+    }
+
+    /// Gather values from a tensor along an axis using index indices.
+    fn gather(&self, input: &B::Tensor, indices: &B::Tensor, axis: usize) -> Result<B::Tensor> {
+        let _ = indices;
+        let _ = axis;
+        let shape = self.shape(input);
+        Err(CoreError::Other(format!("gather not supported by this backend for shape {:?}", shape)))
+    }
+
+    /// L2 distance between two tensors of the same shape.
+    fn dist_l2(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor> {
+        let diff = self.sub(a, b)?;
+        let sq = self.mul(&diff, &diff)?;
+        let sum = self.sum_all(&sq)?;
+        self.sqrt(&sum)
+    }
+
+    /// Cosine similarity between two tensors of the same shape.
+    fn cosine_similarity(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor> {
+        let dot = self.mul(a, b)?;
+        let dot_sum = self.sum_all(&dot)?;
+
+        let a2 = self.mul(a, a)?;
+        let a_norm = self.sqrt(&self.sum_all(&a2)?)?;
+
+        let b2 = self.mul(b, b)?;
+        let b_norm = self.sqrt(&self.sum_all(&b2)?)?;
+
+        let norms = self.mul(&a_norm, &b_norm)?;
+        self.div(&dot_sum, &norms)
+    }
+
+    /// Element-wise less-than: returns 1.0 if a < b else 0.0.
+    fn less(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor> {
+        let diff = self.sub(a, b)?;
+        self.gt_scalar(&self.neg(&diff)?, 0.0)
+    }
+
+    /// Element-wise greater-than: returns 1.0 if a > b else 0.0.
+    fn greater(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor> {
+        let diff = self.sub(a, b)?;
+        self.gt_scalar(&diff, 0.0)
+    }
+
+    /// Element-wise equality: returns 1.0 if a == b else 0.0.
+    fn equal(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor> {
+        let g = self.greater(a, b)?;
+        let l = self.less(a, b)?;
+        let any_diff = self.add(&g, &l)?;
+        let same = self.sub(&self.ones(&self.shape(a))?, &any_diff)?;
+        self.gt_scalar(&same, 0.5)
+    }
+
+    /// Select elements from 'then' or 'else' based on 'condition' (1.0 = then, 0.0 = else).
+    fn where_cond(&self, condition: &B::Tensor, then: &B::Tensor, else_: &B::Tensor) -> Result<B::Tensor> {
+        let t = self.mul(condition, then)?;
+        let e_mask = self.sub(&self.ones(&self.shape(condition))?, condition)?;
+        let e = self.mul(&e_mask, else_)?;
+        self.add(&t, &e)
+    }
+
+    /// Create a tensor filled with ones.
+    fn ones(&self, shape: &[usize]) -> Result<B::Tensor> {
+        let z = self.zeros(shape)?;
+        self.add_scalar(&z, 1.0)
+    }
+
+    /// Return the indices of the maximum values along an axis.
+    fn argmax_dim(&self, x: &B::Tensor, dim: usize, keepdim: bool) -> Result<B::Tensor> {
+        let _ = dim;
+        let _ = keepdim;
+        let shape = self.shape(x);
+        Err(CoreError::Other(format!("argmax_dim not supported by this backend for shape {:?}", shape)))
+    }
+
+    /// Absolute value element-wise.
+    fn abs(&self, x: &B::Tensor) -> Result<B::Tensor> {
+        self.maximum(x, &self.neg(x)?)
+    }
+
+    /// Sign of each element (-1, 0, 1).
+    fn sign(&self, x: &B::Tensor) -> Result<B::Tensor> {
+        let pos = self.gt_scalar(x, 0.0)?;
+        let neg = self.gt_scalar(&self.neg(x)?, 0.0)?;
+        self.sub(&pos, &neg)
+    }
+
+    /// Accumulate elements of source into input by adding to the indices specified.
+    fn index_add(
+        &self,
+        input: &B::Tensor,
+        indices: &B::Tensor,
+        source: &B::Tensor,
+        axis: usize,
+    ) -> Result<B::Tensor> {
+        let _ = indices;
+        let _ = source;
+        let _ = axis;
+        let shape = self.shape(input);
+        Err(CoreError::Other(format!("index_add not supported by this backend for shape {:?}", shape)))
+    }
+
+    /// Return the indices that would sort a tensor along an axis.
+    fn argsort(&self, x: &B::Tensor, axis: usize, descending: bool) -> Result<B::Tensor> {
+        let _ = axis;
+        let _ = descending;
+        let shape = self.shape(x);
+        Err(CoreError::Other(format!("argsort not supported by this backend for shape {:?}", shape)))
+    }
+
+    /// Top-K elements and indices along an axis.
+    fn topk(&self, x: &B::Tensor, k: usize, axis: usize, largest: bool) -> Result<(B::Tensor, B::Tensor)> {
+        if axis != self.shape(x).len() - 1 {
+            return Err(CoreError::Other("Default topk only supports last axis".into()));
+        }
+        let indices = self.argsort(x, axis, largest)?;
+        let k_indices = self.slice(&indices, 0, k)?;
+        if self.shape(x).len() == 1 {
+            let values = self.gather(x, &k_indices, 0)?;
+            Ok((values, k_indices))
+        } else {
+            Err(CoreError::Other("Default topk only supports 1D tensors".into()))
+        }
+    }
+
+    /// Count occurrences of each value in an integer tensor.
+    fn bincount(&self, x: &B::Tensor, minlength: usize) -> Result<B::Tensor> {
+        let _ = minlength;
+        let shape = self.shape(x);
+        Err(CoreError::Other(format!("bincount not supported by this backend for shape {:?}", shape)))
+    }
+
+    /// Find unique elements and their counts.
+    fn unique_with_counts(&self, x: &B::Tensor) -> Result<(B::Tensor, B::Tensor)> {
+        let shape = self.shape(x);
+        Err(CoreError::Other(format!(
+            "unique_with_counts not supported by this backend for shape {:?}",
+            shape
+        )))
+    }
+
     /// Return the tensor shape as row-major dimensions.
     fn shape(&self, x: &B::Tensor) -> Vec<usize>;
 
@@ -277,6 +423,67 @@ pub trait TensorOps<B: Backend>: Send + Sync {
     /// Variance along a dimension.
     fn var_dim(&self, _x: &B::Tensor, _dim: usize, _unbiased: bool, _keepdim: bool) -> Result<B::Tensor> {
         Err(CoreError::Other("var_dim not supported by this backend".into()))
+    }
+
+    /// Layer normalization: `(x - mean) / sqrt(var + eps) * gamma + beta`
+    ///
+    /// This method allows backends to provide a highly optimized fused kernel
+    /// for layer normalization, which is a critical operation in transformer models.
+    /// Default implementation uses standard trait operations.
+    /// Batch normalization.
+    fn batch_norm(&self, x: &B::Tensor, gamma: &B::Tensor, beta: &B::Tensor, eps: f32) -> Result<B::Tensor> {
+        let shape = self.shape(x);
+        if shape.len() != 2 && shape.len() != 4 {
+            return Err(CoreError::InvalidShape { shape, reason: "BatchNorm expects 2D or 4D input".into() });
+        }
+        let channels = shape[1];
+        if shape.len() == 2 {
+            let mean = self.mean_dim(x, 0, true)?;
+            let var = self.var_dim(x, 0, false, true)?;
+            let x_centered = self.sub(x, &self.broadcast_to(&mean, &shape)?)?;
+            let std = self.sqrt(&self.add_scalar(&var, eps)?)?;
+            let x_hat = self.div(&x_centered, &self.broadcast_to(&std, &shape)?)?;
+            let y = self.mul(&x_hat, &self.broadcast_to(gamma, &shape)?)?;
+            self.add(&y, &self.broadcast_to(beta, &shape)?)
+        } else {
+            let m0 = self.mean_dim(x, 0, true)?;
+            let m02 = self.mean_dim(&m0, 2, true)?;
+            let mean = self.mean_dim(&m02, 3, true)?;
+            let x2 = self.mul(x, x)?;
+            let e0 = self.mean_dim(&x2, 0, true)?;
+            let e02 = self.mean_dim(&e0, 2, true)?;
+            let e_x2 = self.mean_dim(&e02, 3, true)?;
+            let var = self.sub(&e_x2, &self.mul(&mean, &mean)?)?;
+            let x_centered = self.sub(x, &self.broadcast_to(&mean, &shape)?)?;
+            let std = self.sqrt(&self.add_scalar(&var, eps)?)?;
+            let x_hat = self.div(&x_centered, &self.broadcast_to(&std, &shape)?)?;
+            let weight_4d = self.reshape(gamma, &[1, channels, 1, 1])?;
+            let bias_4d = self.reshape(beta, &[1, channels, 1, 1])?;
+            let y = self.mul(&x_hat, &self.broadcast_to(&weight_4d, &shape)?)?;
+            self.add(&y, &self.broadcast_to(&bias_4d, &shape)?)
+        }
+    }
+    fn layer_norm(&self, x: &B::Tensor, gamma: &B::Tensor, beta: &B::Tensor, eps: f32) -> Result<B::Tensor> {
+        let shape = self.shape(x);
+        let ndim = shape.len();
+        if ndim == 0 {
+            return Ok(x.clone());
+        }
+
+        // Default implementation using mean and variance
+        let last_dim = ndim - 1;
+        let mean = self.mean_dim(x, last_dim, true)?;
+        let var = self.var_dim(x, last_dim, false, true)?;
+
+        let x_centered = self.sub(x, &self.broadcast_to(&mean, &shape)?)?;
+        let std = self.sqrt(&self.add_scalar(&var, eps)?)?;
+        let x_hat = self.div(&x_centered, &self.broadcast_to(&std, &shape)?)?;
+
+        let gamma_b = self.broadcast_to(gamma, &shape)?;
+        let beta_b = self.broadcast_to(beta, &shape)?;
+
+        let y = self.mul(&x_hat, &gamma_b)?;
+        self.add(&y, &beta_b)
     }
 
     /// Broadcast to a target shape (numpy-style).
@@ -396,6 +603,64 @@ pub trait TensorOps<B: Backend>: Send + Sync {
     /// This is useful for retrieving specific values from 1D tensors,
     /// such as probability scores or logits at particular indices.
     fn tensor_element(&self, x: &B::Tensor, index: usize) -> Result<f32>;
+    /// Batched matrix multiplication: `[B, M, K] x [B, K, N] -> [B, M, N]`.
+    ///
+    /// Default implementation uses a loop over the batch dimension.
+    fn matmul_batched(&self, a: &B::Tensor, b: &B::Tensor) -> Result<B::Tensor> {
+        let a_shape = self.shape(a);
+        let b_shape = self.shape(b);
+        if a_shape.len() != 3 || b_shape.len() != 3 {
+            return Err(CoreError::InvalidShape {
+                shape: a_shape,
+                reason: "matmul_batched expects rank-3 tensors".into(),
+            });
+        }
+        let batch = a_shape[0];
+        let mut results = Vec::with_capacity(batch);
+        for i in 0..batch {
+            let ai = self.slice(a, i, i + 1)?;
+            let bi = self.slice(b, i, i + 1)?;
+            let ai_2d = self.reshape(&ai, &[a_shape[1], a_shape[2]])?;
+            let bi_2d = self.reshape(&bi, &[b_shape[1], b_shape[2]])?;
+            let res = self.matmul(&ai_2d, &bi_2d)?;
+            results.push(self.reshape(&res, &[1, a_shape[1], b_shape[2]])?);
+        }
+        let refs: Vec<&B::Tensor> = results.iter().collect();
+        self.concat(&refs, 0)
+    }
+
+    /// Transpose arbitrary axes.
+    fn transpose_axes(&self, x: &B::Tensor, dim0: usize, dim1: usize) -> Result<B::Tensor> {
+        if dim0 == 0 && dim1 == 1 && self.shape(x).len() == 2 {
+            self.transpose(x)
+        } else {
+            Err(CoreError::Other("transpose_axes not supported by this backend".into()))
+        }
+    }
+
+    /// Optimized CrossEntropy loss with indices.
+    ///
+    /// Computes CE loss directly from logits [N, C] and target indices [N].
+    /// This avoids creating a large one-hot tensor on the GPU.
+    fn cross_entropy_with_indices(&self, logits: &B::Tensor, targets: &[usize]) -> Result<B::Tensor> {
+        // Default implementation uses one-hot as fallback
+        let shape = self.shape(logits);
+        let num_classes = shape[1];
+        let batch_size = targets.len();
+        let mut target_values = vec![0.0f32; batch_size * num_classes];
+        for (i, &class_idx) in targets.iter().enumerate() {
+            if class_idx < num_classes {
+                target_values[i * num_classes + class_idx] = 1.0;
+            }
+        }
+        let target_tensor = self.tensor_from_vec(target_values, &[batch_size, num_classes])?;
+
+        let log_probs = self.log_softmax(logits)?;
+        let target_log_probs = self.mul(&target_tensor, &log_probs)?;
+        let sum = self.sum_all(&target_log_probs)?;
+        let neg_sum = self.neg(&sum)?;
+        self.mul_scalar(&neg_sum, 1.0 / batch_size as f32)
+    }
 }
 
 /// Extension trait for efficient tensor view operations.
@@ -757,14 +1022,8 @@ mod tests {
             supports_strided_layouts: true,
             supports_packed_layouts: false,
         };
-        assert_eq!(
-            caps_fp32.recommended_dtype_for_operation(OperationType::Matmul),
-            TrainingDtype::F32
-        );
-        assert_eq!(
-            caps_fp32.recommended_dtype_for_operation(OperationType::Convolution),
-            TrainingDtype::F32
-        );
+        assert_eq!(caps_fp32.recommended_dtype_for_operation(OperationType::Matmul), TrainingDtype::F32);
+        assert_eq!(caps_fp32.recommended_dtype_for_operation(OperationType::Convolution), TrainingDtype::F32);
 
         // Test with BF16 and tensor cores
         let caps_bf16 = BackendCapabilities {
@@ -783,10 +1042,7 @@ mod tests {
             supports_strided_layouts: true,
             supports_packed_layouts: true,
         };
-        assert_eq!(
-            caps_bf16.recommended_dtype_for_operation(OperationType::Matmul),
-            TrainingDtype::Bf16
-        );
+        assert_eq!(caps_bf16.recommended_dtype_for_operation(OperationType::Matmul), TrainingDtype::Bf16);
         assert_eq!(
             caps_bf16.recommended_dtype_for_operation(OperationType::Convolution),
             TrainingDtype::Bf16
@@ -809,13 +1065,7 @@ mod tests {
             supports_strided_layouts: true,
             supports_packed_layouts: true,
         };
-        assert_eq!(
-            caps_fp16.recommended_dtype_for_operation(OperationType::Matmul),
-            TrainingDtype::F16
-        );
-        assert_eq!(
-            caps_fp16.recommended_dtype_for_operation(OperationType::Convolution),
-            TrainingDtype::F16
-        );
+        assert_eq!(caps_fp16.recommended_dtype_for_operation(OperationType::Matmul), TrainingDtype::F16);
+        assert_eq!(caps_fp16.recommended_dtype_for_operation(OperationType::Convolution), TrainingDtype::F16);
     }
 }

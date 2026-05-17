@@ -45,6 +45,8 @@ fn main() {
     bench_matmul(&device, repeats, warmup, &mut samples);
     bench_attention(&device, repeats, warmup, &mut samples);
     bench_conv2d(&device, repeats, warmup, &mut samples);
+    bench_normalization(&device, repeats, warmup, &mut samples);
+    bench_cross_entropy(&device, repeats, warmup, &mut samples);
 
     print!("{}", samples_to_json("candle", &samples));
 }
@@ -135,4 +137,53 @@ fn bench_conv2d(device: &Device, repeats: usize, warmup: usize, out: &mut Vec<Sa
             runs,
         ));
     }
+}
+
+fn bench_normalization(device: &Device, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
+    let batch = 8;
+    let seq_len = 128;
+    let d_model = 512;
+    let x = Tensor::ones((batch * seq_len, d_model), DType::F32, device).unwrap();
+    let gamma = Tensor::ones(d_model, DType::F32, device).unwrap();
+    let beta = Tensor::zeros(d_model, DType::F32, device).unwrap();
+
+    let runs = time_runs(
+        || {
+            let _ = candle_nn::ops::layer_norm(&x, &gamma, &beta, 1e-5).unwrap();
+        },
+        warmup,
+        repeats,
+    );
+    out.push(Sample::cpu_f32(
+        "layer_norm",
+        BACKEND,
+        vec![
+            ("batch".into(), batch.to_string()),
+            ("seq_len".into(), seq_len.to_string()),
+            ("d_model".into(), d_model.to_string()),
+        ],
+        runs,
+    ));
+}
+
+fn bench_cross_entropy(device: &Device, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
+    let batch = 8;
+    let seq_len = 128;
+    let vocab = 32000;
+    let logits = Tensor::zeros((batch * seq_len, vocab), DType::F32, device).unwrap();
+    let targets = Tensor::zeros(batch * seq_len, candle_core::DType::I64, device).unwrap();
+
+    let runs = time_runs(
+        || {
+            let _ = candle_nn::loss::cross_entropy(&logits, &targets).unwrap();
+        },
+        warmup,
+        repeats,
+    );
+    out.push(Sample::cpu_f32(
+        "cross_entropy",
+        BACKEND,
+        vec![("batch".into(), (batch * seq_len).to_string()), ("vocab".into(), vocab.to_string())],
+        runs,
+    ));
 }

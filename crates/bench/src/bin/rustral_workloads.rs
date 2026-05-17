@@ -19,8 +19,9 @@ use rustral_bench::{samples_to_json, time_runs, time_train_step, Sample};
 use rustral_core::{Backend, ForwardCtx, Mode, Module, NamedParameters, Parameter};
 use rustral_ndarray_backend::CpuBackend;
 use rustral_nn::{
-    CacheConfig, Conv2d, Conv2dConfig, KVCache, LstmCell, LstmConfig, MultiHeadAttention, SelfAttentionConfig,
-    TransformerDecoder, TransformerDecoderConfig, TransformerEncoder, TransformerEncoderConfig,
+    CacheConfig, Conv2d, Conv2dConfig, KVCache, LstmCell, LstmConfig, MultiHeadAttention,
+    SelfAttentionConfig, TransformerDecoder, TransformerDecoderConfig, TransformerEncoder,
+    TransformerEncoderConfig,
 };
 use rustral_optim::{Adam, Gradient, Optimizer, Sgd};
 use rustral_runtime::{load_model, save_model};
@@ -70,6 +71,9 @@ fn main() {
     bench_mlp_train_step(&backend, repeats, warmup, &mut samples);
     bench_optimizer_step(&backend, repeats, warmup, heavy, &mut samples);
     bench_transformer_encoder_forward(&backend, repeats, warmup, &mut samples);
+    bench_normalization(&backend, repeats, warmup, &mut samples);
+    bench_cross_entropy(&backend, repeats, warmup, &mut samples);
+    bench_decoder_prefill_decode(&backend, repeats, warmup, &mut samples);
     bench_decoder_prefill_decode(&backend, repeats, warmup, &mut samples);
     bench_kv_cache_prefill_decode(&backend, repeats, warmup, &mut samples);
     bench_save_load_throughput(&backend, repeats, warmup, heavy, &mut samples);
@@ -101,9 +105,7 @@ fn bench_matmul(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut V
 fn bench_softmax_dim(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
     let ops = backend.ops();
     for &(batch, features) in &[(32usize, 64usize), (32, 256), (64, 1024)] {
-        let x = backend
-            .tensor_from_vec(vec![0.01f32; batch * features], &[batch, features])
-            .unwrap();
+        let x = backend.tensor_from_vec(vec![0.01f32; batch * features], &[batch, features]).unwrap();
         let runs = time_runs(
             || {
                 let _ = ops.softmax_dim(&x, 1).unwrap();
@@ -227,9 +229,9 @@ fn bench_conv2d(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut V
 /// Matches the criterion bench configuration (small/medium/large).
 fn bench_lstm_forward(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
     let configs = vec![
-        ("small", 128usize, 10usize),  // 128 hidden, 10 steps
-        ("medium", 256, 50),            // 256 hidden, 50 steps
-        ("large", 512, 100),            // 512 hidden, 100 steps
+        ("small", 128usize, 10usize), // 128 hidden, 10 steps
+        ("medium", 256, 50),          // 256 hidden, 50 steps
+        ("large", 512, 100),          // 512 hidden, 100 steps
     ];
 
     for &(name, hidden_size, seq_len) in &configs {
@@ -753,4 +755,79 @@ fn count_lstm_params(lstm: &LstmCell<CpuBackend>, _backend: &CpuBackend) -> u64 
     let b_params = four_h;
 
     (wx_params + wh_params + b_params) as u64
+}
+
+fn bench_normalization(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
+    use rustral_nn::{BatchNorm, BatchNormConfig, LayerNorm, LayerNormConfig};
+    let batch = 8;
+    let seq_len = 128;
+    let d_model = 512;
+
+    // LayerNorm
+    let ln = LayerNorm::new(backend, LayerNormConfig::new(vec![d_model]), 42).unwrap();
+    let x_ln = backend
+        .tensor_from_vec(vec![0.5f32; batch * seq_len * d_model], &[batch * seq_len, d_model])
+        .unwrap();
+    let runs_ln = time_runs(
+        || {
+            let mut ctx = ForwardCtx::new(backend, Mode::Inference);
+            let _ = ln.forward(x_ln.clone(), &mut ctx).unwrap();
+        },
+        warmup,
+        repeats,
+    );
+    out.push(Sample::cpu_f32(
+        "layer_norm",
+        BACKEND,
+        vec![
+            ("batch".into(), batch.to_string()),
+            ("seq_len".into(), seq_len.to_string()),
+            ("d_model".into(), d_model.to_string()),
+        ],
+        runs_ln,
+    ));
+
+    // BatchNorm
+    let bn = BatchNorm::new(backend, BatchNormConfig::new(d_model), 42).unwrap();
+    let x_bn = backend.tensor_from_vec(vec![0.5f32; batch * d_model], &[batch, d_model]).unwrap();
+    let runs_bn = time_runs(
+        || {
+            let mut ctx = ForwardCtx::new(backend, Mode::Inference);
+            let _ = bn.forward(x_bn.clone(), &mut ctx).unwrap();
+        },
+        warmup,
+        repeats,
+    );
+    out.push(Sample::cpu_f32(
+        "batch_norm",
+        BACKEND,
+        vec![("batch".into(), batch.to_string()), ("d_model".into(), d_model.to_string())],
+        runs_bn,
+    ));
+}
+
+fn bench_cross_entropy(backend: &CpuBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
+    use rustral_nn::CrossEntropyLoss;
+    let batch = 8;
+    let seq_len = 128;
+    let vocab = 32000;
+    let ce = CrossEntropyLoss::new();
+    let logits =
+        backend.tensor_from_vec(vec![0.0f32; batch * seq_len * vocab], &[batch * seq_len, vocab]).unwrap();
+    let targets = vec![1usize; batch * seq_len];
+
+    let runs = time_runs(
+        || {
+            let mut ctx = ForwardCtx::new(backend, Mode::Train);
+            let _ = ce.forward_indices(&logits, &targets, &mut ctx).unwrap();
+        },
+        warmup,
+        repeats,
+    );
+    out.push(Sample::cpu_f32(
+        "cross_entropy",
+        BACKEND,
+        vec![("batch".into(), (batch * seq_len).to_string()), ("vocab".into(), vocab.to_string())],
+        runs,
+    ));
 }

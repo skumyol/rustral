@@ -17,9 +17,9 @@ fn test_capability_detection_cpu_backend() {
     assert!(!caps.supports_fp16);
     assert!(!caps.supports_bf16);
     assert!(!caps.tensor_cores);
-    assert_eq!(caps.optimal_batch_size, 32);  // Updated to reflect actual capabilities
-    assert_eq!(caps.optimal_chunk_size, 4096);  // Updated to match parallelization threshold
-    assert!(caps.supports_in_place);  // CPU backend implements TensorInPlaceOps
+    assert_eq!(caps.optimal_batch_size, 32); // Updated to reflect actual capabilities
+    assert_eq!(caps.optimal_chunk_size, 4096); // Updated to match parallelization threshold
+    assert!(caps.supports_in_place); // CPU backend implements TensorInPlaceOps
 }
 
 #[test]
@@ -27,9 +27,30 @@ fn test_operation_profiler() {
     let mut profiler = OperationProfiler::new();
 
     // Simulate some operations
-    profiler.record_operation_internal("matmul", std::time::Duration::from_millis(10), None, None, DeviceType::Cpu, None);
-    profiler.record_operation_internal("matmul", std::time::Duration::from_millis(12), None, None, DeviceType::Cpu, None);
-    profiler.record_operation_internal("relu", std::time::Duration::from_millis(1), None, None, DeviceType::Cpu, None);
+    profiler.record_operation_internal(
+        "matmul",
+        std::time::Duration::from_millis(10),
+        None,
+        None,
+        DeviceType::Cpu,
+        None,
+    );
+    profiler.record_operation_internal(
+        "matmul",
+        std::time::Duration::from_millis(12),
+        None,
+        None,
+        DeviceType::Cpu,
+        None,
+    );
+    profiler.record_operation_internal(
+        "relu",
+        std::time::Duration::from_millis(1),
+        None,
+        None,
+        DeviceType::Cpu,
+        None,
+    );
 
     let stats = profiler.get_stats("matmul").unwrap();
     assert_eq!(stats.count, 2);
@@ -64,10 +85,24 @@ fn test_tensor_pool() {
 #[test]
 fn test_profiler_regression_detection() {
     let mut baseline = OperationProfiler::new();
-    baseline.record_operation_internal("test_op", std::time::Duration::from_millis(100), None, None, DeviceType::Cpu, None);
+    baseline.record_operation_internal(
+        "test_op",
+        std::time::Duration::from_millis(100),
+        None,
+        None,
+        DeviceType::Cpu,
+        None,
+    );
 
     let mut current = OperationProfiler::new();
-    current.record_operation_internal("test_op", std::time::Duration::from_millis(150), None, None, DeviceType::Cpu, None);
+    current.record_operation_internal(
+        "test_op",
+        std::time::Duration::from_millis(150),
+        None,
+        None,
+        DeviceType::Cpu,
+        None,
+    );
 
     // 50% increase should trigger regression with 0.4 threshold
     let regressions = current.check_regression(&baseline, 0.4);
@@ -75,7 +110,14 @@ fn test_profiler_regression_detection() {
 
     // 10% increase should not trigger regression with 0.4 threshold
     let mut current2 = OperationProfiler::new();
-    current2.record_operation_internal("test_op", std::time::Duration::from_millis(110), None, None, DeviceType::Cpu, None);
+    current2.record_operation_internal(
+        "test_op",
+        std::time::Duration::from_millis(110),
+        None,
+        None,
+        DeviceType::Cpu,
+        None,
+    );
     let regressions2 = current2.check_regression(&baseline, 0.4);
     assert_eq!(regressions2.len(), 0);
 }

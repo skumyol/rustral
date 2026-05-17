@@ -37,7 +37,7 @@ use rustral_core::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig, SelfAttention,
+    Embedding, EmbeddingConfig, LayerNorm, LayerNormConfig, Linear, LinearConfig, MultiHeadAttention,
     SelfAttentionConfig,
 };
 
@@ -63,7 +63,7 @@ pub struct PositionalEncoding<B: Backend> {
 
 impl<B: Backend> PositionalEncoding<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     /// Create positional encoding.
     pub fn new(backend: &B, d_model: usize, max_len: usize) -> Result<Self> {
@@ -96,16 +96,14 @@ where
             )));
         }
 
-        // Slice to [seq_len, d_model]
-        let data: Vec<f32> = self.encoding.as_ref().to_vec();
-        let sliced: Vec<f32> = data[..seq_len * self.d_model].to_vec();
-        ops.tensor_from_vec(sliced, &[seq_len, self.d_model])
+        // Use backend-agnostic slice
+        ops.slice(&self.encoding, 0, seq_len)
     }
 }
 
 impl<B: Backend> Module<B> for PositionalEncoding<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     type Input = B::Tensor;
     type Output = B::Tensor;
@@ -201,7 +199,7 @@ impl TransformerEncoderConfig {
 ///   Input → LayerNorm → SelfAttention → Add → LayerNorm → FeedForward → Add → Output
 pub struct TransformerEncoderLayer<B: Backend> {
     /// Self-attention
-    self_attn: SelfAttention<B>,
+    self_attn: MultiHeadAttention<B>,
     /// Feed-forward network
     ff_linear1: Linear<B>,
     ff_linear2: Linear<B>,
@@ -216,14 +214,14 @@ pub struct TransformerEncoderLayer<B: Backend> {
 
 impl<B: Backend> TransformerEncoderLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     /// Create encoder layer.
     pub fn new(backend: &B, config: &TransformerEncoderConfig, seed: u64) -> Result<Self> {
         let attn_config =
             SelfAttentionConfig::new(config.d_model, config.num_heads).with_dropout(config.dropout);
 
-        let self_attn = SelfAttention::new(backend, attn_config, seed)?;
+        let self_attn = MultiHeadAttention::new(backend, attn_config, seed)?;
 
         let ff_linear1 =
             Linear::new(backend, LinearConfig::new(config.d_model, config.ff_dim).with_bias(true))?;
@@ -296,7 +294,7 @@ where
 
 impl<B: Backend> Module<B> for TransformerEncoderLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     type Input = B::Tensor;
     type Output = B::Tensor;
@@ -386,7 +384,7 @@ pub struct TransformerEncoder<B: Backend> {
 
 impl<B: Backend> TransformerEncoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     /// Create transformer encoder.
     pub fn new(backend: &B, config: TransformerEncoderConfig, vocab_size: usize, seed: u64) -> Result<Self> {
@@ -487,7 +485,7 @@ where
 
 impl<B: Backend> Module<B> for TransformerEncoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     type Input = Vec<usize>;
     type Output = B::Tensor;
@@ -606,7 +604,7 @@ impl TransformerDecoderConfig {
 ///   Input → LN → MaskedSelfAttention → Add → LN → FeedForward → Add → Output
 pub struct TransformerDecoderLayer<B: Backend> {
     /// Masked self-attention
-    self_attn: SelfAttention<B>,
+    self_attn: MultiHeadAttention<B>,
     /// Feed-forward
     ff_linear1: Linear<B>,
     ff_linear2: Linear<B>,
@@ -619,13 +617,13 @@ pub struct TransformerDecoderLayer<B: Backend> {
 
 impl<B: Backend> TransformerDecoderLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     pub fn new(backend: &B, config: &TransformerDecoderConfig, seed: u64) -> Result<Self> {
         let attn_config =
             SelfAttentionConfig::new(config.d_model, config.num_heads).with_dropout(config.dropout);
 
-        let self_attn = SelfAttention::new(backend, attn_config, seed)?;
+        let self_attn = MultiHeadAttention::new(backend, attn_config, seed)?;
 
         let ff_linear1 =
             Linear::new(backend, LinearConfig::new(config.d_model, config.ff_dim).with_bias(true))?;
@@ -679,7 +677,7 @@ where
 
 impl<B: Backend> Module<B> for TransformerDecoderLayer<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     type Input = B::Tensor;
     type Output = B::Tensor;
@@ -763,7 +761,7 @@ pub struct TransformerDecoder<B: Backend> {
 
 impl<B: Backend> TransformerDecoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     pub fn new(backend: &B, config: TransformerDecoderConfig, vocab_size: usize, seed: u64) -> Result<Self> {
         let token_embedding =
@@ -864,7 +862,7 @@ where
 
 impl<B: Backend> Module<B> for TransformerDecoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     type Input = Vec<usize>;
     type Output = B::Tensor;
@@ -998,7 +996,7 @@ pub struct TransformerEncoderDecoder<B: Backend> {
 
 impl<B: Backend> TransformerEncoderDecoder<B>
 where
-    B::Tensor: Clone + AsRef<[f32]> + rustral_core::TensorShape,
+    B::Tensor: Clone,
 {
     /// Create encoder-decoder model.
     pub fn new(

@@ -7,8 +7,8 @@ mod golden;
 
 use common::numeric::{assert_allclose, default_tolerance, BackendFlavor, OpFamily};
 use golden::{softmax_last_dim_reference, sum_dim0_reference};
-use rustral_ndarray_backend::CpuBackend;
 use rustral_core::Backend;
+use rustral_ndarray_backend::CpuBackend;
 
 #[test]
 fn golden_softmax_dim1_matches_f64_reference() {

@@ -42,7 +42,6 @@ pub use backend::{
     TensorInPlaceOps, TensorOps, TensorView, TrainingDtype,
 };
 pub use context::{ForwardCtx, Mode, RunId};
-pub use shape_policy::ShapePolicy;
 pub use error::{CoreError, Result};
 pub use fusion::{FusionOptimizer, FusionPattern, Op, OpType, PatternMatcher};
 pub use fusion_tests::{
@@ -57,14 +56,13 @@ pub use module::{
     collect_named_parameter_ids, collect_named_parameters, Module, NamedParameters, Saveable, StatefulModule,
     Trainable,
 };
-pub use numerics::{
-    DType, NumericsConfig, NumericsError, NumericsValidator, Tolerance, ValidationResult,
-};
+pub use numerics::{DType, NumericsConfig, NumericsError, NumericsValidator, Tolerance, ValidationResult};
 pub use operation_profiler::{
-    DeviceType, MatmulDim, OperationGuard, OperationProfiler, OperationStats, ProfilerSnapshot, ProfilingHooks,
-    ShapeBucket, SnapshotOp,
+    DeviceType, MatmulDim, OperationGuard, OperationProfiler, OperationStats, ProfilerSnapshot,
+    ProfilingHooks, ShapeBucket, SnapshotOp,
 };
 pub use parameter::{Parameter, ParameterGroup, ParameterId, ParameterRef};
 pub use shape::{Shape, ShapeExt, TensorShape};
+pub use shape_policy::ShapePolicy;
 pub use tensor_pool::{PoolStats, PoolStrategy, PooledTensor, TensorPool};
 pub use tolerance::{OpFamily, ToleranceConfig};

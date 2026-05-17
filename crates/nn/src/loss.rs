@@ -132,22 +132,7 @@ impl CrossEntropyLoss {
     where
         B::Tensor: Clone,
     {
-        let ops = ctx.backend().ops();
-
-        // Create one-hot target from indices
-        let shape = ops.shape(logits);
-        let num_classes = shape[1];
-        let batch_size = target_indices.len();
-        let mut target_values = vec![0.0f32; batch_size * num_classes];
-
-        for (i, &class_idx) in target_indices.iter().enumerate() {
-            if class_idx < num_classes {
-                target_values[i * num_classes + class_idx] = 1.0;
-            }
-        }
-
-        let target = ops.tensor_from_vec(target_values, &[batch_size, num_classes])?;
-        self.forward(logits, &target, ctx)
+        ctx.backend().ops().cross_entropy_with_indices(logits, target_indices)
     }
 }
 

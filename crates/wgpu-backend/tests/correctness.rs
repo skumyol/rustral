@@ -29,7 +29,7 @@ fn get_backend() -> Option<rustral_wgpu_backend::WgpuBackend> {
 #[test]
 fn test_wgpu_error_display() {
     use rustral_wgpu_backend::WgpuError;
-    
+
     let err = WgpuError::NoAdapter;
     assert_eq!(err.to_string(), "no suitable GPU adapter found");
 
@@ -40,7 +40,7 @@ fn test_wgpu_error_display() {
 #[test]
 fn test_wgpu_error_debug() {
     use rustral_wgpu_backend::WgpuError;
-    
+
     let err = WgpuError::NoAdapter;
     let debug = format!("{:?}", err);
     assert!(debug.contains("NoAdapter"));
@@ -72,11 +72,7 @@ fn test_dropout_inference_identity() {
     let output_data = backend.to_vec(&output);
 
     // In inference mode, output should equal input (inverted dropout scales during training)
-    assert_eq!(
-        output_data,
-        vec![1.0, 2.0, 3.0, 4.0, 5.0],
-        "Dropout in inference mode should be identity"
-    );
+    assert_eq!(output_data, vec![1.0, 2.0, 3.0, 4.0, 5.0], "Dropout in inference mode should be identity");
 }
 
 #[test]
@@ -410,15 +406,17 @@ fn test_workgroup_size_knob() {
     // This is a smoke test - the actual kernel selection happens internally
     let a = backend.tensor_from_vec(vec![1.0f32; 1000], &[1000]).unwrap();
     let b = backend.tensor_from_vec(vec![2.0f32; 1000], &[1000]).unwrap();
-    
+
     let c = backend.ops().add(&a, &b).unwrap();
     let data = backend.to_vec(&c);
-    
+
     // Regardless of workgroup size, result should be correct
     assert_eq!(data, vec![3.0f32; 1000]);
-    
-    println!("Workgroup size knob test passed with RUSTRAL_WGPU_WORKGROUP={:?}", 
-             std::env::var("RUSTRAL_WGPU_WORKGROUP"));
+
+    println!(
+        "Workgroup size knob test passed with RUSTRAL_WGPU_WORKGROUP={:?}",
+        std::env::var("RUSTRAL_WGPU_WORKGROUP")
+    );
 }
 
 #[test]
@@ -431,15 +429,17 @@ fn test_vectorization_knob() {
     // Test that vectorization environment variable is respected
     let a = backend.tensor_from_vec(vec![1.0f32; 1000], &[1000]).unwrap();
     let b = backend.tensor_from_vec(vec![2.0f32; 1000], &[1000]).unwrap();
-    
+
     let c = backend.ops().mul(&a, &b).unwrap();
     let data = backend.to_vec(&c);
-    
+
     // Regardless of vectorization, result should be correct
     assert_eq!(data, vec![2.0f32; 1000]);
-    
-    println!("Vectorization knob test passed with RUSTRAL_WGPU_VECTORIZED={:?}", 
-             std::env::var("RUSTRAL_WGPU_VECTORIZED"));
+
+    println!(
+        "Vectorization knob test passed with RUSTRAL_WGPU_VECTORIZED={:?}",
+        std::env::var("RUSTRAL_WGPU_VECTORIZED")
+    );
 }
 
 #[test]
@@ -452,16 +452,18 @@ fn test_matmul_tile_knob() {
     // Test that matmul tile size environment variable is respected
     let a = backend.tensor_from_vec(vec![1.0f32; 64 * 64], &[64, 64]).unwrap();
     let b = backend.tensor_from_vec(vec![1.0f32; 64 * 64], &[64, 64]).unwrap();
-    
+
     let c = backend.ops().matmul(&a, &b).unwrap();
     let data = backend.to_vec(&c);
-    
+
     // Regardless of tile size, result should be correct
     // Each element should be 64.0 (sum of 64 ones)
     assert!(data.iter().all(|&v| (v - 64.0).abs() < 1e-3));
-    
-    println!("Matmul tile knob test passed with RUSTRAL_WGPU_MATMUL_TILE={:?}", 
-             std::env::var("RUSTRAL_WGPU_MATMUL_TILE"));
+
+    println!(
+        "Matmul tile knob test passed with RUSTRAL_WGPU_MATMUL_TILE={:?}",
+        std::env::var("RUSTRAL_WGPU_MATMUL_TILE")
+    );
 }
 
 #[test]
@@ -474,13 +476,13 @@ fn test_kernel_knob_combination() {
     // Test that all kernel knobs work together
     let a = backend.tensor_from_vec(vec![1.0f32; 128], &[128]).unwrap();
     let b = backend.tensor_from_vec(vec![2.0f32; 128], &[128]).unwrap();
-    
+
     let c = backend.ops().add(&a, &b).unwrap();
     let d = backend.ops().mul(&c, &backend.tensor_from_vec(vec![3.0f32; 128], &[128]).unwrap()).unwrap();
     let data = backend.to_vec(&d);
-    
+
     // (1 + 2) * 3 = 9
     assert_eq!(data, vec![9.0f32; 128]);
-    
+
     println!("Combined kernel knobs test passed");
 }

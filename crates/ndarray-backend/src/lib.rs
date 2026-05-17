@@ -14,8 +14,8 @@
 use rand::thread_rng;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use rustral_core::{
-    Backend, BackendCapabilities, ConvLayout, CoreError, FusionOps, Parameter, Result, ShapeExt, TensorOps,
-    TrainingDtype, parallel_reductions_enabled,
+    parallel_reductions_enabled, Backend, BackendCapabilities, ConvLayout, CoreError, FusionOps, Parameter,
+    Result, ShapeExt, TensorOps, TrainingDtype,
 };
 use serde::{Deserialize, Serialize};
 
@@ -116,10 +116,10 @@ impl Backend for CpuBackend {
             supports_bf16: false,
             tensor_cores: false,
             optimal_batch_size: 32,
-            optimal_chunk_size: 4096,  // Matches parallelization threshold in elementwise ops
+            optimal_chunk_size: 4096, // Matches parallelization threshold in elementwise ops
             max_allocation_size: usize::MAX,
             prefers_contiguous: true,
-            supports_in_place: true,  // CpuOps implements TensorInPlaceOps
+            supports_in_place: true, // CpuOps implements TensorInPlaceOps
             supports_mixed_precision: false,
             recommended_training_dtype: TrainingDtype::F32,
             supports_fast_fp16_tensor_cores: false,
@@ -187,7 +187,6 @@ impl TensorOps<CpuBackend> for CpuOps {
     /// Uses matrixmultiply for optimized BLAS-like performance when the feature
     /// is enabled and the matrix is large enough to benefit from it.
     /// Falls back to a naive implementation for tiny matrices (overhead dominates)
-    /// or when the feature is disabled.
     fn matmul(&self, a: &CpuTensor, b: &CpuTensor) -> Result<CpuTensor> {
         Self::ensure_rank(&a.shape, 2)?;
         Self::ensure_rank(&b.shape, 2)?;
@@ -658,10 +657,7 @@ impl TensorOps<CpuBackend> for CpuOps {
         let scale = 1.0 / (1.0 - p);
         let mut rng = StdRng::seed_from_u64(seed);
         CpuTensor::new(
-            x.values
-                .iter()
-                .map(|&v| if rng.gen::<f32>() < p { 0.0 } else { v * scale })
-                .collect(),
+            x.values.iter().map(|&v| if rng.gen::<f32>() < p { 0.0 } else { v * scale }).collect(),
             &x.shape,
         )
     }
@@ -702,6 +698,213 @@ impl TensorOps<CpuBackend> for CpuOps {
     }
 
     /// Slice a tensor along dimension 0.
+    fn dist_l2(&self, a: &CpuTensor, b: &CpuTensor) -> Result<CpuTensor> {
+        let mut out = vec![0.0f32; a.values.len()];
+        for i in 0..a.values.len() {
+            let d = a.values[i] - b.values[i];
+            out[i] = d * d;
+        }
+        let sum: f32 = out.iter().sum();
+        CpuTensor::new(vec![sum.sqrt()], &[1])
+    }
+    fn less(&self, a: &CpuTensor, b: &CpuTensor) -> Result<CpuTensor> {
+        let mut out = vec![0.0f32; a.values.len()];
+        for i in 0..a.values.len() {
+            out[i] = if a.values[i] < b.values[i] { 1.0 } else { 0.0 };
+        }
+        CpuTensor::new(out, &a.shape)
+    }
+    fn greater(&self, a: &CpuTensor, b: &CpuTensor) -> Result<CpuTensor> {
+        let mut out = vec![0.0f32; a.values.len()];
+        for i in 0..a.values.len() {
+            out[i] = if a.values[i] > b.values[i] { 1.0 } else { 0.0 };
+        }
+        CpuTensor::new(out, &a.shape)
+    }
+    fn ones(&self, shape: &[usize]) -> Result<CpuTensor> {
+        CpuTensor::new(vec![1.0; shape.iter().product()], shape)
+    }
+    fn argmax_dim(&self, x: &CpuTensor, dim: usize, keepdim: bool) -> Result<CpuTensor> {
+        let shape = self.shape(x);
+        if dim >= shape.len() {
+            return Err(CoreError::InvalidArgument(format!("argmax_dim: dim {} out of range", dim)));
+        }
+        let mut out_shape = shape.clone();
+        if keepdim {
+            out_shape[dim] = 1;
+        } else {
+            out_shape.remove(dim);
+        }
+        let outer: usize = shape.iter().take(dim).product();
+        let axis_size = shape[dim];
+        let inner: usize = shape.iter().skip(dim + 1).product();
+        let mut res = Vec::with_capacity(outer * inner);
+        for i in 0..outer {
+            for k in 0..inner {
+                let mut max_val = f32::NEG_INFINITY;
+                let mut max_idx = 0;
+                for j in 0..axis_size {
+                    let val = x.values[(i * axis_size + j) * inner + k];
+                    if val > max_val {
+                        max_val = val;
+                        max_idx = j;
+                    }
+                }
+                res.push(max_idx as f32);
+            }
+        }
+        CpuTensor::new(res, &out_shape)
+    }
+    fn clamp(&self, x: &CpuTensor, min: f32, max: f32) -> Result<CpuTensor> {
+        let mut out = vec![0.0f32; x.values.len()];
+        for i in 0..x.values.len() {
+            out[i] = x.values[i].clamp(min, max);
+        }
+        CpuTensor::new(out, &x.shape)
+    }
+    fn abs(&self, x: &CpuTensor) -> Result<CpuTensor> {
+        let mut out = vec![0.0f32; x.values.len()];
+        for i in 0..x.values.len() {
+            out[i] = x.values[i].abs();
+        }
+        CpuTensor::new(out, &x.shape)
+    }
+    fn sign(&self, x: &CpuTensor) -> Result<CpuTensor> {
+        let mut out = vec![0.0f32; x.values.len()];
+        for i in 0..x.values.len() {
+            out[i] = if x.values[i] > 0.0 {
+                1.0
+            } else if x.values[i] < 0.0 {
+                -1.0
+            } else {
+                0.0
+            };
+        }
+        CpuTensor::new(out, &x.shape)
+    }
+    fn index_add(
+        &self,
+        input: &CpuTensor,
+        indices: &CpuTensor,
+        source: &CpuTensor,
+        axis: usize,
+    ) -> Result<CpuTensor> {
+        if axis != 0 {
+            return Err(CoreError::Other("CpuOps only supports index_add on axis 0".into()));
+        }
+        let mut out_vals = input.values.clone();
+        let elem_per_row: usize = input.shape.iter().skip(1).product();
+        for (i, &idx) in indices.values.iter().enumerate() {
+            let target_idx = idx as usize;
+            let src_offset = i * elem_per_row;
+            let dst_offset = target_idx * elem_per_row;
+            for j in 0..elem_per_row {
+                out_vals[dst_offset + j] += source.values[src_offset + j];
+            }
+        }
+        CpuTensor::new(out_vals, &input.shape)
+    }
+    fn argsort(&self, x: &CpuTensor, axis: usize, descending: bool) -> Result<CpuTensor> {
+        if axis != 0 || x.shape.len() != 1 {
+            return Err(CoreError::Other("CpuOps only supports argsort on 1D tensors axis 0".into()));
+        }
+        let mut indices: Vec<usize> = (0..x.values.len()).collect();
+        if descending {
+            indices.sort_by(|&a, &b| x.values[b].partial_cmp(&x.values[a]).unwrap());
+        } else {
+            indices.sort_by(|&a, &b| x.values[a].partial_cmp(&x.values[b]).unwrap());
+        }
+        CpuTensor::new(indices.into_iter().map(|i| i as f32).collect(), &x.shape)
+    }
+    fn bincount(&self, x: &CpuTensor, minlength: usize) -> Result<CpuTensor> {
+        use rayon::prelude::*;
+        let max_val = x.values.iter().fold(0.0f32, |m, &v| m.max(v)) as usize;
+        let len = (max_val + 1).max(minlength);
+        if x.values.len() > 16384 {
+            let num_threads = rayon::current_num_threads();
+            let chunk_size = (x.values.len() + num_threads - 1) / num_threads;
+            let histograms: Vec<Vec<f32>> = x
+                .values
+                .par_chunks(chunk_size)
+                .map(|chunk| {
+                    let mut local_hist = vec![0.0f32; len];
+                    for &v in chunk {
+                        local_hist[v as usize] += 1.0;
+                    }
+                    local_hist
+                })
+                .collect();
+            let mut out = vec![0.0f32; len];
+            for h in histograms {
+                for i in 0..len {
+                    out[i] += h[i];
+                }
+            }
+            CpuTensor::new(out, &[len])
+        } else {
+            let mut out = vec![0.0f32; len];
+            for &v in &x.values {
+                out[v as usize] += 1.0;
+            }
+            CpuTensor::new(out, &[len])
+        }
+    }
+    fn topk(&self, x: &CpuTensor, k: usize, axis: usize, largest: bool) -> Result<(CpuTensor, CpuTensor)> {
+        let shape = self.shape(x);
+        if axis != shape.len() - 1 {
+            return Err(CoreError::Other("Ndarray topk only supports last axis".into()));
+        }
+        let outer: usize = shape.iter().take(axis).product();
+        let axis_size = shape[axis];
+        let mut out_values = Vec::with_capacity(outer * k);
+        let mut out_indices = Vec::with_capacity(outer * k);
+        for i in 0..outer {
+            let mut items: Vec<(f32, usize)> =
+                (0..axis_size).map(|j| (x.values[i * axis_size + j], j)).collect();
+            if largest {
+                items.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+            } else {
+                items.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            }
+            for j in 0..k {
+                out_values.push(items[j].0);
+                out_indices.push(items[j].1 as f32);
+            }
+        }
+        let mut out_shape = shape.clone();
+        out_shape[axis] = k;
+        Ok((CpuTensor::new(out_values, &out_shape)?, CpuTensor::new(out_indices, &out_shape)?))
+    }
+    fn unique_with_counts(&self, x: &CpuTensor) -> Result<(CpuTensor, CpuTensor)> {
+        if x.values.is_empty() {
+            return Ok((CpuTensor::new(vec![], &[0])?, CpuTensor::new(vec![], &[0])?));
+        }
+        let mut sorted_vals = x.values.clone();
+        sorted_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut unique_vals = Vec::new();
+        let mut unique_counts = Vec::new();
+
+        let mut current_val = sorted_vals[0];
+        let mut current_count = 0.0f32;
+
+        for &v in &sorted_vals {
+            if (v - current_val).abs() < 1e-9 {
+                current_count += 1.0;
+            } else {
+                unique_vals.push(current_val);
+                unique_counts.push(current_count);
+                current_val = v;
+                current_count = 1.0;
+            }
+        }
+        unique_vals.push(current_val);
+        unique_counts.push(current_count);
+
+        let n = unique_vals.len();
+        let m = unique_counts.len();
+        Ok((CpuTensor::new(unique_vals, &[n])?, CpuTensor::new(unique_counts, &[m])?))
+    }
     fn slice(&self, x: &CpuTensor, start: usize, end: usize) -> Result<CpuTensor> {
         if start >= end || end > x.shape[0] {
             return Err(CoreError::InvalidArgument(format!(
@@ -1132,8 +1335,14 @@ impl TensorOps<CpuBackend> for CpuOps {
                         }
                         let vec = f32x8::new(arr);
                         let out_vec = f32x8::new([
-                            out[j], out[j + 1], out[j + 2], out[j + 3],
-                            out[j + 4], out[j + 5], out[j + 6], out[j + 7],
+                            out[j],
+                            out[j + 1],
+                            out[j + 2],
+                            out[j + 3],
+                            out[j + 4],
+                            out[j + 5],
+                            out[j + 6],
+                            out[j + 7],
                         ]);
                         let sum = out_vec + vec;
                         let sum_arr = sum.to_array();
@@ -1328,7 +1537,7 @@ impl TensorOps<CpuBackend> for CpuOps {
                                 arr[k] = x.values[idx];
                             }
                             let vec = f32x8::new(arr);
-                        sum += vec;
+                            sum += vec;
                         }
                         let sum_array = sum.to_array();
                         let mut s: f32 = sum_array.iter().sum();
@@ -1413,6 +1622,152 @@ impl TensorOps<CpuBackend> for CpuOps {
         let denom = if unbiased { (axis - 1) as f32 } else { axis as f32 };
         var = self.mul_scalar(&var, 1.0 / denom)?;
         Ok(var)
+    }
+
+    fn layer_norm(&self, x: &CpuTensor, gamma: &CpuTensor, beta: &CpuTensor, eps: f32) -> Result<CpuTensor> {
+        let shape = &x.shape;
+        let ndim = shape.len();
+        if ndim == 0 {
+            return Ok(x.clone());
+        }
+        let norm_elem_count = shape[ndim - 1];
+        if norm_elem_count == 0 {
+            return Ok(x.clone());
+        }
+
+        let mut out = x.values.clone();
+        let gamma_vec = &gamma.values;
+        let beta_vec = &beta.values;
+
+        if out.len() > 4096 {
+            use rayon::prelude::*;
+            out.par_chunks_exact_mut(norm_elem_count).for_each(|group| {
+                let mean = group.iter().sum::<f32>() / norm_elem_count as f32;
+                let var = group.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / norm_elem_count as f32;
+                let inv_std = 1.0 / (var + eps).sqrt();
+                for i in 0..norm_elem_count {
+                    let g = if gamma_vec.len() == 1 { gamma_vec[0] } else { gamma_vec[i] };
+                    let b = if beta_vec.len() == 1 { beta_vec[0] } else { beta_vec[i] };
+                    group[i] = (group[i] - mean) * inv_std * g + b;
+                }
+            });
+        } else {
+            for group in out.chunks_exact_mut(norm_elem_count) {
+                let mean = group.iter().sum::<f32>() / norm_elem_count as f32;
+                let var = group.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / norm_elem_count as f32;
+                let inv_std = 1.0 / (var + eps).sqrt();
+                for i in 0..norm_elem_count {
+                    let g = if gamma_vec.len() == 1 { gamma_vec[0] } else { gamma_vec[i] };
+                    let b = if beta_vec.len() == 1 { beta_vec[0] } else { beta_vec[i] };
+                    group[i] = (group[i] - mean) * inv_std * g + b;
+                }
+            }
+        }
+
+        CpuTensor::new(out, shape)
+    }
+
+    fn cross_entropy_with_indices(&self, logits: &CpuTensor, targets: &[usize]) -> Result<CpuTensor> {
+        let shape = self.shape(logits);
+        let num_classes = shape[1];
+        let batch_size = targets.len();
+
+        // LogSoftmax calculation
+        let log_probs = self.log_softmax(logits)?;
+        let lp_values = log_probs.values();
+
+        let mut nll_sum = 0.0f32;
+        for (i, &target) in targets.iter().enumerate() {
+            if target < num_classes {
+                nll_sum -= lp_values[i * num_classes + target];
+            }
+        }
+
+        CpuTensor::new(vec![nll_sum / batch_size as f32], &[1])
+    }
+
+    fn matmul_batched(&self, a: &CpuTensor, b: &CpuTensor) -> Result<CpuTensor> {
+        let a_shape = self.shape(a);
+        let b_shape = self.shape(b);
+        if a_shape.len() != 3 || b_shape.len() != 3 {
+            return Err(CoreError::InvalidShape {
+                shape: a_shape,
+                reason: "matmul_batched expects rank-3".into(),
+            });
+        }
+        let (batch, m, k) = (a_shape[0], a_shape[1], a_shape[2]);
+        let n = b_shape[2];
+
+        let mut out = vec![0.0f32; batch * m * n];
+
+        if batch * m * n > 4096 {
+            use rayon::prelude::*;
+            out.par_chunks_exact_mut(m * n).enumerate().for_each(|(i, chunk)| {
+                let ai = &a.values()[i * m * k..(i + 1) * m * k];
+                let bi = &b.values()[i * k * n..(i + 1) * k * n];
+
+                // sgemm for each batch item
+                for ii in 0..m {
+                    for jj in 0..n {
+                        let mut sum = 0.0f32;
+                        for kk in 0..k {
+                            sum += ai[ii * k + kk] * bi[kk * n + jj];
+                        }
+                        chunk[ii * n + jj] = sum;
+                    }
+                }
+            });
+        } else {
+            for i in 0..batch {
+                let ai = &a.values()[i * m * k..(i + 1) * m * k];
+                let bi = &b.values()[i * k * n..(i + 1) * k * n];
+                let offset = i * m * n;
+                for ii in 0..m {
+                    for jj in 0..n {
+                        let mut sum = 0.0f32;
+                        for kk in 0..k {
+                            sum += ai[ii * k + kk] * bi[kk * n + jj];
+                        }
+                        out[offset + ii * n + jj] = sum;
+                    }
+                }
+            }
+        }
+        CpuTensor::new(out, &[batch, m, n])
+    }
+    fn transpose_axes(&self, x: &CpuTensor, dim0: usize, dim1: usize) -> Result<CpuTensor> {
+        let shape = self.shape(x);
+        if shape.len() == 4 {
+            // Basic 4D transpose [B, S, H, D] -> [B, H, S, D]
+            if dim0 == 1 && dim1 == 2 {
+                let b = shape[0];
+                let s = shape[1];
+                let h = shape[2];
+                let d = shape[3];
+                let mut out = vec![0.0f32; b * s * h * d];
+                let val = x.values();
+                for i in 0..b {
+                    for j in 0..s {
+                        for k in 0..h {
+                            for l in 0..d {
+                                let old_idx = ((i * s + j) * h + k) * d + l;
+                                let new_idx = ((i * h + k) * s + j) * d + l;
+                                out[new_idx] = val[old_idx];
+                            }
+                        }
+                    }
+                }
+                return CpuTensor::new(out, &[b, h, s, d]);
+            }
+        }
+        // Fallback or Error
+        if dim0 == 0 && dim1 == 1 && shape.len() == 2 {
+            return self.transpose(x);
+        }
+        Err(CoreError::Other(format!(
+            "transpose_axes not implemented for dims {}/{} on shape {:?}",
+            dim0, dim1, shape
+        )))
     }
 
     fn broadcast_to(&self, x: &CpuTensor, shape: &[usize]) -> Result<CpuTensor> {
@@ -1602,27 +1957,23 @@ impl rustral_core::TensorInPlaceOps<CpuBackend> for CpuOps {
         let len = tensor.values.len();
         if len > 4096 {
             use rayon::prelude::*;
-            tensor
-                .values
-                .par_chunks_mut(8)
-                .zip(other.values.par_chunks(8))
-                .for_each(|(t_chunk, o_chunk)| {
-                    if t_chunk.len() == 8 {
-                        let mut t_arr = [0.0f32; 8];
-                        let mut o_arr = [0.0f32; 8];
-                        t_arr.copy_from_slice(t_chunk);
-                        o_arr.copy_from_slice(o_chunk);
-                        let t_v = f32x8::new(t_arr);
-                        let o_v = f32x8::new(o_arr);
-                        let sum = t_v + o_v;
-                        let arr = sum.to_array();
-                        t_chunk.copy_from_slice(&arr);
-                    } else {
-                        for (t, &o) in t_chunk.iter_mut().zip(o_chunk.iter()) {
-                            *t += o;
-                        }
+            tensor.values.par_chunks_mut(8).zip(other.values.par_chunks(8)).for_each(|(t_chunk, o_chunk)| {
+                if t_chunk.len() == 8 {
+                    let mut t_arr = [0.0f32; 8];
+                    let mut o_arr = [0.0f32; 8];
+                    t_arr.copy_from_slice(t_chunk);
+                    o_arr.copy_from_slice(o_chunk);
+                    let t_v = f32x8::new(t_arr);
+                    let o_v = f32x8::new(o_arr);
+                    let sum = t_v + o_v;
+                    let arr = sum.to_array();
+                    t_chunk.copy_from_slice(&arr);
+                } else {
+                    for (t, &o) in t_chunk.iter_mut().zip(o_chunk.iter()) {
+                        *t += o;
                     }
-                });
+                }
+            });
         } else {
             let mut t_chunks = tensor.values.chunks_exact_mut(8);
             let mut o_chunks = other.values.chunks_exact(8);
@@ -1698,26 +2049,23 @@ impl rustral_core::TensorInPlaceOps<CpuBackend> for CpuOps {
         if len > 4096 {
             use rayon::prelude::*;
             let a_v = f32x8::splat(a);
-            y.values
-                .par_chunks_mut(8)
-                .zip(x.values.par_chunks(8))
-                .for_each(|(y_chunk, x_chunk)| {
-                    if y_chunk.len() == 8 {
-                        let mut y_arr = [0.0f32; 8];
-                        let mut x_arr = [0.0f32; 8];
-                        y_arr.copy_from_slice(y_chunk);
-                        x_arr.copy_from_slice(x_chunk);
-                        let y_v = f32x8::new(y_arr);
-                        let x_v = f32x8::new(x_arr);
-                        let out = y_v + a_v * x_v;
-                        let arr = out.to_array();
-                        y_chunk.copy_from_slice(&arr);
-                    } else {
-                        for (yi, &xi) in y_chunk.iter_mut().zip(x_chunk.iter()) {
-                            *yi += a * xi;
-                        }
+            y.values.par_chunks_mut(8).zip(x.values.par_chunks(8)).for_each(|(y_chunk, x_chunk)| {
+                if y_chunk.len() == 8 {
+                    let mut y_arr = [0.0f32; 8];
+                    let mut x_arr = [0.0f32; 8];
+                    y_arr.copy_from_slice(y_chunk);
+                    x_arr.copy_from_slice(x_chunk);
+                    let y_v = f32x8::new(y_arr);
+                    let x_v = f32x8::new(x_arr);
+                    let out = y_v + a_v * x_v;
+                    let arr = out.to_array();
+                    y_chunk.copy_from_slice(&arr);
+                } else {
+                    for (yi, &xi) in y_chunk.iter_mut().zip(x_chunk.iter()) {
+                        *yi += a * xi;
                     }
-                });
+                }
+            });
         } else {
             let a_v = f32x8::splat(a);
             let mut y_chunks = y.values.chunks_exact_mut(8);
@@ -1781,3 +2129,4 @@ mod axis_ops_tests {
         assert_close(ls.values(), ln_s.values(), 1e-5);
     }
 }
+mod tabular_tests;

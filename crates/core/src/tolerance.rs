@@ -50,46 +50,18 @@ impl ToleranceConfig {
     /// Create tolerance configuration for a given operation family.
     pub fn for_family(family: OpFamily) -> Self {
         match family {
-            OpFamily::Elementwise => Self {
-                relative_tol: 1e-5,
-                absolute_tol: 1e-6,
-                ulp_tolerance: None,
-            },
-            OpFamily::MatmulLinear => Self {
-                relative_tol: 1e-4,
-                absolute_tol: 1e-5,
-                ulp_tolerance: None,
-            },
-            OpFamily::Softmax => Self {
-                relative_tol: 1e-5,
-                absolute_tol: 1e-6,
-                ulp_tolerance: None,
-            },
-            OpFamily::LayerNorm => Self {
-                relative_tol: 1e-4,
-                absolute_tol: 1e-5,
-                ulp_tolerance: None,
-            },
-            OpFamily::Attention => Self {
-                relative_tol: 1e-4,
-                absolute_tol: 1e-5,
-                ulp_tolerance: None,
-            },
-            OpFamily::Reduction => Self {
-                relative_tol: 1e-5,
-                absolute_tol: 1e-6,
-                ulp_tolerance: None,
-            },
+            OpFamily::Elementwise => Self { relative_tol: 1e-5, absolute_tol: 1e-6, ulp_tolerance: None },
+            OpFamily::MatmulLinear => Self { relative_tol: 1e-4, absolute_tol: 1e-5, ulp_tolerance: None },
+            OpFamily::Softmax => Self { relative_tol: 1e-5, absolute_tol: 1e-6, ulp_tolerance: None },
+            OpFamily::LayerNorm => Self { relative_tol: 1e-4, absolute_tol: 1e-5, ulp_tolerance: None },
+            OpFamily::Attention => Self { relative_tol: 1e-4, absolute_tol: 1e-5, ulp_tolerance: None },
+            OpFamily::Reduction => Self { relative_tol: 1e-5, absolute_tol: 1e-6, ulp_tolerance: None },
         }
     }
 
     /// Create custom tolerance configuration.
     pub fn custom(relative_tol: f32, absolute_tol: f32) -> Self {
-        Self {
-            relative_tol,
-            absolute_tol,
-            ulp_tolerance: None,
-        }
+        Self { relative_tol, absolute_tol, ulp_tolerance: None }
     }
 
     /// Check if two values are within tolerance.
@@ -126,9 +98,7 @@ impl ToleranceConfig {
             return false;
         }
 
-        a.iter()
-            .zip(b.iter())
-            .all(|(&x, &y)| self.check(x, y))
+        a.iter().zip(b.iter()).all(|(&x, &y)| self.check(x, y))
     }
 }
 
@@ -145,7 +115,7 @@ macro_rules! assert_close {
         let a_val = $a;
         let b_val = $b;
         let tol = $tol;
-        
+
         if !tol.check(a_val, b_val) {
             panic!(
                 "Values not within tolerance: {} vs {} (rel_tol={}, abs_tol={})",
@@ -162,7 +132,7 @@ macro_rules! assert_slices_close {
         let a_slice = $a;
         let b_slice = $b;
         let tol = $tol;
-        
+
         if !tol.check_slice(a_slice, b_slice) {
             // Find first differing element
             for (i, (&x, &y)) in a_slice.iter().zip(b_slice.iter()).enumerate() {

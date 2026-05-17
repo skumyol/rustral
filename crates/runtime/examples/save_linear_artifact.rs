@@ -23,9 +23,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let out_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "tiny_linear.safetensors".to_string());
+    let out_path = std::env::args().nth(1).unwrap_or_else(|| "tiny_linear.safetensors".to_string());
 
     let backend = CpuBackend::default();
     let lin = LinearBuilder::new(1, 1).with_bias(true).seed(0).build(&backend)?;
