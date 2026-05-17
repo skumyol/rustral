@@ -1,7 +1,6 @@
-//! NER (Named Entity Recognition) Task Example
+//! Named Entity Recognition (NER) Task Example
 //!
-//! Demonstrates using Rustral's native Entity and Span structures for
-//! efficient NLP entity extraction and metadata management.
+//! Demonstrates high-performance symbolic structures for NER tasks.
 
 use rustral_core::{ForwardCtx, Mode};
 use rustral_ndarray_backend::CpuBackend;
@@ -9,52 +8,41 @@ use rustral_symbolic::{Document, Entity, Sentence, Span, Token};
 
 fn main() -> anyhow::Result<()> {
     let backend = CpuBackend::default();
-    let mut ctx = ForwardCtx::new(&backend, Mode::Inference);
+    let _ctx = ForwardCtx::new(&backend, Mode::Inference);
 
-    println!("--- Rustral NER Task Example ---");
-
-    // 1. Create a Document with sentences and tokens
+    // 1. Setup Document structure (Symbolic)
     let mut doc = Document {
         text: "Bolt is a high-performance system for NLP research at EMNLP.".to_string(),
-        sentences: Vec::new(),
-        entities: Vec::new(),
+        sentences: vec![],
+        entities: vec![],
     };
 
-    let sentence = Sentence {
-        tokens: vec![
-            Token { text: "Bolt".to_string(), id: 0, span: Span::new(0, 4), pos: None },
-            Token { text: "is".to_string(), id: 1, span: Span::new(5, 7), pos: None },
-            Token { text: "a".to_string(), id: 2, span: Span::new(8, 9), pos: None },
-            Token { text: "high-performance".to_string(), id: 3, span: Span::new(10, 26), pos: None },
-            Token { text: "system".to_string(), id: 4, span: Span::new(27, 33), pos: None },
-            Token { text: "for".to_string(), id: 5, span: Span::new(34, 37), pos: None },
-            Token { text: "NLP".to_string(), id: 6, span: Span::new(38, 41), pos: None },
-            Token { text: "research".to_string(), id: 7, span: Span::new(42, 50), pos: None },
-            Token { text: "at".to_string(), id: 8, span: Span::new(51, 53), pos: None },
-            Token { text: "EMNLP".to_string(), id: 9, span: Span::new(54, 59), pos: None },
-            Token { text: ".".to_string(), id: 10, span: Span::new(59, 60), pos: None },
-        ],
-        dependency_graph: None,
-    };
+    let tokens = vec![
+        Token { text: "Bolt".into(), id: 0, span: Span::new(0, 4), pos: Some("NNP".into()) },
+        Token { text: "is".into(), id: 1, span: Span::new(5, 7), pos: Some("VBZ".into()) },
+        Token { text: "a".into(), id: 2, span: Span::new(8, 9), pos: Some("DT".into()) },
+        Token { text: "system".into(), id: 3, span: Span::new(10, 16), pos: Some("NN".into()) },
+        Token { text: "for".into(), id: 4, span: Span::new(17, 20), pos: Some("IN".into()) },
+        Token { text: "NLP".into(), id: 5, span: Span::new(21, 24), pos: Some("NNP".into()) },
+        Token { text: "research".into(), id: 6, span: Span::new(25, 33), pos: Some("NN".into()) },
+        Token { text: "at".into(), id: 7, span: Span::new(34, 36), pos: Some("IN".into()) },
+        Token { text: "EMNLP".into(), id: 8, span: Span::new(37, 42), pos: Some("NNP".into()) },
+        Token { text: ".".into(), id: 9, span: Span::new(42, 43), pos: Some(".".into()) },
+    ];
+
+    let sentence = Sentence { tokens, dependency_graph: None };
     doc.sentences.push(sentence);
 
     // 2. Add identified Entities
-    doc.entities.push(Entity {
-        span: Span::new(0, 4),
-        label: "SYSTEM".into(),
-        score: Some(0.98),
-    });
-    doc.entities.push(Entity {
-        span: Span::new(54, 59),
-        label: "ORG".into(),
-        score: Some(0.95),
-    });
+    doc.entities.push(Entity { span: Span::new(0, 4), label: "SYSTEM".into(), score: Some(0.98) });
+    doc.entities.push(Entity { span: Span::new(37, 42), label: "ORG".into(), score: Some(0.95) });
 
+    println!("--- Rustral NER Task Example ---");
     println!("Document: {}", doc.text);
     println!("Detected Entities:");
     for entity in &doc.entities {
         let text = &doc.text[entity.span.start..entity.span.end];
-        println!("  [{}] '{}' (score: {:.2})", entity.label, text, entity.score.unwrap_or(0.0));
+        println!("  [{}] '{}' (score: {})", entity.label, text, entity.score.unwrap_or(0.0));
     }
 
     Ok(())

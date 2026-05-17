@@ -21,15 +21,12 @@ fn main() -> anyhow::Result<()> {
 
     // 2. Create Dependency Graph
     let mut graph = DependencyGraph::new(tokens.len());
-    graph.add_edge(2, 1, "nsubj");  // learns -> model
-    graph.add_edge(1, 0, "det");    // model -> The
+    graph.add_edge(2, 1, "nsubj"); // learns -> model
+    graph.add_edge(1, 0, "det"); // model -> The
     graph.add_edge(2, 3, "advmod"); // learns -> quickly
-    graph.add_edge(2, 4, "punct");  // learns -> .
+    graph.add_edge(2, 4, "punct"); // learns -> .
 
-    let sentence = Sentence {
-        tokens,
-        dependency_graph: Some(graph),
-    };
+    let sentence = Sentence { tokens, dependency_graph: Some(graph) };
 
     // 3. Analyze dependencies
     if let Some(ref dg) = sentence.dependency_graph {

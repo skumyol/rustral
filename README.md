@@ -302,11 +302,6 @@ cargo run --release -p rustral-runtime --features training --example sst2_classi
 
 # WikiText-2 word-level LM, reports dev perplexity and writes manifest.json
 cargo run --release -p rustral-runtime --features training --example wikitext2_lm -- --quick
-
-# High-performance NLP task examples (NER, Dependency Parsing, Embeddings)
-cargo run --release -p rustral-runtime --example nlp_ner
-cargo run --release -p rustral-runtime --example nlp_dependency_parsing
-cargo run --release -p rustral-runtime --example nlp_embeddings
 ```
 
 These are intentionally small CPU-friendly baselines. They are not SOTA models, but they are real datasets, real metrics, and reproducible run artifacts. See [`EVALUATION.md`](EVALUATION.md).
@@ -445,8 +440,7 @@ examples and applications
 | `rustral_autodiff` | **Automatic differentiation**, computes gradients via reverse-mode autodiff |
 | `rustral_optim` | **Optimizers**: SGD, Adam, AdamW + learning rate schedules + mixed precision |
 | `rustral_distributed` | **Parallel training APIs** (ZeRO/FSDP-style sharding, threading/MPI hooks; see docs for current scope) |
-| `rustral_symbolic` | **High-performance symbolic structures** for NLP: Documents, Sentences, Tokens, Entities, and Dependency Graphs |
-| `rustral_data` | **Data loading**: batching, shuffling, transforms, and tokenization (Subword/Word) |
+| `rustral_data` | **Data loading**: batching, shuffling, transforms |
 | `rustral_io` | **Save/load models** in SafeTensors format |
 | `rustral_wgpu_backend` | **Experimental GPU** via WebGPU (Vulkan/Metal/DX12), see **Backends** |
 | `rustral_candle_backend` | **Optimized CPU/CUDA/Metal backend** using candle-core (up to ~20x faster than ndarray on CPU) |

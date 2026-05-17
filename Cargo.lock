@@ -3658,6 +3658,7 @@ dependencies = [
  "rustral-ndarray-backend",
  "rustral-nn",
  "rustral-optim",
+ "rustral-symbolic",
  "rustral-tui",
  "safetensors 0.4.5",
  "serde_json",

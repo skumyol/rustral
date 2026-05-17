@@ -1,36 +1,32 @@
 //! NLP Task benchmarks for Rustral (Candle Backend).
-
 use rustral_bench::{samples_to_json, time_runs, Sample};
-use rustral_core::{ForwardCtx, Mode};
 use rustral_candle_backend::CandleBackend;
+use rustral_core::{ForwardCtx, Mode};
 use rustral_nn::{TransformerEncoder, TransformerEncoderConfig};
-use rustral_symbolic::{Document, Entity, Sentence, Span, Token, DependencyGraph};
+use rustral_symbolic::{DependencyGraph, Document, Entity, Sentence, Span, Token};
 
 const BACKEND: &str = "candle-cpu-rustral";
 
 fn main() {
     let backend = CandleBackend::default();
     let mut samples: Vec<Sample> = Vec::new();
-
     bench_nlp_pipeline(&backend, 5, 1, &mut samples);
-
-    print!("{}", samples_to_json("rustral-candle-nlp", &samples));
+    println!("{}", samples_to_json("rustral-candle-nlp", &samples));
 }
 
-fn bench_nlp_pipeline(backend: &CandleBackend, repeats: usize, warmup: usize, out: &mut Vec<Sample>) {
+fn bench_nlp_pipeline(backend: &CandleBackend, _repeats: usize, _warmup: usize, out: &mut Vec<Sample>) {
     let d_model = 128;
     let config = TransformerEncoderConfig::new(d_model, 4, 2, 512);
     let encoder = TransformerEncoder::new(backend, config, 1000, 42).unwrap();
-
     let runs = time_runs(
         || {
             let mut ctx = ForwardCtx::new(backend, Mode::Inference);
             let tokens = vec![
-                Token { text: "The".to_string(), id: 0, span: Span::new(0, 3), pos: Some("DT".into()) },
-                Token { text: "model".to_string(), id: 1, span: Span::new(4, 9), pos: Some("NN".into()) },
-                Token { text: "learns".to_string(), id: 2, span: Span::new(10, 16), pos: Some("VBZ".into()) },
-                Token { text: "quickly".to_string(), id: 3, span: Span::new(17, 24), pos: Some("RB".into()) },
-                Token { text: ".".to_string(), id: 4, span: Span::new(24, 25), pos: Some(".".into()) },
+                Token { text: "The".into(), id: 0, span: Span::new(0, 3), pos: Some("DT".into()) },
+                Token { text: "model".into(), id: 1, span: Span::new(4, 9), pos: Some("NN".into()) },
+                Token { text: "learns".into(), id: 2, span: Span::new(10, 16), pos: Some("VBZ".into()) },
+                Token { text: "quickly".into(), id: 3, span: Span::new(17, 24), pos: Some("RB".into()) },
+                Token { text: ".".into(), id: 4, span: Span::new(24, 25), pos: Some(".".into()) },
             ];
             let mut graph = DependencyGraph::new(5);
             graph.add_edge(2, 1, "nsubj");
@@ -45,11 +41,10 @@ fn bench_nlp_pipeline(backend: &CandleBackend, repeats: usize, warmup: usize, ou
         1,
         5,
     );
-
     out.push(Sample::cpu_f32(
         "nlp.full_pipeline",
         BACKEND,
-        vec![("d_model".into(), d_model.to_string()), ("seq_len".into(), "5".into())],
+        vec![("d_model".into(), d_model.to_string())],
         runs,
     ));
 }

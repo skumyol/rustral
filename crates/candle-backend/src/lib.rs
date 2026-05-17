@@ -41,11 +41,7 @@ impl CandleBackend {
         }
     }
     pub fn new() -> Self {
-        if let Ok(backend) = Self::cuda(0) {
-            backend
-        } else {
-            Self::cpu()
-        }
+        Self::cpu()
     }
     pub fn tensor_from_vec(&self, values: Vec<f32>, shape: &[usize]) -> Result<Tensor> {
         Tensor::from_vec(values, shape, &self.device).map_err(|e| CoreError::Backend(e.to_string()))
@@ -308,9 +304,43 @@ impl TensorOps<CandleBackend> for CandleOps {
             .map_err(|e| CoreError::Backend(e.to_string()))?;
         Ok(v)
     }
-    fn gather(&self, input: &Tensor, indices: &Tensor, axis: usize) -> Result<Tensor> {
-        input.index_select(indices, axis).map_err(|e| CoreError::Backend(e.to_string()))
+    fn dist_l2(&self, a: &Tensor, b: &Tensor) -> Result<Tensor> {
+        let diff = (a - b).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let sq = (&diff * &diff).map_err(|e| CoreError::Backend(e.to_string()))?;
+        let sum = sq.sum_all().map_err(|e| CoreError::Backend(e.to_string()))?;
+        sum.sqrt().map_err(|e| CoreError::Backend(e.to_string()))
     }
+    fn less(&self, a: &Tensor, b: &Tensor) -> Result<Tensor> {
+        a.broadcast_lt(b).map_err(|e| CoreError::Backend(e.to_string()))?
+            .to_dtype(candle_core::DType::F32).map_err(|e| CoreError::Backend(e.to_string()))
+    }
+    fn greater(&self, a: &Tensor, b: &Tensor) -> Result<Tensor> {
+        a.broadcast_gt(b).map_err(|e| CoreError::Backend(e.to_string()))?
+            .to_dtype(candle_core::DType::F32).map_err(|e| CoreError::Backend(e.to_string()))
+    }
+    fn where_cond(&self, condition: &Tensor, then: &Tensor, else_: &Tensor) -> Result<Tensor> {
+        condition.where_cond(then, else_).map_err(|e| CoreError::Backend(e.to_string()))
+    }
+    fn ones(&self, shape: &[usize]) -> Result<Tensor> {
+        Tensor::ones(shape, candle_core::DType::F32, &self.device).map_err(|e| CoreError::Backend(e.to_string()))
+    }
+    fn argmax_dim(&self, x: &Tensor, dim: usize, keepdim: bool) -> Result<Tensor> {
+        if keepdim {
+            x.argmax_keepdim(dim).map_err(|e| CoreError::Backend(e.to_string()))?
+                .to_dtype(candle_core::DType::F32).map_err(|e| CoreError::Backend(e.to_string()))
+        } else {
+            x.argmax(dim).map_err(|e| CoreError::Backend(e.to_string()))?
+                .to_dtype(candle_core::DType::F32).map_err(|e| CoreError::Backend(e.to_string()))
+        }
+    }
+    fn abs(&self, x: &Tensor) -> Result<Tensor> {
+        x.abs().map_err(|e| CoreError::Backend(e.to_string()))
+    }
+    fn index_add(&self, input: &Tensor, indices: &Tensor, source: &Tensor, axis: usize) -> Result<Tensor> {
+        let indices_i64 = indices.to_dtype(candle_core::DType::I64).map_err(|e| CoreError::Backend(e.to_string()))?;
+        input.index_add(&indices_i64, source, axis).map_err(|e| CoreError::Backend(e.to_string()))
+    }
+
     fn matmul_batched(&self, a: &Tensor, b: &Tensor) -> Result<Tensor> {
         a.matmul(b).map_err(|e| CoreError::Backend(e.to_string()))
     }
